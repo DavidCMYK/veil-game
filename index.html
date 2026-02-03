@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Pixel Forest Runner</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div id="gameContainer">
+    <div id="viewport">
+      <canvas id="gameCanvas" width="640" height="360"></canvas>
+      <div id="info">Left/Right: Move, Space/Up: Jump</div>
+      <div id="prompt"></div>
+      <div id="dialogPromptContainer"></div>
+
+      <div id="conversationOverlay">
+        <img id="conversationPortrait" src="" alt="Portrait">
+        <div id="dialogBox"></div>
+        <div id="optionsBox"></div>
+      </div>
+      <div id="playerMenuOverlay">
+        <div id="playerMenuFrame">
+          <div id="playerMenuHeader">
+            <div id="playerMenuError" style="display:none; color:#ffb0b0; font-size:13px;"></div>
+            <div id="playerMenuTitle">Menu</div>
+            <div id="playerMenuHint">M: Menu  •  Esc/X: Close</div>
+          </div>
+
+          <div id="playerMenuTabs"></div>
+          <div id="playerMenuContent"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+  <!-- Use a plain script tag instead of type="module" to avoid CORS
+       issues when running from the local filesystem. The game code
+       operates in the global scope and does not rely on ES module
+       imports. -->
+  <script src="js/main.js"></script>
+</body>
+</html>

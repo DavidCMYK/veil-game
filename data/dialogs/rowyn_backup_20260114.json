@@ -1,0 +1,133 @@
+{
+  "start": "0",
+  "phrases": {
+    "0": {
+      "text": "Oh! You're awake. I was hoping you'd open your eyes soon. The woods aren't safe after sundown... Not with the shadow sprites stirring again.",
+      "reaction": "happy",
+      "options": {
+        "0_who": {
+          "text": "Who are you?",
+          "next": "1",
+          "affectionEffect": 1,
+          "alignmentEffect": 0
+        },
+        "0_where": {
+          "text": "Where am I?",
+          "next": "5",
+          "affectionEffect": 0,
+          "alignmentEffect": 1
+        }
+      }
+    },
+    "1": {
+      "text": "My name's Rowyn. I'm... well, I guess you could say I help people find their way. What about you? Do you remember your name?",
+      "reaction": "shy",
+      "options": {
+        "1_dace": {
+          "text": "I'm Dace.",
+          "next": "2",
+          "affectionEffect": 2,
+          "alignmentEffect": 0
+        },
+        "1_forgot": {
+          "text": "I don't remember...",
+          "next": "3",
+          "affectionEffect": 1,
+          "alignmentEffect": 1
+        }
+      }
+    },
+    "2": {
+      "text": "Dace. That suits you. You've got a traveler's name.",
+      "reaction": "happy",
+      "next": null
+    },
+    "3": {
+      "text": "How mysterious...",
+      "reaction": "worried",
+      "next": "4"
+    },
+    "4": {
+      "text": "You can press the N key to check your name. You might also want to check out the X key, it will close any menu you've got open, including this one!",
+      "reaction": "neutral",
+      "options": {
+        "4_where": {
+          "text": "Where am I?",
+          "next": "5",
+          "affectionEffect": 1,
+          "alignmentEffect": 0
+        }
+      }
+    },
+    "5": {
+      "text": "You're just outside Lunara Grove, on the edge of the Eldertide Woods. This place. it's part of the borderlands between the waking world and the magic realms. Most people only end up here by accident...or fate.",
+      "reaction": "worried",
+      "next": "6"
+    },
+    "6": {
+      "text": "But now that you're here, you'll want to find your bearings. The path to Lunara Village isn't far. I was actually heading that way to get supplies for a ritual. You're welcome to walk with me. Unless you'd rather poke around on your own first?",
+      "reaction": "happy",
+      "next": null
+    },
+    "Forest Warning": {
+      "text": "If we make it past the mirrored pond before sunset, we should be safe. But if you see any flickers in the trees. don't look directly at them. They're not...",
+      "reaction": "neutral",
+      "next": "FW1"
+    },
+    "FW1": {
+      "text": "Well, just don't look at them, ok?",
+      "reaction": "worried",
+      "next": null
+    },
+    "Path Split": {
+      "text": "Left leads toward the shrine... peaceful, but slow. Right is faster, but the veil is thinner there.",
+      "reaction": "neutral",
+      "options": {
+        "path_split_veil": {
+          "text": "What is the Veil?",
+          "next": "PS1",
+          "affectionEffect": 0,
+          "alignmentEffect": 1
+        },
+        "path_split_left": {
+          "text": "Let's go left.",
+          "next": "PS2",
+          "affectionEffect": 0,
+          "alignmentEffect": 1
+        },
+        "path_split_right": {
+          "text": "Let's go right.",
+          "next": "PS2",
+          "affectionEffect": 0,
+          "alignmentEffect": -1
+        }
+      }
+    },
+    "PS1": {
+      "text": "The veil is... the boundary between our world and the realms beyond. Spirit, dream, memory... things that don't follow rules like we do.",
+      "reaction": "worried",
+      "next": "PS1.1"
+    },
+    "PS1.1": {
+      "text": "Some people are born close to it. Others fall into it by accident. Where the veil is thin, you might slip through with out realising it. It's easy to lose yourself, and hard to find your way back.",
+      "reaction": "worried",
+      "next": null
+    },
+    "PS2": {
+      "text": "I'll follow your lead. Just... be sure.",
+      "reaction": "worried",
+      "next": "15"
+    },
+
+    "Splitpath Warning": {
+      "text": "Hold on a minute... If you keep going straight, the path will eventually take you to Lunara Village. But it’s a long way round — I’m not sure we’d make it before dark.",
+      "reaction": "worried",
+      "next": "Splitpath Warning 2"
+    },
+    "Splitpath Warning 2": {
+      "text": "If we cross the river here, there’s a shortcut through the forest. It’s faster… but the woods are dangerous this close to dusk.",
+      "reaction": "worried",
+      "next": null
+    }
+  }
+}

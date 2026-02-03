@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Pixel Forest Runner - World Editor</title>
+  <link rel="stylesheet" href="./ui.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="title">World Editor (Stage 1)</div>
+
+    <div class="controls">
+      <button id="btnOpenFolder" type="button">Open project folder</button>
+      <button id="btnClear" type="button">Clear</button>
+    </div>
+
+    <div class="status" id="status">Load areas.json, characters.json, and any dialog .json files.</div>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar">
+      <div class="panelTitle">World</div>
+      <div id="tree" class="tree"></div>
+    </aside>
+
+    <section class="content">
+      <div class="contentHeader">
+        <div class="panelTitle" id="inspectorTitle">Inspector</div>
+        <div class="contentActions">
+          <button id="btnSaveCurrent" type="button" disabled>Save current</button>
+          <button id="btnSaveAll" type="button" disabled>Save all</button>
+        </div>
+      </div>
+
+      <div id="inspector"></div>
+
+    </section>
+  </main>
+
+  <script src="./editor.js"></script>
+</body>
+</html>

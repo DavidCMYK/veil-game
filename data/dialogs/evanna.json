@@ -1,0 +1,42 @@
+{
+  "start": "0",
+  "phrases": {
+    "0": {
+      "speaker": "npc",
+      "text": "Hello, I am Evanna.",
+      "reaction": "neutral",
+      "next": "1"
+    },
+    "1": {
+      "speaker": "npc",
+      "text": "How can I help you?",
+      "reaction": "happy",
+      "options": {
+        "a": {
+          "text": "Who are you?",
+          "next": "2",
+          "alignmentEffect": 0,
+          "affectionEffect": 0
+        },
+        "b": {
+          "text": "Join me?",
+          "next": "3",
+          "alignmentEffect": 0,
+          "affectionEffect": 0
+        }
+      }
+    },
+    "2": {
+      "speaker": "npc",
+      "text": "I'm just wandering these lands.",
+      "reaction": "neutral",
+      "next": null
+    },
+    "3": {
+      "speaker": "npc",
+      "text": "Sure, I'd love to join your party!",
+      "reaction": "happy",
+      "next": null
+    }
+  }
+}

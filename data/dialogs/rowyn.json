@@ -1,0 +1,337 @@
+{
+  "start": "first_meeting_2",
+  "phrases": {
+    "passout_rescue_start": {
+      "speaker": "Rowyn",
+      "reaction": "happy",
+      "text": "Thank goodness, you're ok.",
+      "next": "passout_rescue_2"
+    },
+    "passout_rescue_2": {
+      "speaker": "Rowyn",
+      "reaction": "upset",
+      "text": "You should thank me. Dragging you here wasn't easy!"
+    },
+
+    "passout_mystery_start": {
+      "speaker": "Rowyn",
+      "text": "What happened?",
+      "reaction": "worried",
+      "next": "passout_mystery_2"
+    },
+    "passout_mystery_2": {
+      "speaker": "Rowyn",
+      "reaction": "worried",
+      "text": "Do you know how we got here? The last thing I remember was..."
+    },
+
+
+    "first_meeting": {
+      "speaker": "Rowyn",
+      "text": "Oh! You're awake. I was hoping you'd open your eyes soon.",
+      "reaction": "happy",
+      "next": "first_meeting_2"
+    },
+    "first_meeting_2": {
+      "speaker": "Rowyn",
+      "text": "The woods aren't safe after sundown... Not with how thin the veil has gotten around here recently.",
+      "reaction": "worried",
+      "options": {
+        "first_meeting_who": {
+          "text": "Who are you?",
+          "next": "first_meeting_introduction",
+          "effects": [
+            { "type": "updateStat", "npc": "Rowyn", "stat": "affection", "delta": 1 }
+          ]
+        },
+        "first_meeting_where": {
+          "text": "Where am I?",
+          "next": "first_meeting_forest",
+          "effects": [
+            { "type": "updateStat", "npc": "Rowyn", "stat": "alignment", "delta": 1 }
+          ]
+        },
+        "first_meeting_veil": {
+          "text": "What is the veil?",
+          "next": "first_meeting_veil",
+          "effects": [
+            { "type": "updateStat", "npc": "Rowyn", "stat": "alignment", "delta": 1 }
+          ]
+        }
+      }
+    },
+    "first_meeting_introduction": {
+      "speaker": "Rowyn",
+      "text": "My name is Rowyn. I live nearby, and found you just passed out over there.",
+      "reaction": "shy",
+      "next": "first_meeting_introduction_2"
+    },
+    "first_meeting_introduction_2": {
+      "speaker": "Rowyn",
+      "text": "I was worrying about what to do. You're too big for me to carry!",
+      "reaction": "worried",
+      "next": "first_meeting_introduction_2_2"
+    },
+    "first_meeting_introduction_2_2": {
+      "speaker": "Rowyn",
+      "text": "What about you? What's your name?",
+      "reaction": "neutral",
+      "options": {
+        "first_meeting_introduction_2_dace": {
+          "text": "I'm Dace.",
+          "next": "first_meeting_introduction_3",
+          "effects": [
+            { "type": "updateStat", "npc": "Rowyn", "stat": "affection", "delta": 2 }
+          ]
+        },
+        "first_meeting_introduction_2_forgot": {
+          "text": "I don't remember.",
+          "next": "first_meeting_introduction_4",
+          "effects": [
+            { "type": "updateStat", "npc": "Rowyn", "stat": "affection", "delta": 2 }
+          ]
+        }
+      }
+    },
+    "first_meeting_introduction_3": {
+      "speaker": "Rowyn",
+      "text": "Dace. That suits you. You've got a traveler's name.",
+      "reaction": "happy",
+      "next": "first_meeting_end_convo"
+    },
+    "first_meeting_introduction_4": {
+      "speaker": "Rowyn",
+      "text": "How mysterious...",
+      "reaction": "worried",
+      "next": "first_meeting_introduction_5"
+    },
+    "first_meeting_introduction_5": {
+      "speaker": "guide",
+      "text": "You can press the N key to check your name. You might also want to check out the X key, it will close any menu you've got open, including this one!",
+      "next": "first_meeting_forest_2"
+    },
+    "first_meeting_forest": {
+      "speaker": "Rowyn",
+      "text": "We're in the Eldertide Woods, not far from Lunara village. You don't remember how you got here?",
+      "reaction": "worried",
+      "next": "first_meeting_fadeout"
+    },
+    "first_meeting_fadeout": {
+      "action": { "type": "fade", "opacity": 50, "durationMs": 1200 },
+      "next": "first_meeting_amnesia"
+    },
+    "first_meeting_amnesia": {
+      "speaker": "narrator",
+      "text": "How <b>did</b> you get here? The last thing you remember was...",
+      "next": "first_meeting_fadeout_2"
+    },
+    "first_meeting_fadeout_2": {
+      "action": { "type": "fade", "opacity": 0, "durationMs": 100 },
+      "next": "first_meeting_fadeout_3"
+    },
+    "first_meeting_fadeout_3": {
+      "action": { "type": "fade", "opacity": 50, "durationMs": 100 },
+      "next": "first_meeting_fadeout_4"
+    },
+    "first_meeting_fadeout_4": {
+      "action": { "type": "fade", "opacity": 0, "durationMs": 100 },
+      "next": "first_meeting_fadeout_5"
+    },
+    "first_meeting_fadeout_5": {
+      "action": { "type": "fade", "opacity": 100, "durationMs": 100 },
+      "effects": [
+        { "type": "updateStat", "npc": "player", "stat": "composure", "delta": -1 }
+      ],
+      "next": "first_meeting_wait"
+    },
+    "first_meeting_wait": {
+      "action": { "type": "wait", "durationMs": 2000 },
+      "lockPlayer": true,
+      "next": "first_meeting_forest_4"
+    },
+    "first_meeting_forest_4": {
+      "speaker": "Rowyn",
+      "text": "Hey, are you ok?",
+      "reaction": "worried",
+      "next": "first_meeting_fadein"
+    },
+    "first_meeting_fadein": {
+      "action": { "type": "fade", "opacity": 0, "durationMs": 1500 },
+      "next": "first_meeting_forest_5"
+    },
+    "first_meeting_forest_5": {
+      "speaker": "Rowyn",
+      "text": "Oh, good. I thought you were going to pass out again...",
+      "reaction": "worried",
+      "next": "first_meeting_end_convo"
+    },
+    "first_meeting_end_convo": {
+      "speaker": "Rowyn",
+      "text": "Anything else you want to know?",
+      "reaction": "neutral",
+      "options": {
+        "first_meeting_more_questions": {
+          "text": "Yes",
+          "next": "first_meeting_2"
+        },
+        "first_meeting_end": {
+          "text": "No",
+          "next": "first_meeting_forest_2"
+        }
+      }
+    },
+    "first_meeting_forest_2": {
+      "speaker": "Rowyn",
+      "text": "We shouldn't hang around here. It'll be dark soon, we should head towards the village. We can talk more there, once we're safe.",
+      "reaction": "worried",
+      "next": null
+    },
+    "first_meeting_veil": {
+      "speaker": "Rowyn",
+      "text": "The veil is... the barrier that divides our world from the world of the spirits. But there's much more to it than that...",
+      "reaction": "neutral",
+      "next": "first_meeting_end_convo"
+    },
+
+
+
+
+
+
+    "flag_test_branch": {
+      "speaker": "Rowyn",
+      "text": "…",
+      "next": {
+        "flag_test_rowyn": {
+          "when": { "areaFlags": { "metMira": true } }
+        },
+        "0": {}
+      }
+    },
+    "lock_test": {
+      "speaker": "Rowyn",
+      "text": "Don’t move.",
+      "effects": [
+        { "type": "lockControls" }
+      ],
+      "next": null
+    },
+    "scene_test_0": {
+      "speaker": "Rowyn",
+      "text": "Watch this—I'm going to walk forward, then talk again.",
+      "next": "scene_test_leave"
+    },
+    "scene_test_leave": {
+      "action": { "type": "leaveParty", "actor": "Rowyn", "emit": false, "toWorld": true, "rememberIndex": true },
+      "next": "scene_test_1"
+    },
+
+    "scene_test_1": {
+      "action": { "type": "moveTo", "actor": "Rowyn", "worldX": 4000, "speedFactor": 3 },
+      "next": "scene_test_wait"
+    },
+    "scene_test_wait": {
+      "action": { "type": "wait", "durationMs": 100 },
+      "lockPlayer": false,
+      "next": "scene_test_2"
+    },
+    "scene_test_2": {
+      "speaker": "Rowyn",
+      "text": "Okay! I walked forward. Scene worked.",
+      "next": "scene_test_join"
+    },
+    "scene_test_join": {
+      "action": { "type": "joinParty", "actor": "Rowyn", "emit": false, "bypassChecks": true, "index": "end" },
+      "next": null
+    },
+
+    "scene_action_only_test": {
+      "action": { "type": "wait", "durationMs": 1500 },
+      "next": "scene_test_2"
+    },
+    "scene_letta_bush": {
+      "speaker": "Rowyn",
+      "text": "Okay! I walked forward. Scene worked.",
+      "next": "scene_test_join"
+    },
+    
+    "rowyn_walks_to_bush": {
+      "action": {
+        "type": "moveTo",
+        "actor": "Rowyn",
+        "toActiveObject": true,
+        "speedFactor": 4
+      },
+      "next": {
+        "first_letta_bush": {
+          "when": {
+            "globalFlags": {
+              "activeObjectType": "letta_bush",
+              "objectTypeInteractedBefore:letta_bush": false
+            }
+          }
+        },
+        "first_tua_bush": {
+          "when": {
+            "globalFlags": {
+              "activeObjectType": "tua_bush",
+              "objectTypeInteractedBefore:tua_bush": false
+            }
+          }
+        },
+        "rowyn_stands_up": {}
+        
+      }
+    },
+    "first_letta_bush": {
+      "speaker": "Rowyn",
+      "text": "There's a ripe letta berry here!",
+      "reaction": "happy",
+      "next": "first_letta_bush_2"
+    },
+    "first_letta_bush_2": {
+      "speaker": "Rowyn",
+      "text": "If you eat these, they'll help keep your energy up. They also have a mild pain relief effect. Save this for if you need it.",
+      "reaction": "neutral",
+      "next": "rowyn_stands_up"
+    },
+    "first_tua_bush": {
+      "speaker": "Rowyn",
+      "text": "This is a tua bush.",
+      "reaction": "happy",
+      "next": "first_tua_bush_2"
+    },
+    "first_tua_bush_2": {
+      "speaker": "Rowyn",
+      "text": "If we make a tea from the dried leaves, it's incredibly calming. Chewing on the leaves directly will work in a pinch, too.",
+      "reaction": "neutral",
+      "next": "first_tua_bush_3"
+    },
+    "first_tua_bush_3": {
+      "speaker": "Rowyn",
+      "text": "They do taste horrible though.",
+      "reaction": "upset",
+      "next": "rowyn_stands_up"
+    },
+    "rowyn_stands_up": {
+      "action": {
+        "type": "moveTo",
+        "actor": "Rowyn",
+        "forward": -200,
+        "speedFactor": 2
+      },
+      "next": null
+    },
+    "first_recover_composure": {
+      "speaker": "Rowyn",
+      "text": "You look a little shaken. You should chew on one of those tua leaves.",
+      "reaction": "worried",
+      "next": "first_recover_composure_2"
+    },
+    "first_recover_composure_2": {
+      "speaker": "guide",
+      "text": "Press I to open the Items menu directly.",
+      "next": null
+    }
+  }
+}

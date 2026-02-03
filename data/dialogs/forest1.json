@@ -1,0 +1,590 @@
+{
+  "start": "mist_entry_branch",
+  "phrases": {
+    "start_game_wakeup": {
+      "text": "You awake, in a calm forest grove next to a river.",
+      "speaker": "narrator",
+      "next": "start_game_wakeup_2"
+    },
+    "start_game_wakeup_2": {
+      "text": "Something seems strange about this. Were you here before?",
+      "speaker": "narrator",
+      "next": "start_game_wakeup_3"
+    },
+    "start_game_wakeup_3": {
+      "text": "Use the left + right arrow keys to move",
+      "speaker": "guide",
+      "next": null
+    },
+
+    "forest1_enter": {
+      "speaker": "Rowyn",
+      "text": "If you keep going straight, this path will eventually take you to Lunara Village.",
+      "reaction": "neutral",
+      "next": "forest1_enter_2"
+    },
+    "forest1_enter_2": {
+      "speaker": "Rowyn",
+      "text": "It's quite far. Hopefully we can make it before dark.",
+      "reaction": "worried",
+      "options": {
+        "forest_enter_lets_go": {
+          "text": "Let's hurry then",
+          "next": null,
+          "effects": [
+            { "type": "updateStat", "npc": "Rowyn", "stat": "alignment", "delta": 1 }
+          ]
+        },
+        "forest_enter_question": {
+          "text": "What happens after dark?",
+          "next": "forest1_enter_3"
+        }
+      }
+    },
+    "forest1_enter_3": {
+      "speaker": "Rowyn",
+      "text": "The veil is already thin in these woods. Magic is easy, and things sometimes slip thorugh from the other side.",
+      "reaction": "neutral",
+      "next":"forest1_enter_4"
+    },
+    "forest1_enter_4": {
+      "speaker": "Rowyn",
+      "text": "At night, the barrier is even weaker, and the things that come are less friendly...",
+      "reaction": "worried",
+      "options": {
+        "forest_enter_lets_go_2": {
+          "text": "Let's hurry then",
+          "next": null
+        },
+        "forest_enter_question_2": {
+          "text": "What sort of things?",
+          "next": "forest1_enter_5",
+          "effects": [
+            { "type": "updateStat", "npc": "Rowyn", "stat": "alignment", "delta": -1 }
+          ]
+        }
+      }
+    },
+    "forest1_enter_5": {
+      "speaker": "Rowyn",
+      "text": "Let's just... go quickly, ok? We can talk about it back at the village.",
+      "reaction": "worried",
+      "next":null
+    },
+
+    "guide_dialog_prompts": {
+      "speaker": "narrator",
+      "text": "You notice that the friendly young woman who's following you, is trying to get your attention.",
+      "next":"guide_dialog_prompts_2"
+    },
+    "guide_dialog_prompts_2": {
+      "speaker": "guide",
+      "text": "Dialog prompts appear above the heads of party members",
+      "next":"guide_dialog_prompts_3"
+    },
+    "guide_dialog_prompts_3": {
+      "speaker": "guide",
+      "text": "Each has a number assigned to it. Press that number key to start a conversation",
+      "next":null
+    },
+
+
+    "mist_entry_branch": {
+      "text": "A heavy mist drifts across the river, obscuring the way ahead...",
+      "speaker": "narrator",
+      "next": {
+        "mist_with_rowyn_explain": { "when": { "party": { "hasAll": ["Rowyn"] } } }
+      }
+    },
+    "mist_with_rowyn_explain": {
+      "speaker": "Rowyn",
+      "text": "Careful. That mist isn’t natural. It’s leaking through from the spirit world.",
+      "reaction": "worried",
+      "next": "rowyn_protect_from_mist"
+    },
+    "rowyn_protect_from_mist": {
+      "speaker": "Rowyn",
+      "text": "I know a spell that can strengthen the veil around me a little. Maybe it will clear the mist?",
+      "reaction": "neutral",
+      "next": "abilities_menu"
+    },
+    "abilities_menu": {
+      "speaker": "guide",
+      "text": "Press A to open the Abilities menu.",
+      "next": null
+    }
+    ,
+    "rowyn_running_from_mist": {
+      "speaker": "Rowyn",
+      "text": "Hey!",
+      "reaction": "upset",
+      "next": "player_faces_rowyn"
+    },
+    "player_faces_rowyn": {
+      "action": {
+        "type": "moveTo",
+        "actor": "player",
+        "forward": "30",
+        "speedFactor": 2 
+      },
+      "next": "player_faces_rowyn_2"
+    },
+    "player_faces_rowyn_2": {
+      "action": {
+        "type": "moveTo",
+        "actor": "player",
+        "forward": "-10",
+        "speedFactor": 2 
+      },
+      "next": "rowyn_runs_to_player_mist"
+    },
+    "rowyn_runs_to_player_mist": {
+      "action": {
+        "type": "moveTo",
+        "actor": "Rowyn",
+        "toChar": "player",
+        "speedFactor": 2 
+      },
+      "next": "rowyn_left_in_mist"
+    },
+    "rowyn_left_in_mist": {
+      "speaker": "Rowyn",
+      "text": "It's fine if you want to go on your own, but don't leave me in there!",
+      "reaction": "upset",
+      "next": null
+    },
+
+    "splitpath_bridge_just_rowyn_from_left": {
+      "speaker": "Rowyn",
+      "text": "If you keep going straight, the path will eventually take you to Lunara Village.",
+      "reaction": "worried",
+      "next": {
+        "splitpath_warning_night": { "when": { "timePhase": "night" } },
+        "splitpath_warning_not_night": { "when": {} }
+      }
+    },
+    "splitpath_bridge_just_rowyn_from_right": {
+      "speaker": "Rowyn",
+      "text": "Lunara Village is back the other way.",
+      "reaction": "worried",
+      "next": "splitpath_warning_2"
+    },
+    "splitpath_warning_not_night": {
+      "speaker": "Rowyn",
+      "text": "The forest across the river is far too dangerous, even during the day. This path is longer, but we can still make it if we hurry.",
+      "reaction": "worried",
+      "next": {
+        "splitpath_bridge_mira_2": { "when": { "party": { "hasAll": ["Mira"] } } }
+      }
+    },
+    "splitpath_warning_night": {
+      "speaker": "Rowyn",
+      "text": "The forest across the river is far too dangerous, especially at night.",
+      "reaction": "worried",
+      "next": {
+        "splitpath_bridge_mira_2": { "when": { "party": { "hasAll": ["Mira"] } } }
+      }
+    },
+    "splitpath_bridge_mira": {
+      "speaker": "Mira",
+      "text": "If we cross the river here, the path to Lunara Village is much quicker",
+      "reaction": "neutral",
+      "next": {
+        "splitpath_warning_not_night": { 
+          "when": { 
+            "party": { "hasAll": ["Rowyn"] }
+
+            } 
+          },
+        "splitpath_bridge_mira_2": { "when": { "party": { "lacks": ["Rowyn"] } } }
+      }
+    },
+    "splitpath_bridge_mira_2": {
+      "speaker": "Mira",
+      "text": "It's not that dangerous, we just need to be careful...",
+      "reaction": "neutral",
+      "next": "splitpath_bridge_mira_3"
+    },
+    "splitpath_bridge_mira_3": {
+      "speaker": "Mira",
+      "text": "... and anyway, it's already too late to make it by the long path...",
+      "reaction": "neutral",
+      "next": {
+        "splitpath_bridge_rowyn_2": { "when": { "party": { "hasAll": ["Rowyn"] } } }
+      }
+    },
+    "splitpath_bridge_rowyn_2": {
+      "speaker": "Rowyn",
+      "text": "...",
+      "reaction": "worried",
+      "next": null
+    },
+
+     "mira_longpath_1": {
+      "speaker": "Mira",
+      "text": "This is slower. If we go back to the bridge and cross the river, it’s quicker.",
+      "reaction": "neutral",
+      "next": {
+        "rowyn_disagree_1": { "when": { "party": { "hasAll": ["Rowyn"] } } }
+      }
+    },
+    "rowyn_disagree_1": {
+      "speaker": "Rowyn",
+      "text": "It’s safer this way. Faster doesn’t help if we don’t make it there.",
+      "reaction": "worried",
+      "next": null
+    },
+    "mira_longpath_2": {
+      "speaker": "Mira",
+      "text": "We’re wasting time. The bridge was right there. We should turn back now.",
+      "reaction": "upset",
+      "next": {
+        "rowyn_disagree_2": { "when": { "party": { "hasAll": ["Rowyn"] } } }
+      }
+    },
+    "rowyn_disagree_2": {
+      "speaker": "Rowyn",
+      "text": "I’m not crossing into a thinner veil at dusk. Not for a shortcut.",
+      "reaction": "worried",
+      "next": null
+    },
+    "mira_longpath_3": {
+      "speaker": "Mira",
+      "text": "I told you. The other way is faster...",
+      "reaction": "upset",
+      "next": {
+        "rowyn_disagree_3": { "when": { "party": { "hasAll": ["Rowyn"] } } }
+      }
+    },
+    "rowyn_disagree_3": {
+      "speaker": "Rowyn",
+      "text": "And I told you: I won’t risk the river path. Not with the veil like this.",
+      "reaction": "upset",
+      "next": null
+    },
+    "mira_leaves_low_alignment": {
+      "speaker": "Mira",
+      "text": "I can’t go any further with you....",
+      "reaction": "upset",
+      "next": "mira_leaves_walk_left"
+    },
+    "mira_leaves_walk_left": {
+      "action": {
+        "type": "moveTo",
+        "actor": "Mira",
+        "forward": -600,
+        "speedFactor": 2
+      },
+      "effects": [
+        { "type": "updateStat", "npc": "Mira", "stat": "alignment", "delta": 1 }
+      ],
+      "next": null
+    },
+
+    "rowyn_wisp_intro_1": {
+      "speaker": "Rowyn",
+      "text": "Oh no!",
+      "reaction": "worried",
+      "next": "rowyn_wisp_intro_2"
+    },
+
+    "rowyn_wisp_intro_2": {
+      "action": {
+        "type": "moveTo",
+        "actor": "Rowyn",
+        "forward": 1500,
+        "speedFactor": 4
+      },
+      "next": "rowyn_wisp_intro_3"
+    },
+
+    "rowyn_wisp_intro_3": {
+      "speaker": "Rowyn",
+      "text": "I didn't realise it was so late.",
+      "reaction": "worried",
+      "next": "rowyn_wisp_intro_4"
+    },
+
+    "rowyn_wisp_intro_4": {
+      "action": {
+        "type": "camera",
+        "focus": { "type": "mob", "id": "spirit_wisp" },
+        "durationMs": 2000
+      },
+      "next": "rowyn_wisp_intro_5"
+    },
+
+    "rowyn_wisp_intro_5": {
+      "speaker": "Rowyn",
+      "text": "It can be dangerous to let these spirits touch you, but they're not agressive.",
+      "reaction": "neutral",
+      "next": "rowyn_wisp_intro_6"
+    },
+
+    "rowyn_wisp_intro_6": {
+      "speaker": "Rowyn",
+      "text": "Just, whatever you do, don't stop until you're past it.",
+      "reaction": "worried",
+      "next": "rowyn_wisp_intro_7"
+    },
+
+    "rowyn_wisp_intro_7": {
+      "action": {
+        "type": "camera",
+        "reset": true,
+        "durationMs": 3000
+      },
+      "next": null
+    },
+
+    "rowyn_diversion": {
+      "speaker": "Rowyn",
+      "text": "Oh wow...",
+      "reaction": "worried",
+      "next": "rowyn_diversion_2"
+    },
+    "rowyn_diversion_2": {
+      "action": {
+        "type": "moveTo",
+        "actor": "Rowyn",
+        "forward": 1200,
+        "speedFactor": 4
+      },
+      "next": "rowyn_diversion_3"
+    },
+    "rowyn_diversion_3": {
+      "action": {
+        "type": "camera",
+        "focus": { "type": "object", "id": "veil_tear" },
+        "durationMs": 2000
+      },
+      "next": "rowyn_diversion_4"
+    },
+    "rowyn_diversion_4": {
+      "speaker": "Rowyn",
+      "text": "I never stay in the forest this late. The veil is starting to tear. We'll have to find another way around.",
+      "reaction": "worried",
+      "next": "rowyn_diversion_5"
+    },
+    "rowyn_diversion_5": {
+      "speaker": "guide",
+      "text": "Exits are marked with an arrow. Press the UP or DOWN arrow key when near an exit to move to another area",
+      "next":"rowyn_diversion_6"
+    },
+    "rowyn_diversion_6": {
+      "action": {
+        "type": "camera",
+        "reset": true,
+        "durationMs": 2000
+      },
+      "next": null
+    },
+
+    "rowyn_nightfall": {
+      "speaker": "Rowyn",
+      "text": "It's night already... I hoped we'd be back to the village by now.",
+      "reaction": "worried",
+      "next": "rowyn_nightfall_2"
+    },
+    "rowyn_nightfall_2": {
+      "speaker": "Rowyn",
+      "text": "With the veil so thin, it's extremely dangerous out here.",
+      "reaction": "worried",
+      "next": "rowyn_nightfall_3"
+    },
+    "rowyn_nightfall_3": {
+      "speaker": "Rowyn",
+      "text": "Some spirits can be aggressive, and there are things that will play tricks on our senses.",
+      "reaction": "worried",
+      "next": "rowyn_nightfall_4"
+    },
+    "rowyn_nightfall_4": {
+      "speaker": "Rowyn",
+      "text": "Even just get too close to a rift in the veil, and you might slip through, or fall asleep and never wake up.",
+      "reaction": "worried",
+      "next": "rowyn_nightfall_5"
+    },
+    "rowyn_nightfall_5": {
+      "speaker": "Rowyn",
+      "text": "Be careful, is what I'm saying. Stay on course, and let's get out of the forest as quick as possible.",
+      "reaction": "neutral",
+      "next": {
+        "mira_nightfall_1": { "when": { "party": { "hasAll": ["Mira"] } } }
+      }
+    },
+    "mira_nightfall_1": {
+      "speaker": "Mira",
+      "text": "The route through the forest across the river is much quicker...",
+      "reaction": "neutral",
+      "next": {
+        "rowyn_nightfall_6": { "when": { "party": { "hasAll": ["Mira"] } } }
+      }
+    },
+    "rowyn_nightfall_6": {
+      "speaker": "Rowyn",
+      "text": "And MUCH more dangerous!",
+      "reaction": "upset",
+      "next": null
+    },
+
+
+    "rowyn_barrier": {
+      "speaker": "Rowyn",
+      "text": "Monuments like these are littered throughout the forest. The stories say they've been here since before Lunara village was even founded.",
+      "reaction": "neutral",
+      "next": "rowyn_barrier_2"
+    },
+    "rowyn_barrier_2": {
+      "speaker": "Rowyn",
+      "text": "There are different types. Some are maybe just decorative, but some are clearly magical.",
+      "reaction": "neutral",
+      "next": "rowyn_barrier_3"
+    },
+    "rowyn_barrier_3": {
+      "speaker": "Rowyn",
+      "text": "I've been studying these ones, to try and copy their magic. They can generate a sort of invisible barrier.",
+      "reaction": "neutral",
+      "next": "rowyn_barrier_4"
+    },
+    "rowyn_barrier_4": {
+      "speaker": "Rowyn",
+      "text": "You can switch them on and off just by touching them.",
+      "reaction": "neutral",
+      "next": {
+        "mira_barrier_5": { "when": { "party": { "hasAll": ["Mira"] } } },
+        "rowyn_barrier_5": {}
+      }
+    },
+    "mira_barrier_5": {
+      "speaker": "Mira",
+      "text": "It's holding back that creature... It looks very dangerous...",
+      "reaction": "worried",
+      "next": "rowyn_barrier_6"
+    },
+    "rowyn_barrier_6": {
+      "speaker": "Rowyn",
+      "text": "Yeah.",
+      "reaction": "worried",
+      "next": "rowyn_barrier_5"
+    },
+    "rowyn_barrier_5": {
+      "speaker": "Rowyn",
+      "text": "Probably best not to switch this one off... Let's try to find another way around.",
+      "reaction": "worried",
+      "next": {
+        "mira_barrier_6": { "when": { "party": { "hasAll": ["Mira"] } } }
+      }
+    },
+    "mira_barrier_6": {
+      "speaker": "Mira",
+      "text": "There IS another way... Across the river...",
+      "reaction": "worried",
+      "next": "rowyn_barrier_7"
+    },
+    "mira_barrier": {
+      "speaker": "Mira",
+      "text": "I really don't think it's safe to go this way...",
+      "reaction": "worried",
+      "next": "mira_barrier_2"
+    },
+    "mira_barrier_2": {
+      "speaker": "Mira",
+      "text": "That barrier is blocking the way, but if we open it, that thing will get to us...",
+      "reaction": "worried",
+      "next": "mira_barrier_3"
+    },
+    "mira_barrier_3": {
+      "speaker": "Mira",
+      "text": "If we go back and cross the river...",
+      "reaction": "worried",
+      "next": {
+        "rowyn_barrier_7": { "when": { "party": { "hasAll": ["Rowyn"] } } }
+      }
+    },
+    "rowyn_barrier_7": {
+      "speaker": "Rowyn",
+      "text": "That way is NOT safer!.",
+      "reaction": "upset",
+      "next": "mira_barrier_4"
+    },
+    "mira_barrier_4": {
+      "speaker": "Mira",
+      "text": "Maybe you can go this way, and we'll go that way...",
+      "reaction": "neutral",
+      "next": "guide_drop_npc"
+    },
+    "guide_drop_npc": {
+      "speaker": "guide",
+      "text": "You can drop a character from your party by holding SHIFT and pressing their number.",
+      "next": null
+    },
+
+    
+    "rowyn_follower": {
+      "action": {
+        "type": "moveTo",
+        "actor": "Rowyn",
+        "forward": 1500,
+        "speedFactor": 4
+      },
+      "next": "rowyn_follower_2"
+    },
+    "mira_follower": {
+      "action": {
+        "type": "moveTo",
+        "actor": "Mira",
+        "forward": 1500,
+        "speedFactor": 4
+      },
+      "next": "mira_follower_2"
+    },
+    "rowyn_follower_2": {
+      "speaker": "Rowyn",
+      "text": "Be careful, there's something strange about that spirit.",
+      "reaction": "worried",
+      "next": "follower_3"
+    },
+    "mira_follower_2": {
+      "speaker": "Mira",
+      "text": "Let's turn back...",
+      "reaction": "worried",
+      "next": "follower_3"
+    },
+    "follower_3": {
+      "action": {
+        "type": "camera",
+        "focus": { "type": "mob", "id": "spirit_wisp_forest" },
+        "durationMs": 2000
+      },
+      "next": {
+        "rowyn_follower_3": { "when": { "party": { "hasAll": ["Rowyn"] } } },
+        "mira_follower_3": { "when": { "party": { "hasAll": ["Mira"] } } },
+        "follower_4": {}
+      }
+    },
+    "rowyn_follower_3": {
+      "speaker": "Rowyn",
+      "text": "It feels more aggressive than the normal type. I think it might attack if we get too close.",
+      "reaction": "worried",
+      "next": {
+        "mira_follower_3": { "when": { "party": { "hasAll": ["Mira"] } } },
+        "follower_4": {}
+      }
+    },
+    "mira_follower_3": {
+      "speaker": "Mira",
+      "text": "That type of spirit can track your aura. Once it starts following you, it's very difficult to lose it...",
+      "reaction": "worried",
+      "next": "rowyn_follower_2"
+    },
+    "follower_4": {
+      "action": {
+        "type": "camera",
+        "reset": true,
+        "durationMs": 2000
+      },
+      "next": null
+    }
+    
+  }
+}

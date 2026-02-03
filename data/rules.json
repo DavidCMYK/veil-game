@@ -1,0 +1,469 @@
+[
+    {
+        "id": "rowyn_first_meeting",
+        "state": [
+            { "type": "playerInProximity", "npc": "Rowyn" },
+            { "type": "hasBeenInParty", "npc": "Rowyn", "is": false },
+            { "type": "playerInArea", "area": "Grove" }
+        ],
+        "dialog": { "prompt": "Oh, you're awake!", "npc": "Rowyn", "start": "rowyn.first_meeting" }
+    },
+    {
+        "id": "rowyn_forest1_keep_going_prompt",
+        "triggerWhen": {
+            "event": "section_enter",
+            "area": "Forest1",
+            "section": "forest1_start",
+            "from": "left"
+        },
+        "state": [
+            { "type": "npcInParty", "npc": "Rowyn", "is": true }
+        ],
+        "dialog": {
+            "prompt": "Keep going...",
+            "npc": "Rowyn",
+            "start": "forest1.forest1_enter"
+        },
+        "scene": {
+            "start": "forest1.guide_dialog_prompts"
+        }
+    },
+    {
+        "id": "rowyn_forest1_wrong_way_prompt",
+        "triggerWhen": {
+            "event": "section_enter",
+            "area": "Forest1",
+            "section": "forest1_start",
+            "from": "right"
+        },
+        "state": [
+            { "type": "npcInParty", "npc": "Rowyn", "is": true }
+        ],
+        "dialog": {
+            "prompt": "Wrong way...",
+            "npc": "Rowyn",
+            "start": "forest1.splitpath_bridge_just_rowyn_from_right"
+        }
+    },
+    {
+        "id": "forest1_mist_entry_scene",
+        "triggerWhen": {
+            "event": "section_enter",
+            "area": "Forest1",
+            "section": "forest1_mist"
+        },
+        "state": [
+            { "type": "playerInArea", "area": "Forest1" },
+            { "type": "flag", "scope": "global", "key": "mistPass", "is": false }
+        ],
+        "scene": {
+            "start": "forest1.mist_entry_branch"
+        },
+        "once":true
+    },
+    {
+        "id": "rowyn_released_in_forest1_mist_runs_to_player",
+        "triggerWhen": {
+            "event": "section_leave",
+            "area": "Forest1",
+            "section": "forest1_mist"
+        },
+        "state": [
+            { "type": "npcInParty", "npc": "Rowyn", "is": false },
+            { "type": "npcInSection", "npc": "Rowyn", "section": "forest1_mist" }
+        ],
+        "effects": [
+            { "type": "updateStat", "npc": "Rowyn", "stat": "affection", "delta": -2 }
+        ],
+        "scene": {
+            "start": "forest1.rowyn_running_from_mist"
+        }
+    },
+    {
+        "id": "splitpath1_bridge_just_rowyn_from_left",
+        "triggerWhen": {
+            "event": "proximity_enter",
+            "kind": "exit",
+            "id": "splitpath1_bridge",
+            "from": "left"
+        },
+        "state": [
+            { "type": "npcInParty", "npc": "Rowyn", "is": true },
+            { "type": "npcInParty", "npc": "Mira", "is": false }
+        ],
+        "dialog": {
+            "npc": "Rowyn",
+            "prompt": "Don't cross the river...",
+            "start": "forest1.splitpath_bridge_just_rowyn_from_left"
+        }
+    },
+    {
+        "id": "splitpath1_bridge_just_rowyn_from_right",
+        "triggerWhen": {
+            "event": "proximity_enter",
+            "kind": "exit",
+            "id": "splitpath1_bridge",
+            "from": "right"
+        },
+        "state": [
+            { "type": "npcInParty", "npc": "Rowyn", "is": true },
+            { "type": "npcInParty", "npc": "Mira", "is": false }
+        ],
+        "dialog": {
+            "npc": "Rowyn",
+            "prompt": "Wrong way...",
+            "start": "forest1.splitpath_bridge_just_rowyn_from_right"
+        }
+    },
+    {
+        "id": "splitpath1_bridge_mira",
+        "triggerWhen": {
+            "event": "proximity_enter",
+            "kind": "exit",
+            "id": "splitpath1_bridge"
+        },
+        "state": [
+            { "type": "npcInParty", "npc": "Mira", "is": true }
+        ],
+        "dialog": {
+            "npc": "Mira",
+            "prompt": "Let's cross here...",
+            "start": "forest1.splitpath_bridge_mira"
+        }
+    },
+    {
+        "id": "mira_first_meeting",
+        "state": [
+            { "type": "playerInProximity", "npc": "Mira" },
+            { "type": "npcInParty", "npc": "Mira", "is": false }
+        ],
+        "dialog": {
+            "npc": "Mira",
+            "prompt": "Please...",
+            "start": "mira.first_meeting_forest1"
+        }
+    },
+    {
+        "id": "mira_alignment_step_right_forest1",
+        "triggerWhen": {
+            "event": "section_enter",
+            "area": "Forest1",
+            "from": "left",
+            "npc": "Player"
+        },
+        "state": [
+            { "type": "npcInParty", "npc": "Mira", "is": true }
+        ],
+        "effects": [
+            { "type": "updateStat", "npc": "Mira", "stat": "alignment", "delta": -1 }
+        ]
+    },
+    {
+        "id": "mira_alignment_step_left_forest1",
+        "triggerWhen": {
+            "event": "section_enter",
+            "area": "Forest1",
+            "from": "right",
+            "npc": "Player"
+        },
+        "state": [
+            { "type": "npcInParty", "npc": "Mira", "is": true }
+        ],
+        "effects": [
+            { "type": "updateStat", "npc": "Mira", "stat": "alignment", "delta": 1 }
+        ]
+    },
+    {
+        "id": "mira_longpath_complaint_1_mirapoint",
+        "triggerWhen": {
+            "event": "section_enter",
+            "area": "Forest1",
+            "section": "mirapoint",
+            "from": "left",
+            "npc": "Player"
+        },
+        "state": [
+            { "type": "npcInParty", "npc": "Mira", "is": true }
+        ],
+        "dialog": {
+            "npc": "Mira",
+            "prompt": "Not that way...",
+            "start": "forest1.mira_longpath_1"
+        }
+    },
+    {
+        "id": "mira_longpath_complaint_1_pastmira",
+        "triggerWhen": {
+            "event": "section_enter",
+            "area": "Forest1",
+            "section": "pastmira",
+            "from": "left",
+            "npc": "Player"
+        },
+        "state": [
+            { "type": "npcInParty", "npc": "Mira", "is": true }
+        ],
+        "dialog": {
+            "npc": "Mira",
+            "prompt": "We should go back...",
+            "start": "forest1.mira_longpath_1"
+        }
+    },
+    {
+        "id": "mira_longpath_complaint_2_pastmira2",
+        "triggerWhen": {
+            "event": "section_enter",
+            "area": "Forest1",
+            "section": "pastmira2",
+            "from": "left",
+            "npc": "Player"
+        },
+        "state": [
+            { "type": "npcInParty", "npc": "Mira", "is": true }
+        ],
+        "dialog": {
+            "npc": "Mira",
+            "prompt": "This is taking forever...",
+            "start": "forest1.mira_longpath_2"
+        }
+    },
+    {
+        "id": "mira_longpath_complaint_3_forest_end",
+        "triggerWhen": {
+            "event": "section_enter",
+            "area": "Forest1",
+            "section": "forest_1_end",
+            "from": "left",
+            "npc": "Player"
+        },
+        "state": [
+            { "type": "npcInParty", "npc": "Mira", "is": true }
+        ],
+        "dialog": {
+            "npc": "Mira",
+            "prompt": "I told you...",
+            "start": "forest1.mira_longpath_3"
+        }
+    },
+    {
+        "id": "mira_leaves_party_low_alignment_scene_forest1",
+        "triggerWhen": {
+            "event": "party_leave",
+            "area": "Forest1",
+            "npc": "Mira"
+        },
+        "scene": {
+            "start": "forest1.mira_leaves_low_alignment"
+        }
+
+
+
+    },
+    {
+        "id": "rowyn_start_follow_on_proximity",
+        "triggerWhen": {
+            "event": "npc_proximity",
+            "npc": "Rowyn"
+        },
+        "state": [
+            { "type": "npcInParty", "npc": "Rowyn", "is": false }
+        ],
+        "effects": [
+            {
+            "type": "setMovement",
+            "actor": "Rowyn",
+            "mode": "moving",
+            "goal": { "type": "player" }
+            }
+        ],
+        "once": true
+    },
+    {
+        "id": "rowyn_wait_when_dropped",
+        "triggerWhen": {
+            "event": "party_leave",
+            "npc": "Rowyn"
+        },
+        "effects": [
+            {
+            "type": "setMovement",
+            "actor": "Rowyn",
+            "mode": "waiting"
+            }
+        ]
+    },
+    {
+        "id": "forest1_rowyn_wisp_warning",
+        "state": [
+            { "type": "npcInParty", "npc": "Rowyn", "is": true },
+            { "type": "playerInSection", "area": "Forest1", "section": "forest1_wisp" }
+        ],
+        "scene": {
+            "start": "forest1.rowyn_wisp_intro_1"
+        },
+        "once":true
+    },
+    {
+        "id": "rowyn_recover_composure_scene",
+        "once": true,
+        "state": [
+            { "type": "playerInArea", "area": "Forest1", "is": true },
+            { "type": "playerInSection", "area": "Forest1", "section":"forest1_wisp", "is": false },
+            { "type": "playerInSection", "area": "Forest1", "section":"forest1_wisps", "is": false },
+            { "type": "playerInSection", "area": "Forest1", "section":"forest1_blocked", "is": false },
+            { "type": "npcInParty", "npc": "Rowyn", "is": true },
+
+            { "type": "stat",
+            "actor": "player",
+            "stat": "composure",
+            "field": "current",
+            "op": "lt",
+            "rhs": { "field": "base" }
+            },
+
+            { "type": "inventory",
+            "item": "tua_leaves",
+            "measure": "uses",
+            "op": "gte",
+            "rhs": 1
+            }
+        ],
+        "dialog": {
+            "npc": "Rowyn",
+            "prompt": "Are you ok?",
+            "start": "rowyn.first_recover_composure"
+        }
+    },
+    {
+        "id": "rowyn_diversion",
+        "triggerWhen": {
+            "event": "section_enter",
+            "area": "Forest1",
+            "section": "forest1_blocked",
+            "from": "left",
+            "npc": "Player"
+        },
+        "state": [
+            { "type": "npcInParty", "npc": "Rowyn", "is": true }
+        ],
+        "scene": {
+            "start": "forest1.rowyn_diversion"
+        },
+        "once":true
+    },
+    {
+        "id": "start_game_wakeup", 
+        "triggerWhen": {
+            "event": "area_enter",
+            "area": "Grove"
+        },
+        "once": true,
+        "scene": { "start": "forest1.start_game_wakeup" }
+    },
+    {
+        "id": "testing_item_menu", 
+        "disabled": true,
+        "triggerWhen": {
+            "event": "area_enter"
+        },
+        "effects": [
+            {
+            "type": "updateStat",
+            "stat": "composure",
+            "delta": -1
+            },
+            { "type": "addItem", "id": "tua_leaves", "qty": 2 },
+            { "type": "addItem", "id": "letta_berry", "qty": 1 }
+        ]
+    },
+    {
+        "id": "rowyn_nightfall",
+        "triggerWhen": {
+            "event": "time_phase_change",
+            "toPhase": "night"
+        },
+        "state": [
+            { "type": "playerInArea", "area": "Forest1", "is": true },
+            { "type": "npcInParty", "npc": "Rowyn", "is": true }
+        ],
+        "dialog": {
+            "npc": "Rowyn",
+            "prompt": "It's night already...",
+            "start": "forest1.rowyn_nightfall"
+        },
+        "once":true
+    },
+    {
+        "id": "forest1_barriers_rowyn",
+        "triggerWhen": {
+            "event": "proximity_enter",
+            "kind": "object",
+            "id": "forest_barrier"
+        },
+        "state": [
+            { "type": "npcInParty", "npc": "Rowyn", "is": true }
+        ],
+        "dialog": {
+            "npc": "Rowyn",
+            "prompt": "These monuments...",
+            "start": "forest1.rowyn_barrier"
+        },
+        "once": true
+    },
+    {
+        "id": "forest1_barriers_mira",
+        "triggerWhen": {
+            "event": "proximity_enter",
+            "kind": "object",
+            "id": "forest_barrier"
+        },
+        "state": [
+            { "type": "npcInParty", "npc": "Mira", "is": true }
+        ],
+        "dialog": {
+            "npc": "Mira",
+            "prompt": "That's worrying...",
+            "start": "forest1.mira_barrier"
+        },
+        "once": true
+    },
+    {
+        "id": "forest1_follower_rowyn",
+        "triggerWhen": {
+            "event": "section_enter",
+            "area": "Forest1",
+            "section": "forest1_follower",
+            "from": "left",
+            "npc": "Player"
+        },
+        "state": [
+            { "type": "npcInParty", "npc": "Rowyn", "is": true }
+        ],
+        "dialog": {
+            "npc": "Rowyn",
+            "prompt": "Be careful...",
+            "start": "forest1.rowyn_follower"
+        },
+        "once": true
+    },
+    {
+        "id": "forest1_follower_mira",
+        "triggerWhen": {
+            "event": "section_enter",
+            "area": "Forest1",
+            "section": "forest1_follower",
+            "from": "left",
+            "npc": "Player"
+        },
+        "state": [
+            { "type": "npcInParty", "npc": "Rowyn", "is": false },
+            { "type": "npcInParty", "npc": "Mira", "is": true }
+        ],
+        "dialog": {
+            "npc": "Mira",
+            "prompt": "Let's turn back...",
+            "start": "forest1.mira_follower"
+        },
+        "once": true
+    }
+]

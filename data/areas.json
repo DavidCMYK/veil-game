@@ -1,0 +1,448 @@
+{
+  "Grove": {
+    "defaultground": "ground_bank_1",
+    "distantbackgrounds": [],
+    "backgrounds": [
+      "grove_background_1"
+    ],
+    "backobjects": [],
+    "foreobjects": [
+      {
+        "name": "forest_trunk_1",
+        "height": 200,
+        "density": 0.1
+      },
+      {
+        "name": "forest_trunk_2",
+        "height": 400,
+        "density": 0.1
+      },
+      {
+        "name": "forest_trunk_3",
+        "height": 400,
+        "density": 0.1
+      }
+    ],
+    "sectioncount": 2,
+    "sections": {
+      "startingarea": {
+        "position": 1,
+        "groundimage": "ground_bank_1",
+        "groundBackObjects": [
+
+        ],
+        "foreobjects": [],
+        "exits": {
+          "exit1": {
+            "direction": "up",
+            "Position": 600,
+            "targetexit": "Forest1.forest1_clear.exit2"
+          }
+        },
+        "mobs": [
+          { "id": "spirit_wisp_forest", "position": 1500, "mode": "waiting" }
+        ]
+      },
+      "rowyn_section": {
+        "position": 2,
+        "groundimage": "ground_bank_1",
+        "groundBackObjects": [
+          {
+            "name": "letta_bush",
+            "height": 75,
+            "position": 3000
+          },
+          {
+            "name": "tua_bush",
+            "height": 80,
+            "position": 1000
+          }
+        ],
+        "foreobjects": [],
+        "exits": {},
+        "safeplaces": {
+          "rowyn_spawn": { "Position": 2000 }
+        },
+        "characters": {
+          "name": "Rowyn",
+          "position": 2000,
+          "mode": "waiting"
+        }
+      }
+
+    },
+    "leftarea": null,
+    "rightarea": "Forest1"
+  },
+  "Forest1": {
+    "defaultground": "ground_bank_1",
+    "distantbackgrounds": [],
+    "backgrounds": [
+      "forest_background_2"
+    ],
+    "backobjects": [],
+    "foreobjects": [
+      {
+        "name": "forest_trunk_1",
+        "height": 200,
+        "density":0.1
+      },
+      {
+        "name": "forest_trunk_2",
+        "height": 400,
+        "density":0.1
+      }
+    ],
+    "sectioncount": 12,
+    "sections": {
+
+      "forest1_start": {
+        "groundimage": "ground_bank_1",
+        "groundForeObjects": [
+          {
+            "name": "section_mist",
+            "height": 800,
+            "position": 2000
+          }
+        ],
+        "characters": {
+          "name": "Mira",
+          "position": 1000,
+          "mode": "stopped"
+        },
+        "position": 1
+      },
+      "forest1_mist": {
+        "groundimage": "ground_bank_1",
+        "position": 2
+      },
+
+      "forest1_wisp": {
+        "groundimage": "ground_bank_1",
+        "safeplaces": {
+          "before_wisps": { "Position": 500 }
+        },
+        "mobs": [
+          { "id": "spirit_wisp", "position": 3000, "mode": "waiting" }
+        ],
+        "groundBackObjects": [
+          {
+            "name": "tua_bush",
+            "height": 80,
+            "position": 4500
+          }
+        ],
+        "position": 3
+      },
+
+      "forest1_wisps": {
+        "groundimage": "ground_bank_1",
+        "mobs": [
+          { "id": "spirit_wisp", "position": 1000, "mode": "waiting" },
+          { "id": "spirit_wisp", "position": 3000, "mode": "waiting" },
+          { "id": "spirit_wisp", "position": 4000, "mode": "waiting" }
+        ],
+        "position": 5
+      },
+
+      "forest1_blocked": {
+        "groundimage": "ground_bank_1",
+        "mobs": [
+          { "id": "spirit_wisp", "position": 2600, "mode": "waiting" },
+          { "id": "spirit_wisp", "position": 2700, "mode": "waiting" },
+          { "id": "spirit_wisp", "position": 2800, "mode": "waiting" },
+          { "id": "spirit_wisp", "position": 2900, "mode": "waiting" },
+          { "id": "spirit_wisp", "position": 3000, "mode": "waiting" },
+          { "id": "spirit_wisp", "position": 3100, "mode": "waiting" },
+          { "id": "spirit_wisp", "position": 3200, "mode": "waiting" },
+          { "id": "spirit_wisp", "position": 3300, "mode": "waiting" },
+          { "id": "spirit_wisp", "position": 3400, "mode": "waiting" },
+          { "id": "spirit_wisp", "position": 3600, "mode": "waiting" },
+          { "id": "spirit_wisp", "position": 3900, "mode": "waiting" },
+          { "id": "spirit_wisp", "position": 4000, "mode": "waiting" }
+        ],
+        "groundBackObjects": [
+          {
+            "name": "veil_tear",
+            "height": 400,
+            "position": 3000
+          }
+        ],
+        "exits": {
+          "exit1": {
+            "direction": "down",
+            "Position": 10,
+            "targetexit": "Forest3.forest3_entrance.exit1"
+          }
+        },
+        "position": 6
+      },
+
+      "forest1_clear": {
+        "groundimage": "ground_bank_1",
+        "exits": {
+          "exit2": {
+            "direction": "down",
+            "Position": 2000,
+            "targetexit": "Forest3.forest3_exit.exit2"
+          }
+        },
+        "safeplaces": {
+          "forest1_clear": { "Position": 2000 }
+        },
+        "characters": {
+          "name": "Mira",
+          "position": 3000,
+          "mode": "stopped",
+            "spawnIf": [
+              { "type": "timePhase", "is": "night" },
+              { "type": "npcInArea", "npc": "Mira", "area": "Forest1", "is": false },
+              { "type": "playerInSection", "area": "Forest1", "section": "forest1_clear", "is": false }
+            ]
+        },
+        "position": 7
+      },
+      "splitpath1": {
+        "groundimage": "ground_bank_1",
+        "foreobjects": [
+          {
+            "name": "fore_bush_1",
+            "height": 100,
+            "density": 20
+          }
+        ],
+        "position": 8,
+        "exits": {
+          "splitpath1_bridge": {
+            "direction": "up",
+            "Position": 1500,
+            "targetexit": "Forest2.entrance1.1"
+          },
+          "exit1": {
+            "direction": "down",
+            "Position": 10000,
+            "targetexit": "Forest4.forest4_start.exit1"
+          }
+        }
+      },
+      "forest1_guardian": {
+        "groundimage": "ground_bank_1",
+        "position": 10,
+        "groundBackObjects": [
+          {
+            "name": "forest_barrier",
+            "id":"barrier1",
+            "open": false,
+            "height": 200,
+            "position": 1300
+          },
+          {
+            "name": "forest_barrier",
+            "id":"barrier2",
+            "open":true,
+            "height": 200,
+            "position": 3500
+          }
+        ],
+        "mobs": [
+          { "id": "hunter_spirit", "position": 4000, "mode": "waiting" }
+        ],
+        "exits": {
+          "exit1": {
+            "direction": "down",
+            "Position": 4000,
+            "targetexit": "Forest4.forest4_start.exit2"
+          }
+        },
+        "safeplaces": {
+          "forest1_after_hunter": { "Position": 5000 }
+        }
+      },
+      "forest1_follower": {
+        "groundimage": "ground_bank_1",
+        "mobs": [
+          { "id": "spirit_wisp_forest", "position": 2000, "mode": "waiting" }
+        ],
+        "position": 11
+      },
+      "forest_1_end": {
+        "position": 12,
+        "groundimage": "ground_bank_1"
+      }
+    },
+    "leftarea": "Grove",
+    "rightarea": null
+  },
+
+
+  "Forest2": {
+    "defaultground": "ground_bank_1",
+    "distantbackgrounds": null,
+    "backgrounds": [
+      "forest_background_2"
+    ],
+    "backobjects": null,
+    "foreobjects": [
+      {
+        "name": "forest_trunk_1",
+        "height": 200
+      },
+      {
+        "name": "forest_trunk_2",
+        "height": 400
+      }
+    ],
+    "sectioncount": 3,
+    "sections": {
+      "entrance1": {
+        "groundimage": "ground_bank_1",
+        "foreobjects": [
+          {
+            "name": "fore_bush_1",
+            "height": 100,
+            "density": 20
+          }
+        ],
+        "position": 1,
+        "exits": {
+          "1": {
+            "direction": "down",
+            "Position": 300,
+            "targetexit": "Forest1.splitpath1.splitpath1_bridge"
+          }
+        }
+      }
+    },
+    "leftarea": null,
+    "rightarea": null
+  },
+
+  "Forest3": {
+    "defaultground": "ground_bank_1",
+    "distantbackgrounds": null,
+    "backgrounds": [
+      "forest_background_2"
+    ],
+    "backobjects": null,
+    "foreobjects": [
+      {
+        "name": "forest_trunk_1",
+        "height": 200
+      },
+      {
+        "name": "forest_trunk_2",
+        "height": 400
+      }
+    ],
+    "sectioncount": 4,
+    "sections": {
+      "forest3_left": {
+        "groundimage": "ground_bank_1",
+        "foreobjects": [
+          {
+            "name": "fore_bush_1",
+            "height": 100,
+            "density": 20
+          }
+        ],
+        "position": 1
+      },
+      "forest3_entrance": {
+        "groundimage": "ground_bank_1",
+        "foreobjects": [
+          {
+            "name": "fore_bush_1",
+            "height": 100,
+            "density": 20
+          }
+        ],
+        "position": 2,
+        "exits": {
+          "exit1": {
+            "direction": "up",
+            "Position": 500,
+            "targetexit": "Forest1.forest1_blocked.exit1"
+          }
+        }
+      },
+      "forest3_exit": {
+        "groundimage": "ground_bank_1",
+        "foreobjects": [
+          {
+            "name": "fore_bush_1",
+            "height": 100,
+            "density": 20
+          }
+        ],
+        "exits": {
+          "exit2": {
+            "direction": "up",
+            "Position": 2000,
+            "targetexit": "Forest1.forest1_clear.exit2"
+          }
+        },
+        "position": 3
+      },
+      "forest3_right": {
+        "groundimage": "ground_bank_1",
+        "foreobjects": [
+          {
+            "name": "fore_bush_1",
+            "height": 100,
+            "density": 20
+          }
+        ],
+        "position": 4
+      }
+    },
+    "leftarea": null,
+    "rightarea": null
+  },
+  
+  "Forest4": {
+    "defaultground": "ground_bank_1",
+    "distantbackgrounds": null,
+    "backgrounds": [
+      "forest_background_2"
+    ],
+    "backobjects": null,
+    "foreobjects": [
+      {
+        "name": "forest_trunk_1",
+        "height": 200
+      },
+      {
+        "name": "forest_trunk_2",
+        "height": 400
+      }
+    ],
+    "sectioncount": 1,
+    "sections": {
+      "forest4_start": {
+        "groundimage": "ground_bank_1",
+        "foreobjects": [
+          {
+            "name": "fore_bush_1",
+            "height": 100,
+            "density": 20
+          }
+        ],
+        "position": 1,
+        "exits": {
+          "exit1": {
+            "direction": "up",
+            "Position": 500,
+            "targetexit": "Forest1.splitpath1.exit1"
+          },
+          "exit2": {
+            "direction": "up",
+            "Position": 5000,
+            "targetexit": "Forest1.forest1_guardian.exit1"
+          }
+        }
+      }
+    },
+    "leftarea": null,
+    "rightarea": null
+  }
+}

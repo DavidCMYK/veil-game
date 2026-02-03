@@ -1,0 +1,285 @@
+{
+  "start": "0",
+  "phrases": {
+    "0": {
+      "speaker": "npc",
+      "text": "Are you heading to Lunara village?",
+      "reaction": "worried",
+      "options": {
+        "0_yes": {
+          "text": "Yes",
+          "next": "8",
+          "alignmentEffect": 2,
+          "affectionEffect": 0
+        },
+        "0_no": {
+          "text": "No",
+          "next": "9",
+          "alignmentEffect": 2,
+          "affectionEffect": 0
+        },
+        "0_who": {
+          "text": "Who are you?",
+          "next": "1",
+          "alignmentEffect": -1,
+          "affectionEffect": 0
+        }
+      }
+    },
+    "1": {
+      "speaker": "npc",
+      "text": "My name...?",
+      "reaction": "worried",
+      "next": "2"
+    },
+    "2": {
+      "speaker": "npc",
+      "text": "I'm... Mira.",
+      "reaction": "neutral",
+      "next": "3"
+    },
+    "3": {
+      "speaker": "npc",
+      "text": "So... Are you heading to Lunara village?",
+      "reaction": "worried",
+      "options": {
+        "3_yes": {
+          "text": "Yes",
+          "next": "8",
+          "alignmentEffect": 2,
+          "affectionEffect": 0
+        },
+        "3_no": {
+          "text": "No",
+          "next": "9",
+          "alignmentEffect": 2,
+          "affectionEffect": 0
+        },
+        "3_what_doing": {
+          "text": "What are you doing out here?",
+          "next": "4",
+          "alignmentEffect": -1,
+          "affectionEffect": 0
+        }
+      }
+    },
+    "4": {
+      "speaker": "npc",
+      "text": "Out... here?",
+      "reaction": "worried",
+      "next": "5"
+    },
+    "5": {
+      "speaker": "npc",
+      "text": "I'm travelling... from my shrine to the village.",
+      "reaction": "neutral",
+      "next": "6"
+    },
+    "6": {
+      "speaker": "npc",
+      "text": "So... you're going that way? Towards the village?",
+      "reaction": "worried",
+      "options": {
+        "6_yes": {
+          "text": "Yes",
+          "next": "8",
+          "alignmentEffect": 2,
+          "affectionEffect": 0
+        },
+        "6_no": {
+          "text": "No",
+          "next": "9",
+          "alignmentEffect": 2,
+          "affectionEffect": 0
+        },
+        "6_why": {
+          "text": "Why aren't you wearing shoes?",
+          "next": "7",
+          "alignmentEffect": -1,
+          "affectionEffect": 0
+        }
+      }
+    },
+    "7": {
+      "speaker": "npc",
+      "text": "...",
+      "reaction": "angry",
+      "next": null
+    },
+    "8": {
+      "speaker": "npc",
+      "text": "I'm travelling there too. Please, can we travel together? It's almost dark, and the forest isn't safe at night...",
+      "reaction": "worried",
+      "next": null
+    },
+    "9": {
+      "speaker": "npc",
+      "text": "Well... can we travel together anyway? It's almost dark, and the forest isn't safe at night...",
+      "reaction": "worried",
+      "next": null
+    },
+
+    "Splitpath Warning": {
+      "text": "This bridge will lead you to the quicker path. It's a much better way to go.",
+      "reaction": "neutral",
+      "options": {
+        "splitpath_warning_bridge": {
+          "text": "We'll take the bridge",
+          "next": null,
+          "alignmentEffect": 1,
+          "affectionEffect": 0
+        },
+        "splitpath_wanrning_safer": {
+          "text": "Looks dangerous, we'll take the safer route.",
+          "next": null,
+          "alignmentEffect": -5,
+          "affectionEffect": -5
+        }
+      }
+    },
+
+    "Longpath Warning": {
+      "text": "It's getting dark. I don't think we can make it to Lunara village before night if we go this way.",
+      "reaction": "worried",
+      "next": "Longpath Warning 2"
+    },
+    "Longpath Warning 2": {
+      "text": "There's a shorter path. Back the other way a bit, there's a bridge across the river.",
+      "reaction": "worried",
+      "options": {
+        "longpath_warning_2_carry_on": {
+          "text": "I think we can make it, we'll carry on",
+          "next": "Longpath Warning 3",
+          "alignmentEffect": -1,
+          "affectionEffect": 0
+        },
+        "longpath_warning_2_quicker": {
+          "text": "A quicker route? That's a good idea.",
+          "next": "Longpath Warning 4",
+          "addRules": [
+            {
+              "id": "mira_goal_take_bridge",
+              "event": "section_enter",
+              "when": { "area": "Forest1", "sections": ["splitpath1"] },
+              "delta": { "alignment": 1 },
+              "once": true
+            }
+          ],
+          "alignmentEffect": 1,
+          "affectionEffect": 0
+        }
+      }
+    },
+    "Longpath Warning 3": {
+      "text": "You're leading us into danger...",
+      "reaction": "angry",
+      "next": null
+    },
+    "Longpath Warning 4": {
+      "text": "Ok, let's head back to the bridge!",
+      "reaction": "happy",
+      "next": null
+    },
+
+    "Stat Test": {
+      "speaker": "npc",
+      "reaction": "worried",
+      "text": "I... I don't think things are going well between us...",
+      "next": null
+    },
+
+    "BranchTest": {
+      "speaker": "npc",
+      "reaction": "neutral",
+      "text": "How do you really feel about me?",
+      "next": {
+        "GoodBranch": {
+          "when": {
+            "affection": { ">=": 6 }
+          }
+        },
+        "OkayBranch": {
+          "when": {
+            "affection": { ">=": "minalignment" }
+          }
+        },
+        "BadBranch": {}
+      }
+    },
+    "GoodBranch": {
+      "speaker": "npc",
+      "reaction": "happy",
+      "text": "I’m really glad. That means a lot.",
+      "next": null
+    },
+    "OkayBranch": {
+      "speaker": "npc",
+      "reaction": "worried",
+      "text": "Maybe things will turn out alright...",
+      "next": null
+    },
+    "BadBranch": {
+      "speaker": "npc",
+      "reaction": "angry",
+      "text": "…You don’t really care about me, do you?",
+      "next": null
+    },
+
+    "OptionTest": {
+      "speaker": "npc",
+      "reaction": "neutral",
+      "text": "What should we do now?",
+      "options": {
+        "optiontest_stay_together": {
+          "text": "I think we should stay together.",
+          "alignmentEffect": 1,
+          "affectionEffect": 1,
+          "when": {
+            "alignment": { ">=": 2 }
+          },
+          "next": "StayResult"
+        },
+        "optiontest_separate": {
+          "text": "Maybe it's better if we go our own ways...",
+          "alignmentEffect": -1,
+          "affectionEffect": -2,
+          "when": {
+            "alignment": { "<": 2 }
+          },
+          "next": {
+            "LeaveNow": {
+              "when": {
+                "affection": { "<": "minaffection" }
+              }
+            },
+            "StayAnyway": {}
+          }
+        }
+      }
+    },
+
+    "StayResult": {
+      "speaker": "npc",
+      "reaction": "happy",
+      "text": "I'm glad to hear that.",
+      "next": null
+    },
+
+    "LeaveNow": {
+      "speaker": "npc",
+      "reaction": "angry",
+      "text": "Then this is goodbye.",
+      "next": null
+    },
+
+    "StayAnyway": {
+      "speaker": "npc",
+      "reaction": "worried",
+      "text": "Maybe… maybe we can still make this work.",
+      "next": null
+    }
+
+
+
+  }
+}

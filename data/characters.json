@@ -1,0 +1,114 @@
+{
+  "Player": {
+    "startingStats": {
+      "stamina": 5,
+      "composure": 5,
+      "endurance": 0,
+      "fortitude": 0
+    },
+    "interacts": ["basic"]
+  },
+  "Rowyn": {
+    "startingStats": {
+      "stamina": 4,
+      "composure": 7,
+      "endurance": 0,
+      "fortitude": 2,
+      "minalignment": 5,
+      "minaffection": 2
+    },
+    "interacts": ["plant"],
+    "ai": {
+      "waiting": {
+        "avgMoveDistancePx": 1000,
+        "avgIdleMs": 2000,
+        "speedPxPerSec": 200
+      },
+      "moving": {
+        "speedPxPerSec": 130
+      }
+    },
+    "abilities": [
+      {
+        "id": "veil_charm",
+        "name": "Veil Charm",
+        "description": "Parts the mist for a short time.",
+        "animation": "ability",
+        "cooldownMs": 10000,
+        "durationMs": 2000,
+        "stopMoving": true,
+        "effects": [
+          { "type": "addPartyTag", "tag": "veil_pass" }
+        ]
+      }
+    ]
+
+  },
+  "Alden": { "minalignment": 5, "minaffection": 2 },
+  "Mira": {
+    "startingStats": {
+      "stamina": 4,
+      "composure": 3,
+      "endurance": 1,
+      "fortitude": 0,
+      "minalignment": 1,
+      "minaffection": 6
+    },
+    "ai": {
+      "waiting": {
+        "avgMoveDistancePx": 1000,
+        "avgIdleMs": 2000,
+        "speedPxPerSec": 200
+      },
+      "moving": {
+        "speedPxPerSec": 130
+      }
+    },
+    "targeting": {
+      "add": {
+        "includePlayer": false,
+        "includeParty": false,
+        "includeWorldNPCs": false,
+        "includeMobs": true,
+        "withinPx": 3000
+      },
+      "remove": {
+        "maxDistancePx": 3000,
+        "unconscious": true
+      },
+      "sort": [
+        {
+          "by": "distance",
+          "order": "asc"
+        }
+      ],
+      "resort": {
+        "when": "always"
+      },
+      "action": {
+        "stopRangePx": 3000,
+        "abilityId": "mira_ranged_bolt"
+      },
+      "onEmpty": {
+        "type": "idle"
+      }
+    },
+    "abilities": [
+      {
+        "id": "mira_ranged_bolt",
+        "rangePx": 2000,
+        "cooldownMs": 3000,
+        "durationMs": 1000,
+        "effects": [
+          {
+            "type": "updateStat",
+            "npc": "@target",
+            "stat": "hp",
+            "delta": -1
+          }
+        ]
+      }
+    ]
+  }
+
+}

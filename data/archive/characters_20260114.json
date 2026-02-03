@@ -1,0 +1,434 @@
+{
+  "Player": {
+    "name": "player",
+    "rules": [
+      {
+        "id": "forest1_mist_entry_scene",
+        "triggerWhen": {
+          "event": "section_enter",
+          "area": "Forest1",
+          "sections": ["forest1_mist"]
+        },
+        "scene": {
+          "owner": "Rowyn",
+          "start": "mist_no_rowyn_push"
+        }
+      }
+    ]
+  },
+  "Rowyn": {
+    "name": "rowyn",
+    "sprite": "assets/sprites/npcs/character_sprite_rowyn.png",
+    "portrait": null,
+    "dialog": "data/dialogs/rowyn.json",
+    "minalignment": 5,
+    "minaffection": 2,
+    "rules": [
+      {
+        "id": "rowyn_reacts_to_mira_who",
+        "scopeWhen": {
+          "event": "party_join",
+          "npc": "Rowyn"
+        },
+        "descopeWhen": {
+          "event": "party_leave",
+          "npc": "Rowyn"
+        },
+        "triggerWhen": {
+          "event": "dialog_option",
+          "npc": "Mira",
+          "option": "0_who"
+        },
+        "delta": {
+          "affection": 1
+        }
+      },
+      {
+        "id": "rowyn_dislikes_mira_join",
+        "scopeWhen": {
+          "event": "party_join",
+          "npc": "Rowyn"
+        },
+        "descopeWhen": {
+          "event": "party_leave",
+          "npc": "Rowyn"
+        },
+        "triggerWhen": {
+          "event": "party_join",
+          "npc": "Mira"
+        },
+        "delta": {
+          "affection": -1
+        }
+      },
+      {
+        "id": "rowyn_relief_when_mira_leaves",
+        "scopeWhen": {
+          "event": "party_join",
+          "npc": "Rowyn"
+        },
+        "descopeWhen": {
+          "event": "party_leave",
+          "npc": "Rowyn"
+        },
+        "triggerWhen": {
+          "event": "party_leave",
+          "npc": "Mira"
+        },
+        "delta": {
+          "affection": 1
+        }
+      },
+      {
+        "id": "rowyn_forest1_splitpath_warning",
+        "scopeWhen": {
+          "event": "party_join",
+          "npc": "Rowyn"
+        },
+        "descopeWhen": {
+          "event": "party_leave",
+          "npc": "Rowyn"
+        },
+        "triggerWhen": {
+          "event": "section_enter",
+          "area": "Forest1",
+          "sections": [
+            "splitpath1"
+          ]
+        },
+        "dialog": {
+          "prompt": "Hold on a minute...",
+          "start": "Splitpath Warning"
+        },
+        "once": true,
+        "disabled": false
+      },
+      {
+        "id": "rowyn_first_meeting",
+        "triggerWhen": {
+          "event": "section_enter",
+          "sections": [
+            "rowyn_section"
+          ],
+          "area": "Grove"
+        },
+        "scopeWhen": {
+          "event": "section_enter",
+          "sections": [
+            "rowyn_section"
+          ],
+          "area": "Grove"
+        },
+        "descopeWhen": {
+          "event": "party_join"
+        },
+        "delta": {},
+        "dialog": {
+          "prompt": "Oh, you're awake!",
+          "start": "0"
+        }
+      },
+      {
+        "id": "rowyn_scene_autostart_test",
+        "triggerWhen": {
+          "event": "section_enter",
+          "area": "Forest1",
+          "sections": ["splitpath1"]
+        },
+        "scopeWhen": {
+          "event": "party_join",
+          "npc": "Rowyn"
+        },
+        "descopeWhen": {
+          "event": "party_leave",
+          "npc": "Rowyn"
+        },
+        "scene": {
+          "start": "scene_test_0"
+        },
+        "once": true
+      }
+      
+    ]
+  },
+  "Alden": {
+    "name": "alden",
+    "sprite": "assets/sprites/npcs/character_sprite_alden.png",
+    "portrait": null,
+    "dialog": "data/dialogs/alden.json",
+    "minalignment": 5,
+    "minaffection": 2
+  },
+  "Mira": {
+    "name": "mira",
+    "sprite": "assets/sprites/npcs/character_sprite_mira.png",
+    "portrait": null,
+    "dialog": "data/dialogs/mira.json",
+    "minalignment": 2,
+    "minaffection": 2,
+    "rules": [
+      {
+        "id": "mira_dislikes_rowyn_join",
+        "scopeWhen": {
+          "event": "party_join",
+          "npc": "Mira"
+        },
+        "descopeWhen": {
+          "event": "party_leave",
+          "npc": "Mira"
+        },
+        "triggerWhen": {
+          "event": "party_join",
+          "npc": "Rowyn"
+        },
+        "delta": {
+          "affection": -1
+        }
+      },
+      {
+        "id": "mira_relief_when_rowyn_leaves",
+        "scopeWhen": {
+          "event": "party_join",
+          "npc": "Mira"
+        },
+        "descopeWhen": {
+          "event": "party_leave",
+          "npc": "Mira"
+        },
+        "triggerWhen": {
+          "event": "party_leave",
+          "npc": "Rowyn"
+        },
+        "delta": {
+          "affection": 1
+        }
+      },
+      {
+        "id": "mira_forest1_splitpath_warning",
+        "triggerWhen": {
+          "event": "section_enter",
+          "area": "Forest1",
+          "sections": [
+            "splitpath1"
+          ]
+        },
+        "scopeWhen": {
+          "event": "party_join",
+          "npc": "Mira"
+        },
+        "descopeWhen": {
+          "event": "party_leave",
+          "npc": "Mira"
+        },
+        "dialog": {
+          "prompt": "Please, listen...",
+          "start": "Splitpath Warning"
+        },
+        "once": true
+      },
+      {
+        "id": "mira_forest1_longpath_warning",
+        "triggerWhen": {
+          "event": "section_enter",
+          "area": "Forest1",
+          "sections": [
+            "pastmira"
+          ]
+        },
+        "scopeWhen": {
+          "event": "party_join",
+          "npc": "Mira"
+        },
+        "descopeWhen": {
+          "event": "party_leave",
+          "npc": "Mira"
+        },
+        "dialog": {
+          "prompt": "Hey, wait!",
+          "start": "Longpath Warning"
+        },
+        "once": true
+      },
+      {
+        "id": "mira_greeting",
+        "triggerWhen": {
+          "event": "section_enter",
+          "area": "Forest1",
+          "sections": [
+            "mirapoint"
+          ]
+        },
+        "scopeWhen": {
+          "event": "section_enter",
+          "area": "Forest1"
+        },
+        "descopeWhen": {
+          "event": "party_join",
+          "npc": "Mira"
+        },
+        "dialog": {
+          "prompt": "Hey, wait!",
+          "start": "0"
+        },
+        "once": true
+      },
+      {
+        "id": "mira_branch_test",
+        "triggerWhen": {
+          "event": "section_enter",
+          "sections": [
+            "pastmira2"
+          ]
+        },
+        "scopeWhen": {
+          "event": "party_join",
+          "npc": "Mira"
+        },
+        "descopeWhen": {
+          "event": "party_leave",
+          "npc": "Mira"
+        },
+        "dialog": {
+          "prompt": "Let's talk...",
+          "start": "OptionTest"
+        }
+      }
+    ]
+  },
+  "Garon": {
+    "name": "garon",
+    "sprite": "assets/sprites/npcs/character_sprite_garon.png",
+    "portrait": null,
+    "dialog": "data/dialogs/garon.json",
+    "minalignment": 5,
+    "minaffection": 2
+  },
+  "Liera": {
+    "name": "liera",
+    "sprite": "assets/sprites/npcs/character_sprite_liera.png",
+    "portrait": null,
+    "dialog": "data/dialogs/liera.json",
+    "minalignment": 5,
+    "minaffection": 2
+  },
+  "Soren": {
+    "name": "soren",
+    "sprite": "assets/sprites/npcs/character_sprite_soren.png",
+    "portrait": null,
+    "dialog": "data/dialogs/soren.json",
+    "minalignment": 5,
+    "minaffection": 2
+  },
+  "Celine": {
+    "name": "celine",
+    "sprite": "assets/sprites/npcs/character_sprite_celine.png",
+    "portrait": null,
+    "dialog": "data/dialogs/celine.json",
+    "minalignment": 5,
+    "minaffection": 2
+  },
+  "Thane": {
+    "name": "thane",
+    "sprite": "assets/sprites/npcs/character_sprite_thane.png",
+    "portrait": null,
+    "dialog": "data/dialogs/thane.json",
+    "minalignment": 5,
+    "minaffection": 2
+  },
+  "Evanna": {
+    "name": "evanna",
+    "sprite": "assets/sprites/npcs/character_sprite_evanna.png",
+    "portrait": null,
+    "dialog": "data/dialogs/evanna.json",
+    "minalignment": 5,
+    "minaffection": 2
+  },
+  "Malin": {
+    "name": "malin",
+    "sprite": "assets/sprites/npcs/character_sprite_malin.png",
+    "portrait": null,
+    "dialog": "data/dialogs/malin.json",
+    "minalignment": 5,
+    "minaffection": 2
+  },
+  "Doran": {
+    "name": "doran",
+    "sprite": "assets/sprites/npcs/character_sprite_doran.png",
+    "portrait": null,
+    "dialog": "data/dialogs/doran.json",
+    "minalignment": 5,
+    "minaffection": 2
+  },
+  "Tessa": {
+    "name": "tessa",
+    "sprite": "assets/sprites/npcs/character_sprite_tessa.png",
+    "portrait": null,
+    "dialog": "data/dialogs/tessa.json",
+    "minalignment": 5,
+    "minaffection": 2
+  },
+  "Raine": {
+    "name": "raine",
+    "sprite": "assets/sprites/npcs/character_sprite_raine.png",
+    "portrait": null,
+    "dialog": "data/dialogs/raine.json",
+    "minalignment": 5,
+    "minaffection": 2
+  },
+  "Brynn": {
+    "name": "brynn",
+    "sprite": "assets/sprites/npcs/character_sprite_brynn.png",
+    "portrait": null,
+    "dialog": "data/dialogs/brynn.json",
+    "minalignment": 5,
+    "minaffection": 2
+  },
+  "Leif": {
+    "name": "leif",
+    "sprite": "assets/sprites/npcs/character_sprite_leif.png",
+    "portrait": null,
+    "dialog": "data/dialogs/leif.json",
+    "minalignment": 5,
+    "minaffection": 2
+  },
+  "Kiera": {
+    "name": "kiera",
+    "sprite": "assets/sprites/npcs/character_sprite_kiera.png",
+    "portrait": null,
+    "dialog": "data/dialogs/kiera.json",
+    "minalignment": 5,
+    "minaffection": 2
+  },
+  "Roland": {
+    "name": "roland",
+    "sprite": "assets/sprites/npcs/character_sprite_roland.png",
+    "portrait": null,
+    "dialog": "data/dialogs/roland.json",
+    "minalignment": 5,
+    "minaffection": 2
+  },
+  "Kaela": {
+    "name": "kaela",
+    "sprite": "assets/sprites/npcs/character_sprite_kaela.png",
+    "portrait": null,
+    "dialog": "data/dialogs/kaela.json",
+    "minalignment": 5,
+    "minaffection": 2
+  },
+  "Orion": {
+    "name": "orion",
+    "sprite": "assets/sprites/npcs/character_sprite_orion.png",
+    "portrait": null,
+    "dialog": "data/dialogs/orion.json",
+    "minalignment": 5,
+    "minaffection": 2
+  },
+  "Sylvi": {
+    "name": "sylvi",
+    "sprite": "assets/sprites/npcs/character_sprite_sylvi.png",
+    "portrait": null,
+    "dialog": "data/dialogs/sylvi.json",
+    "minalignment": 5,
+    "minaffection": 2
+  }
+}

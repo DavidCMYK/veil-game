@@ -1,0 +1,330 @@
+{
+    "spirit_wisp": {
+        "name": "Spirit Wisp",
+
+        "tags": ["spirit", "wisp", "veil_tear_pass"],
+        "faction": "wild",
+        "temperament": "skittish",
+
+        "body": {
+            "w": 400,
+            "h": 500,
+            "hitbox": {
+                "type": "rect",
+                "x": 50,
+                "y": 150,
+                "w": 300,
+                "h": 200
+            }
+        },
+
+        "locomotion": {
+            "mode": "hover",
+            "speedPxPerSec": 180,
+            "heightPx": 700,
+            "bobAmpPx": 500,
+            "bobPeriodMs":8000,
+            "verticalBand": { "minY": 500, "maxY": 1500 },
+            "bob": { "amplitudePx": 8, "periodMs": 1400 }
+        },
+
+        "ai": {
+            "waiting": {
+            "avgMoveDistancePx": 400,
+            "avgIdleMs": 1200,
+            "speedPxPerSec": 140
+            },
+            "moving": {
+            "speedPxPerSec": 180
+            }
+        },
+
+        "stats": {
+            "hp": 3,
+            "endurance": 0,
+            "fortitude": 0 
+        },
+
+        "contactEffects": {
+        "onStart": [
+            {
+            "type": "updateStat",
+            "stat": "composure",
+            "npc": "@target",
+            "field": "current",
+            "delta": -1
+            }
+        ],
+
+        "onTick": {
+            "everyMs": 2000,
+            "effects": [
+            {
+                "type": "updateStat",
+                "stat": "composure",
+                "npc": "@target",
+                "field": "current",
+                "delta": -1
+            }
+            ]
+        }
+        },
+
+        "drops": [
+            { "itemId": "tua_leaves", "chance": 0.2, "qtyMin": 1, "qtyMax": 1 }
+        ]
+    },
+
+    "hunter_spirit": {
+      "name": "Hunter Spirit",
+
+      "tags": ["spirit"],
+      "faction": "wild",
+      "temperament": "defensive",
+
+      "body": {
+          "w": 1000,
+          "h": 500,
+          "hitbox": {
+              "type": "rect",
+              "x": 0,
+              "y": 0,
+              "w": 1000,
+              "h": 500
+          }
+      },
+
+      "locomotion": {
+          "mode": "ground"
+      },
+
+      "ai": {
+          "waiting": {
+              "avgMoveDistancePx": 400,
+              "avgIdleMs": 1200,
+              "speedPxPerSec": 140
+          },
+          "moving": {
+              "speedPxPerSec": 2000
+          }
+      },
+
+      "targeting": {
+          "add": {
+              "includePlayer": true,
+              "includeParty": true,
+              "includeWorldNPCs": true,
+              "section": "currentSection"
+          },
+          "remove": {
+              "unconscious": true,
+              "leaveSection": true
+          },
+          "sort": [
+              { "by": "distance" },
+              { "by": "lowestStat", "stat": "stamina" }
+          ],
+          "resort": {
+              "when": "onChange"
+          },
+          "action": {
+              "stopRangePx": 80
+          },
+          "onEmpty": {
+              "type": "returnToAnchor"
+          }
+        },
+
+        "stats": {
+            "hp": 3,
+            "endurance": 0,
+            "fortitude": 0  
+        },
+
+        "abilities": [
+          {
+              "id": "close_strike",
+              "cooldownMs": 1000,
+              "rangePx": 100,
+              "requiresContact": false,
+              "animation":"attack",
+              "effects": [
+                  {
+                  "type": "updateStat",
+                  "npc": "@target",
+                  "stat": "stamina",
+                  "field": "current",
+                  "delta": -3
+                  }
+              ]
+          }
+        ],
+
+        "drops": [
+          { "itemId": "letta_berry", "chance": 0.2, "qtyMin": 1, "qtyMax": 1 }
+        ]
+    },
+
+    "spirit_wisp_forest": {
+      "template": "spirit_wisp",
+      "name": "Forest Wisp",
+
+      "ai": {
+        "waiting": {
+            "avgMoveDistancePx": 400,
+            "avgIdleMs": 1200,
+            "speedPxPerSec": 140
+            },
+        "moving": {
+            "speedPxPerSec": 800
+            }
+        },
+
+      "targeting": {
+        "add": {
+            "includePlayer": true,
+            "includeParty": true,
+            "includeWorldNPCs": true,
+            "withinPx": 900
+        },
+        "remove": {
+            "unconscious": true
+        },
+        "sort": [
+            { "by": "lowestStat", "stat": "fortitude" }
+        ],
+        "resort": {
+            "when": "onChange"
+        },
+        "action": {
+            "stopRangePx": 80
+        },
+        "onEmpty": {
+            "type": "returnToAnchor"
+        }
+      },
+
+      "drops": [
+        { "itemId": "tua_leaves", "chance": 0.12, "qtyMin": 1, "qtyMax": 2 }
+      ]
+    },
+
+    "spirit_wisp_elder": {
+      "template": "spirit_wisp_forest",
+      "name": "Elder Wisp",
+
+      "tags": ["spirit", "wisp", "elite"],
+
+      "stats": {
+        "hp": 6
+      },
+
+      "abilities": [
+        {
+          "id": "wisp_pulse",
+          "cooldownMs": 1800,
+          "rangePx": 170,
+          "requiresContact": false,
+          "effects": [
+            {
+              "type": "updateStat",
+              "stat": "composure",
+              "field": "current",
+              "delta": -1
+            }
+          ]
+        },
+        {
+          "id": "veil_haze",
+          "cooldownMs": 7000,
+          "rangePx": 220,
+          "requiresContact": false,
+          "effects": [
+            {
+              "type": "setFlag",
+              "scope": "area",
+              "key": "veil_haze_active",
+              "value": true
+            }
+          ]
+        }
+      ]
+    },
+
+    "burrowling": {
+      "name": "Burrowling",
+
+      "tags": ["wild", "burrow"],
+      "faction": "wild",
+      "temperament": "defensive",
+
+      "body": {
+        "w": 52,
+        "h": 46,
+        "hitbox": {
+          "type": "rect",
+          "x": 14,
+          "y": 18,
+          "w": 52,
+          "h": 46
+        }
+      },
+
+      "locomotion": {
+        "mode": "burrow",
+        "speedPxPerSec": 120,
+        "belowGroundPx": 18
+      },
+
+      "ai": {
+        "waiting": {
+          "avgMoveDistancePx": 0,
+          "avgIdleMs": 1800,
+          "speedPxPerSec": 0
+        },
+        "moving": {
+          "speedPxPerSec": 120
+        }
+      },
+
+      "stats": {
+        "hp": 5,
+        "endurance": 0,
+        "fortitude": 0 
+      },
+
+      "contactEffects": {
+        "onStart": [
+          {
+            "type": "updateStat",
+            "stat": "stamina",
+            "field": "current",
+            "delta": -1
+          }
+        ],
+        "onTick": [],
+        "onEnd": []
+      },
+
+      "abilities": [
+        {
+          "id": "burrow_lunge",
+          "cooldownMs": 3200,
+          "rangePx": 120,
+          "requiresContact": true,
+          "effects": [
+            {
+              "type": "updateStat",
+              "stat": "stamina",
+              "field": "current",
+              "delta": -1
+            }
+          ]
+        }
+      ],
+
+      "drops": [
+        { "itemId": "letta_berry", "chance": 0.05, "qtyMin": 1, "qtyMax": 1 }
+      ]
+    }
+}

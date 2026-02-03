@@ -1,0 +1,20 @@
+{
+  "items": {
+    "tua_leaves": {
+      "name": "Tua Leaves",
+      "description": "A handful of bitter leaves. Settle nerves and recover composure.",
+      "usesPerItem": 5,
+      "effects": [
+        { "type": "updateStat", "stat": "composure", "field": "current", "delta": 1 }
+      ]
+    },
+    "letta_berry": {
+      "name": "Letta Berry",
+      "description": "A sweet and slightly spicy berry that recovers stamina.",
+      "usesPerItem": 1,
+      "effects": [
+        { "type": "updateStat", "stat": "stamina", "field": "current", "delta": 1 }
+      ]
+    }
+  }
+}

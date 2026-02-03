@@ -1,0 +1,159 @@
+{
+  "start": "first_meeting_forest1",
+  "phrases": {
+    "passout_rescue_start": {
+      "speaker": "Mira",
+      "reaction": "neutral",
+      "text": "Oh, you're awake...?",
+      "next": "passout_rescue_2"
+    },
+    "passout_rescue_2": {
+      "speaker": "Mira",
+      "reaction": "neutral",
+      "text": "...",
+      "next": "passout_rescue_3"
+    },
+    "passout_rescue_3": {
+      "speaker": "Mira",
+      "reaction": "neutral",
+      "text": "That's good..."
+    },
+
+    "passout_mystery_start": {
+      "speaker": "Mira",
+      "text": "What... happened?",
+      "reaction": "worried",
+      "next": "passout_mystery_2"
+    },
+    "passout_mystery_2": {
+      "speaker": "Mira",
+      "reaction": "neutral",
+      "text": "Did you carry me here...?"
+    },
+
+    "first_meeting_forest1": {
+      "speaker": "mira",
+      "text": "Are you heading to Lunara village?",
+      "reaction": "worried",
+      "options": {
+        "0_yes": {
+          "text": "Yes",
+          "next": "8",
+          "alignmentEffect": 2,
+          "affectionEffect": 0
+        },
+        "0_no": {
+          "text": "No",
+          "next": "9",
+          "alignmentEffect": 3,
+          "affectionEffect": 0
+        },
+        "0_who": {
+          "text": "Who are you?",
+          "next": "1",
+          "alignmentEffect": -1,
+          "affectionEffect": 0
+        }
+      }
+    },
+    "1": {
+      "speaker": "mira",
+      "text": "My name...?",
+      "reaction": "worried",
+      "next": "2"
+    },
+    "2": {
+      "speaker": "mira",
+      "text": "I'm... Mira.",
+      "reaction": "neutral",
+      "effects": [
+        {
+          "type": "setFlag",
+          "scope": "global",
+          "key": "metMira"
+        }
+      ],
+      "next": "3"
+    },
+    "3": {
+      "speaker": "mira",
+      "text": "So... Are you heading to Lunara village?",
+      "reaction": "worried",
+      "options": {
+        "6_yes": {
+          "text": "Yes",
+          "next": "8",
+          "alignmentEffect": 2,
+          "affectionEffect": 0
+        },
+        "6_no": {
+          "text": "No",
+          "next": "9",
+          "alignmentEffect": 3,
+          "affectionEffect": 0
+        },
+        "6_why": {
+          "text": "What are you doing out here?",
+          "next": "4",
+          "alignmentEffect": -1,
+          "affectionEffect": 0
+        }
+      }
+    },
+    "4": {
+      "speaker": "mira",
+      "text": "Out... here?",
+      "reaction": "worried",
+      "next": "5"
+    },
+    "5": {
+      "speaker": "mira",
+      "text": "I'm travelling... I have somewhere I need to be...",
+      "reaction": "neutral",
+      "next": "6"
+    },
+    "6": {
+      "speaker": "mira",
+      "text": "So... you're going that way? Towards the village?",
+      "reaction": "worried",
+      "options": {
+        "6_yes": {
+          "text": "Yes",
+          "next": "8",
+          "alignmentEffect": 2,
+          "affectionEffect": 0
+        },
+        "6_no": {
+          "text": "No",
+          "next": "9",
+          "alignmentEffect": 3,
+          "affectionEffect": 0
+        },
+        "6_why": {
+          "text": "Why aren't you wearing shoes?",
+          "next": "7",
+          "alignmentEffect": -1,
+          "affectionEffect": 0
+        }
+      }
+    },
+    "7": {
+      "speaker": "mira",
+      "text": "...",
+      "reaction": "upset",
+      "next": null
+    },
+    "8": {
+      "speaker": "mira",
+      "text": "I'm travelling there too. Please, can we travel together? It's almost dark, and the forest isn't safe at night...",
+      "reaction": "worried",
+      "next": null
+    },
+    "9": {
+      "speaker": "mira",
+      "text": "I'm going the other way. Across the river. Can we travel together? It's almost dark, and the forest isn't safe at night...",
+      "reaction": "worried",
+      "next": null
+    }
+  }
+}

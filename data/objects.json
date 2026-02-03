@@ -1,0 +1,50 @@
+{
+    "tua_bush": {
+        "name": "Tua Bush",
+        "animFramePx": { "w": 383, "h": 400 },
+        "interact": ["plant"],
+        "oncePerInstance": true,
+        "sceneEvery": { "start": "rowyn.rowyn_walks_to_bush" },
+        "effects": [
+            { "type": "addItem", "id": "tua_leaves", "qty": 1 }
+        ]
+    },
+    "letta_bush": {
+        "name": "Letta Bush",
+        "animFramePx": { "w": 410, "h": 300 },
+        "interact": ["plant"],
+        "oncePerInstance": true,
+        "sceneEvery": { "start": "rowyn.rowyn_walks_to_bush" },
+        "effects": [
+            { "type": "addItem", "id": "letta_berry", "qty": 1 }
+        ]
+    },
+    "section_mist": {
+        "name": "Thick Mist",
+        "animFramePx": { "w": 3072, "h": 1024 },
+        "blocker": {
+            "rect": { "x": 5000, "y": 0.0, "w": 100, "h": 3000 },
+            "requiredTag": "veil_pass"
+        }
+    },
+    "veil_tear": {
+        "name": "Veil Tear",
+        "animFramePx": { "w": 1000, "h": 2000 },
+        "blocker": {
+            "rect": { "x": 0, "y": 0.0, "w": 400, "h": 2000 },
+            "requiredTag": "veil_tear_pass"
+        }
+    },
+    "forest_barrier": {
+        "name": "Forest Barrier",
+        "animFramePx": { "w": 400, "h": 800 },
+        "gate": {
+            "rect": { "x": 100, "y": -400, "w": 200, "h": 1400 },
+            "defaultOpen": false
+        },
+        "interact": ["basic"],
+        "effects": [
+            { "type": "toggleGate" }
+        ]
+    }
+}

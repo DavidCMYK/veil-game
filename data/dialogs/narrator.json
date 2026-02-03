@@ -1,0 +1,14 @@
+{
+  "start": "passout_alone_start",
+  "phrases": {
+    "passout_alone_start": {
+      "speaker": "narrator",
+      "text": "You wake up again in a place only vaguely familiar...",
+      "next": "passout_alone_2"
+    },
+    "passout_alone_2": {
+      "speaker": "narrator",
+      "text": "You were in real trouble there. I wonder how you got out of it?"
+    }
+  }
+}
