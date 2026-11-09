@@ -723,7 +723,7 @@ function setActiveMenuPage(id) {
   renderPlayerMenu();
 }
 
-function openPlayerMenu(pageId = null) {
+function openPlayerMenu(pageId = null, { preserveView = false } = {}) {
   if (!playerMenuOverlay) return;
   closePartyLeaveDialog(false);
   inMenu = true;
@@ -731,17 +731,20 @@ function openPlayerMenu(pageId = null) {
 
   if (pageId) activeMenuPageId = String(pageId);
 
-  // Always open on stats/picture card, but keep selected character per menu
-  if (document.documentElement.classList.contains('touch-enabled')) {
-    mobileCardPages.party.clear();
-    mobileCardPages.npcs.clear();
+  // A normal menu opening starts on the character card. Returning from
+  // targeting keeps the exact card and section the player was viewing.
+  if (!preserveView) {
+    if (document.documentElement.classList.contains('touch-enabled')) {
+      mobileCardPages.party.clear();
+      mobileCardPages.npcs.clear();
+    }
+    partyMenuCardIndex = 0;
+    partyMenuPrevCardIndex = 0;
+    partyMenuCardAnimUntilMs = 0;
+    npcMenuCardIndex = 0;
+    npcMenuPrevCardIndex = 0;
+    npcMenuCardAnimUntilMs = 0;
   }
-  partyMenuCardIndex = 0;
-  partyMenuPrevCardIndex = 0;
-  partyMenuCardAnimUntilMs = 0;
-  npcMenuCardIndex = 0;
-  npcMenuPrevCardIndex = 0;
-  npcMenuCardAnimUntilMs = 0;
 
   playerMenuOverlay.style.display = 'block';
   renderPlayerMenu();
@@ -4580,12 +4583,10 @@ function endManualTargeting({ openMenuPageId = null, closeAll = false } = {}) {
     return;
   }
 
-  if (openMenuPageId) {
-    openPlayerMenu(openMenuPageId);
-  } else {
-    // Return to prior menu page (or reopen menu if it was hidden)
-    openPlayerMenu(activeMenuPageId);
-  }
+  const returnPageId = openMenuPageId || activeMenuPageId;
+  // Returning to the same menu page should not reset its selected character
+  // or mobile sub-page. Switching to a different tab uses normal opening.
+  openPlayerMenu(returnPageId, { preserveView: returnPageId === activeMenuPageId });
 }
 
 function confirmManualTargetingSelection() {
