@@ -1,16 +1,141 @@
-#touchControls { display: none; }
-  #touchControls { position: fixed; inset: auto 0 0; z-index: 100; display: flex; align-items: end; justify-content: space-between; gap: 12px; padding: 8px max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); pointer-events: none; }
-  #touchControls > div { display: flex; flex-wrap: wrap; gap: 5px; max-width: 44%; }
-  #touchControls button { pointer-events: auto; touch-action: none; user-select: none; min-width: 44px; min-height: 44px; border: 1px solid #ffffff75; border-radius: 7px; background: #10121dd9; color: white; font-size: 12px; padding: 6px 9px; }
-  #touchControls button:active { background: #59678a; }
-  #touchControls button[hidden] { display: none; }
-  #touchControls .touchChoices { max-width: 25%; }
-  #touchControls .touchActions { justify-content: flex-end; }
-  @media (pointer: coarse), (any-pointer: coarse) {
+/* Mobile chrome stays outside the world canvas. Desktop retains the original UI. */
+#mobileToolbar, #mobilePanel, #mobileActions { display: none; }
+.veil-mobile { --ui-font-scale: 1; --mobile-footer-height: 60px; color-scheme: dark; }
+.veil-mobile body { font-family: system-ui, sans-serif; background: #151811; }
+.veil-mobile #gameContainer {
+  width: 100%; height: 100vh; height: 100dvh; box-sizing: border-box;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  display: grid; grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 44px minmax(0, 1fr) 0 minmax(var(--mobile-footer-height), auto);
+  grid-template-areas: 'toolbar' 'world' 'panel' 'actions';
+  gap: 0; background: #151811;
+}
+.veil-mobile.mobile-panel-open #gameContainer { grid-template-rows: 44px minmax(140px, 1fr) min(42dvh, 380px) minmax(var(--mobile-footer-height), auto); }
+.veil-mobile #viewport { grid-area: world; width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; }
+.veil-mobile #gameCanvas { display: block; touch-action: none; }
+.veil-mobile #miniMap { display: none !important; }
+.veil-mobile #prompt { top: 8px; max-width: 85%; width: max-content; font-size: 13px; padding: 6px 10px; pointer-events: none; }
+.veil-mobile #dialogPromptContainer { display: none; }
+.veil-mobile #mobileToolbar { grid-area: toolbar; display: flex; align-items: center; gap: 8px; padding: 2px 8px; border-bottom: 1px solid #a8936150; }
+.veil-mobile #mobileLocation { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; text-align: center; text-transform: capitalize; color: #e4d9bc; }
+.veil-mobile button, .veil-mobile select {
+  font-family: system-ui, sans-serif; font-size: 14px; line-height: 1.25;
+  border: 1px solid #a8936170; border-radius: 7px; background: #30362b; color: #f5ecd9;
+  min-height: 40px; padding: 8px 12px; box-sizing: border-box; touch-action: manipulation;
+}
+.veil-mobile button:disabled { opacity: .45; }
+.veil-mobile button:focus-visible, .veil-mobile [role=button]:focus-visible { outline: 2px solid #dbc58c; outline-offset: -2px; }
+.veil-mobile #mobileToolbar button { min-height: 38px; }
+.veil-mobile #mobileActions { grid-area: actions; display: flex; flex-direction: column; justify-content: center; align-items: stretch; padding: 5px 8px; gap: 5px; border-top: 1px solid #a8936150; max-height: 112px; overflow-y: auto; }
+.veil-mobile #mobileMoveHint { text-align: center; color: #c5c5b2; font-size: 12px; }
+.veil-mobile #mobileContextActions { display: flex; justify-content: center; gap: 6px; overflow-x: auto; flex: 0 0 auto; }
+.veil-mobile #mobileContextActions button { flex: 0 0 auto; max-width: 80vw; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
+.veil-mobile.mobile-panel-open #mobilePanel {
+  grid-area: panel; display: flex; flex-direction: column; min-width: 0; min-height: 0;
+  background: #24271f; border-top: 1px solid #a8936170; overflow: hidden; position: relative;
+}
+.veil-mobile #mobilePanelHeader { display: flex; align-items: center; gap: 8px; flex: 0 0 46px; padding: 0 8px; border-bottom: 1px solid #a8936140; }
+.veil-mobile #mobilePanelTitle { margin: 0; font-size: 15px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.veil-mobile #mobilePanelHeader button { min-height: 36px; }
+.veil-mobile #conversationPortrait { position: static; width: 36px; height: 42px; object-fit: cover; object-position: top; order: -1; border-radius: 4px; }
+.veil-mobile:not([data-mobile-mode=dialogue]) #conversationPortrait { display: none !important; }
+.veil-mobile #menuTopTabs {
+  position: static !important; transform: none !important; width: auto !important; min-height: 44px; max-width: 100%;
+  flex: 0 0 auto; overflow-x: auto; padding: 3px 6px; gap: 4px; border-bottom: 1px solid #a8936140;
+  order: 1; -webkit-overflow-scrolling: touch;
+}
+.veil-mobile:not([data-mobile-mode=menu]) #menuTopTabs { display: none !important; }
+.veil-mobile #menuTopTabs .playerMenuTabBtn { width: auto !important; min-height: 38px; padding: 7px 10px; transform: none !important; font-family: system-ui, sans-serif; font-size: 13px; border: 1px solid #a8936160; border-radius: 6px; box-shadow: none; }
+.veil-mobile #menuTopTabs .playerMenuTabBtn.active, .veil-mobile .mobileSubTabs button[aria-pressed=true] { color: #1b2117; background: #d9c692; }
+.veil-mobile .playerMenuTabHotkey { text-decoration: none; font-weight: inherit; }
+.veil-mobile #mobileActorNav { order: 2; flex: 0 0 auto; padding: 6px 8px; border-bottom: 1px solid #a8936140; }
+.veil-mobile #mobileActorNav select { width: 100%; margin-bottom: 5px; }
+.veil-mobile .mobileSubTabs { display: flex; gap: 4px; }
+.veil-mobile .mobileSubTabs button { flex: 1; min-width: 0; padding: 6px 3px; font-size: 12px; min-height: 38px; }
+.veil-mobile #playerMenuOverlay { position: static; inset: auto; order: 3; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 10px; box-sizing: border-box; }
+.veil-mobile:not([data-mobile-mode=menu]) #playerMenuOverlay { display: none !important; }
+.veil-mobile #playerMenuContent { position: static; transform: none; width: 100%; height: auto; min-height: 0; overflow: visible; padding: 0; }
+.veil-mobile #playerMenuError { position: static; transform: none; order: 0; margin: 0; padding: 6px 10px; background: #4c2424; font-size: 13px !important; flex: 0 0 auto; }
+.veil-mobile .partyCardsGrid { display: block; padding: 0; height: auto; width: 100%; }
+.veil-mobile .partyCardSlot { width: 100% !important; height: auto !important; margin: 0; }
+.veil-mobile .partyCardSlot:not(.selected) { display: none; }
+.veil-mobile .partyCardStageFull { height: auto; }
+.veil-mobile .partyCard { width: 100% !important; height: auto !important; min-height: 0; box-sizing: border-box; overflow: visible; margin: 0; }
+.veil-mobile .partyCard.selected { outline: none; box-shadow: none; }
+.veil-mobile .partyCardAnim.outgoing { display: none; }
+.veil-mobile .partyCardAnim.incoming { position: static; animation: none; }
+.veil-mobile .partyCardStatsCard .partyCardPortrait { width: 72px; height: 96px; flex: 0 0 96px; align-self: center; }
+.veil-mobile .partyCardOverlay { position: static; gap: 6px; }
+.veil-mobile .partyOverlayBlock { padding: 6px 8px; }
+.veil-mobile .partyCardStats { font-size: 13px; }
+.veil-mobile .partyCardName { font-size: 16px; }
+.veil-mobile .partyStatBar { min-width: 90px; height: 18px; }
+.veil-mobile .partyStatBarText { font-size: 12px; }
+.veil-mobile .partyInventoryOverlay { position: static; transform: none; width: 100%; }
+.veil-mobile .abilityCard { padding: 10px; gap: 8px; font-family: system-ui, sans-serif; }
+.veil-mobile .abilityCardPortrait { width: 36px; height: 44px; margin: 0; }
+.veil-mobile .abilityCardHeader { flex-wrap: wrap; gap: 6px; }
+.veil-mobile .abilityCardTitle { font-size: 15px; padding-left: 0; overflow-wrap: anywhere; }
+.veil-mobile .abilityCardDesc { font-size: 13px; }
+.veil-mobile .abilityCardTargets, .veil-mobile .abilityCardMeta { font-size: 12px; overflow-wrap: anywhere; }
+.veil-mobile .playerMenuToggleBtn { min-height: 36px; font-size: 12px; padding: 5px 8px; }
+.veil-mobile .hotkeyBadge, .veil-mobile .dialogOptionKeyBadge { display: none !important; }
+.veil-mobile .playerMenuItemsGrid { grid-template-columns: repeat(2,minmax(0,1fr)) !important; gap: 8px; padding: 0; }
+.veil-mobile .playerMenuItemTile { aspect-ratio: auto; min-width: 0; min-height: 180px; padding: 8px; box-sizing: border-box; touch-action: pan-y; display: flex; flex-direction: column; gap: 5px; }
+.veil-mobile .playerMenuItemName, .veil-mobile .playerMenuItemCount, .veil-mobile .playerMenuItemDesc { position: static; font-size: 13px; color: inherit; }
+.veil-mobile .playerMenuItemImgBox { position: relative; inset: auto; height: 64px; width: 100%; flex: 0 0 64px; }
+.veil-mobile .playerMenuItemDesc { display: block; overflow: visible; line-height: 1.4; padding: 0; background: none; -webkit-line-clamp: unset; }
+.veil-mobile .playerMenuItemTile button { margin-top: auto !important; min-height: 40px; }
+.veil-mobile .playerMenuCard, .veil-mobile .playerMenuMuted, .veil-mobile .partyTagLine { font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.veil-mobile .playerMenuCardTitle { font-size: 18px; }
+.veil-mobile .partyCardSectionTitle { font-size: 12px; }
+.veil-mobile .playerMenuGrid { grid-template-columns: 1fr; }
+.veil-mobile #conversationOverlay { position: static; inset: auto; width: 100%; height: auto; min-height: 0; order: 3; flex: 1; padding: 10px; box-sizing: border-box; background: none; overflow-y: auto; overflow-x: hidden; }
+.veil-mobile:not([data-mobile-mode=dialogue]) #conversationOverlay { display: none !important; }
+.veil-mobile #dialogStackContainer { position: static !important; width: 100% !important; height: auto !important; pointer-events: auto !important; }
+.veil-mobile #dialogBox, .veil-mobile .dialogStackItem, .veil-mobile .dialogChoiceItem, .veil-mobile .dialogBoxStackItem {
+  position: static !important; inset: auto !important; width: auto !important; max-width: 100% !important;
+  height: auto !important; min-height: 0 !important; transform: none !important;
+  font-family: system-ui, sans-serif; font-size: 15px; line-height: 1.5; padding: 10px !important;
+  margin: 0 0 8px; border-radius: 8px; overflow-wrap: anywhere; box-sizing: border-box;
+}
+.veil-mobile .dialogStackPlayer { margin-left: 20px; background: #d5d9bf; }
+.veil-mobile .dialogStackPointer, .veil-mobile .dialogStackRectLink, .veil-mobile .dialogStackLink, .veil-mobile .dialogStackUpPointer { display: none !important; }
+.veil-mobile #optionsBox { position: static !important; width: auto !important; max-width: 100% !important; transform: none !important; padding: 0 !important; font-size: 14px; }
+.veil-mobile #optionsBox > [data-option-index] { padding: 12px; min-height: 44px; margin: 6px 0; border-width: 1px; }
+.veil-mobile #optionsBox > div:not([data-option-index]) { display: none; }
+.veil-mobile #dialogStackContainer { margin-bottom: 8px; }
+.veil-mobile #conversationOverlay:has(#dialogStackContainer:not(:empty)) { display: flex !important; flex-direction: column; }
+.veil-mobile #dialogStackContainer { order: 0; }
+.veil-mobile #dialogBox { order: 0; }
+.veil-mobile #optionsBox { order: 1; flex: 0 0 auto; }
+.veil-mobile #mapOverlay { position: static; order: 3; flex: 1; min-height: 0; background: none; }
+.veil-mobile:not([data-mobile-mode=map]) #mapOverlay { display: none !important; }
+.veil-mobile #mapCanvas { width: 100%; height: 100%; border: none; border-radius: 0; touch-action: none; }
+.veil-mobile #mobileTargetPanel { padding: 12px; order: 3; overflow-y: auto; }
+.veil-mobile #mobileTargetPanel select { width: 100%; margin: 0 0 10px; }
+.veil-mobile .manualTargetingAbilityPreview, .veil-mobile .manualTargetingItemPreview, .veil-mobile .manualTargetingDragTile { display: none !important; }
+.veil-mobile [hidden] { display: none !important; }
+@media (min-aspect-ratio: 6/5) {
+  .veil-mobile #gameContainer { grid-template-columns: minmax(0, 1fr) 0; grid-template-rows: 44px minmax(0, 1fr) var(--mobile-footer-height); grid-template-areas: 'toolbar toolbar' 'world panel' 'actions panel'; }
+  .veil-mobile.mobile-panel-open #gameContainer { grid-template-columns: minmax(0, 1fr) clamp(260px, 36vw, 380px); grid-template-rows: 44px minmax(0, 1fr) var(--mobile-footer-height); }
+  .veil-mobile.mobile-panel-open #mobilePanel { border-top: 0; border-left: 1px solid #a8936170; }
+}
+#viewport { width: 100%; min-width: 0; }
+.veil-mobile #mobileNotice { font-size: 12px; line-height: 1.35; color: #efddb5; text-align: center; }
+.veil-mobile #mobilePanelTitle { text-transform: capitalize; }
+.veil-mobile #optionsBox > [data-option-index] { height: auto !important; min-height: 44px; }
+.veil-mobile .abilityCardContent > button { align-self: flex-start; }
+.veil-mobile .mobileDetailSelect { display: none; }
+@media (max-height: 650px) {
+  .veil-mobile #mobileActorNav:not([hidden]) { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; }
+  .veil-mobile #mobileActorNav select { margin: 0; min-width: 0; }
+  .veil-mobile .mobileSubTabs { display: none; }
+  .veil-mobile .mobileDetailSelect { display: block; }
+  .veil-mobile #mobileActorNav > button { grid-column: 1 / -1; }
+}
 
-
-  }
-
-#touchControls { display: none; }
-html.touch-enabled #touchControls { display: flex; }
-@media (pointer: coarse), (any-pointer: coarse) { #touchControls { display: flex; } }
+.veil-mobile.mobile-footer-empty { --mobile-footer-height: 0px; }
+@media (max-height: 650px) and (max-aspect-ratio: 6/5) {
+  .veil-mobile.mobile-panel-open #gameContainer { grid-template-rows: 44px minmax(140px, 1fr) 50dvh minmax(var(--mobile-footer-height), auto); }
+}

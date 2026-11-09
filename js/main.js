@@ -28,6 +28,10 @@ globalThis.loading = true;
 
 const UI_FONT_FAMILY = '"Parchment MF", serif';
 const UI_FONT_SCALE = 2.00;
+function isMobileLayout() {
+  return document.documentElement.classList.contains('veil-mobile');
+}
+
 function uiFont(sizePx, weight = 'normal', style = 'normal') {
   const scaled = Math.max(1, Math.round(Number(sizePx) * UI_FONT_SCALE));
   const parts = [];
@@ -561,6 +565,7 @@ function setActiveMenuPage(id) {
 
 function openPlayerMenu(pageId = null) {
   if (!playerMenuOverlay) return;
+  menuTopTabs?.classList.remove('isHidden');
   inMenu = true;
   clearPlayerMenuError();
 
@@ -1358,6 +1363,7 @@ function renderMenuPage_PartyCards() {
     const slot = document.createElement('div');
     slot.className = 'partyCardSlot' + (isSelected ? ' selected' : ' scaled');
     slot.addEventListener('mouseenter', () => {
+      if (isMobileLayout()) return;
       if (partyMenuSelectedIndex !== i) {
         partyMenuSelectedIndex = i;
         partyMenuCardIndex = 0;
@@ -1365,6 +1371,7 @@ function renderMenuPage_PartyCards() {
       }
     });
     slot.addEventListener('wheel', (e) => {
+      if (isMobileLayout()) return;
       const now = performance.now();
       partyMenuWheelAccum += e.deltaY;
       const threshold = 1000;
@@ -1511,11 +1518,16 @@ function buildItemTile({
         holdTimer = null;
       }
     };
-    tile.addEventListener('mousedown', (e) => {
+    let pointerStart = null;
+    tile.setAttribute('role', 'button');
+    tile.tabIndex = 0;
+    tile.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('button')) return;
+      pointerStart = { x: e.clientX, y: e.clientY };
       if (e.button !== 0) return;
       holdFired = false;
       clearHold();
-      if (typeof onHoldStart === 'function') {
+      if (typeof onHoldStart === 'function' && !(isMobileLayout() && e.pointerType !== 'mouse')) {
         const delay = Math.max(80, Number(holdMs) || 0);
         holdTimer = setTimeout(() => {
           holdFired = true;
@@ -1523,15 +1535,26 @@ function buildItemTile({
         }, delay);
       }
     });
-    tile.addEventListener('mouseup', (e) => {
+    tile.addEventListener('pointerup', (e) => {
+      if (e.target.closest('button')) return;
       if (e.button !== 0) return;
       clearHold();
-      if (!holdFired && typeof onClick === 'function') {
+      const tapped = pointerStart && Math.hypot(e.clientX - pointerStart.x, e.clientY - pointerStart.y) < 12;
+      pointerStart = null;
+      if (tapped && !holdFired && typeof onClick === 'function') {
         onClick(id, uid, tile, e);
       }
     });
-    tile.addEventListener('mouseleave', () => {
-      clearHold();
+    const cancelPress = () => { clearHold(); pointerStart = null; };
+    tile.addEventListener('pointercancel', cancelPress);
+    tile.addEventListener('pointerleave', cancelPress);
+    tile.addEventListener('pointermove', e => {
+      if (pointerStart && Math.hypot(e.clientX - pointerStart.x, e.clientY - pointerStart.y) >= 12) cancelPress();
+    });
+    tile.addEventListener('keydown', e => {
+      if (e.code !== 'Enter' && e.code !== 'Space') return;
+      e.preventDefault(); e.stopPropagation();
+      if (typeof onClick === 'function') onClick(id, uid, tile, e);
     });
     tile.addEventListener('dragstart', (e) => e.preventDefault());
   }
@@ -1577,8 +1600,12 @@ function buildItemTile({
     }
 
     if (showGiveButton && typeof onGive === 'function') {
-      const giveBtn = document.createElement('div');
+      const giveBtn = document.createElement('button');
+      giveBtn.type = 'button';
       giveBtn.textContent = 'Give';
+      giveBtn.setAttribute('aria-label', `Give ${def.name || id}`);
+      giveBtn.addEventListener('pointerdown', e => e.stopPropagation());
+      giveBtn.addEventListener('pointerup', e => e.stopPropagation());
       giveBtn.style.display = 'inline-block';
       giveBtn.style.marginTop = '6px';
       giveBtn.style.padding = '2px 6px';
@@ -1641,6 +1668,12 @@ function buildInventoryPanel(actor, opts = {}) {
   );
 
   const highlightUid = opts.highlightUid != null ? String(opts.highlightUid) : null;
+  if (!slotCount) {
+    const empty = document.createElement('div');
+    empty.className = 'playerMenuMuted';
+    empty.textContent = 'No items.';
+    panel.appendChild(empty);
+  }
   for (let idx = 0; idx < slotCount; idx++) {
     const c = cards[idx];
     const tile = buildItemTile({
@@ -1672,6 +1705,8 @@ function buildInventoryPanel(actor, opts = {}) {
           }
         }
       },
+      showGiveButton: isMobileLayout(),
+      onGive: (id, uid) => beginManualItemGiveTargetingForActor(actor, id, uid),
       empty: !c,
       highlight: highlightUid != null && c && String(c.uid) === highlightUid
     });
@@ -2363,6 +2398,7 @@ function renderMenuPage_NPCs_Cards() {
     const slot = document.createElement('div');
     slot.className = 'partyCardSlot' + (isSelected ? ' selected' : ' scaled');
     slot.addEventListener('mouseenter', () => {
+      if (isMobileLayout()) return;
       if (npcMenuSelectedIndex !== i) {
         npcMenuSelectedIndex = i;
         npcMenuCardIndex = 0;
@@ -2370,6 +2406,7 @@ function renderMenuPage_NPCs_Cards() {
       }
     });
     slot.addEventListener('wheel', (e) => {
+      if (isMobileLayout()) return;
       const now = performance.now();
       npcMenuWheelAccum += e.deltaY;
       const threshold = 1000;
@@ -2710,6 +2747,14 @@ function buildAbilityCard(actor, ability, opts = {}) {
   }
   content.appendChild(targetLine);
 
+  if (isMobileLayout() && onClick) {
+    const use = document.createElement('button');
+    use.type = 'button';
+    use.textContent = 'Use ability';
+    use.setAttribute('aria-label', `Use ${abName}`);
+    use.addEventListener('click', e => { e.stopPropagation(); onClick(e); });
+    content.appendChild(use);
+  }
   card.appendChild(content);
 
   if (hotKey) {
@@ -4648,29 +4693,7 @@ if (conversationOverlay) {
 }
 
 if (optionsBox) {
-  optionsBox.addEventListener('mousedown', (e) => {
-    if (!inConversation) return;
-    const optEl = e.target && e.target.closest ? e.target.closest('[data-option-index]') : null;
-    if (!optEl || !optEl.dataset) return;
-    if (optEl.dataset.optionKey) {
-      selectDialogOptionByKey(optEl.dataset.optionKey);
-    } else if (optEl.dataset.optionIndex) {
-      const idx = parseInt(optEl.dataset.optionIndex, 10);
-      if (Number.isFinite(idx)) selectDialogOptionByIndex(idx);
-    }
-    e.stopPropagation();
-  });
-  optionsBox.addEventListener('click', (e) => {
-    if (!inConversation) return;
-    const optEl = e.target && e.target.closest ? e.target.closest('[data-option-index]') : null;
-    if (!optEl || !optEl.dataset) return;
-    if (optEl.dataset.optionKey) {
-      selectDialogOptionByKey(optEl.dataset.optionKey);
-    } else if (optEl.dataset.optionIndex) {
-      const idx = parseInt(optEl.dataset.optionIndex, 10);
-      if (Number.isFinite(idx)) selectDialogOptionByIndex(idx);
-    }
-  });
+  optionsBox.addEventListener('mousedown', e => e.stopPropagation());
 }
 
 // Dialog typing speed (characters per second)
@@ -5862,6 +5885,7 @@ function __getSunAngleDegForPhase() {
 }
 
 function drawTimeOfDayWidget() {
+  if (isMobileLayout()) return; // Compact mobile header shows the same world-time phase.
   // If the time visuals are disabled for this area/section, also hide the widget.
   const cfg = getEffectiveTimeOfDayVisualCfg();
   if (cfg.disableAll) return;
@@ -6419,7 +6443,8 @@ function resizeCanvas() {
 
 function resizeCanvasResolution() {
   canvas.height = WORLD_HEIGHT;
-  canvas.width  = Math.floor(WORLD_HEIGHT * (window.innerWidth / window.innerHeight));
+  const rect = viewportEl.getBoundingClientRect();
+  canvas.width = Math.max(1, Math.floor(WORLD_HEIGHT * (Math.max(1, rect.width) / Math.max(1, rect.height))));
 
   WIDTH  = canvas.width;
   HEIGHT = canvas.height;
@@ -9848,7 +9873,7 @@ function drawWorldToast() {
 
   WORLD_TOASTS.length = 0;
   WORLD_TOASTS.push(...alive);
-  if (!lines.length) return;
+  if (!lines.length || isMobileLayout()) return;
 
   const padX = 14;
   const padY = 7;
@@ -24137,6 +24162,12 @@ function __clearDialogStackAll({ keepPendingChoice = false } = {}) {
 }
 
 function __computeDialogStackLayout() {
+  if (isMobileLayout()) {
+    __dialogStackLeftPx = 0;
+    __dialogStackTopPx = 0;
+    __dialogStackWidthPx = Math.max(120, conversationOverlay.clientWidth - 24);
+    return;
+  }
   const W = window.innerWidth || 0;
   const H = window.innerHeight || 0;
   const pad = 12;
@@ -24238,6 +24269,7 @@ function __fitDialogStackBoxWidth(box, textEl, maxWidth) {
 }
 
 function __canAddToStack(pendingItems) {
+  if (isMobileLayout()) return DIALOG_STACK.length + (pendingItems?.length || 0) <= 8;
   const items = DIALOG_STACK.concat(pendingItems || []);
   const height = __measureStackHeight(items);
   const { row, pad } = __getDialogOptionRowHeight();
@@ -24294,6 +24326,8 @@ function __renderDialogStack(typingIndex = null) {
 
     y = Math.round(y + rect.height + gap);
   }
+
+  if (isMobileLayout()) return typingEl;
 
   // Pointer for first NPC box
   if (npcIndices.length) {
@@ -24812,6 +24846,10 @@ function __setDialogBoxText(text) {
 }
 
 function refreshConversationOverlayLayout(phrase) {
+  if (isMobileLayout()) {
+    conversationOverlay.dataset.mode = getDialogLayoutModeForPhrase(phrase);
+    return;
+  }
   if (!conversationOverlay || !dialogBox || !optionsBox) return;
 
   // Defaults
@@ -25180,6 +25218,14 @@ async function loadPhrase(id) {
       optDiv.dataset.optionIndex = String(idx);
       optDiv.dataset.optionKey = String(key);
       optDiv.className = 'dialogOption';
+      optDiv.setAttribute('role', 'button');
+      optDiv.tabIndex = 0;
+      optDiv.setAttribute('aria-label', String(opt.text || 'Choice'));
+      optDiv.addEventListener('keydown', e => {
+        if (e.code !== 'Space' && e.code !== 'Enter') return;
+        e.preventDefault(); e.stopPropagation();
+        selectDialogOptionByKey(String(key));
+      });
       const textSpan = document.createElement('span');
       textSpan.className = 'dialogOptionText';
       textSpan.textContent = opt.text;
@@ -27107,7 +27153,10 @@ if (canvas) {
     if (inManualTargeting) updateManualTargetingHover();
   });
 
-  canvas.addEventListener('mousedown', (e) => {
+  canvas.addEventListener('mousedown', handleWorldPointerDown);
+}
+
+function handleWorldPointerDown(e) {
     const rect = canvas.getBoundingClientRect();
     const sx = (e.clientX - rect.left) * (canvas.width / rect.width);
     const sy = (e.clientY - rect.top) * (canvas.height / rect.height);
@@ -27203,7 +27252,6 @@ if (canvas) {
         return;
       }
     }
-  });
 }
 
 function updateCamera() {
