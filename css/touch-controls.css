@@ -101,9 +101,19 @@ html.touch-enabled #playerMenuError {
   top: 6px;
   max-width: 90%;
 }
-html.touch-enabled #mapCanvas {
+html.touch-enabled #mapPanel {
   width: min(96%, 1100px);
   height: min(96%, 650px);
+}
+html.touch-enabled #mapCloseButton {
+  display: inline-flex;
+  min-width: 36px;
+  min-height: 36px;
+}
+html.touch-enabled #manualTargetingBackButton {
+  top: 48px;
+  left: 8px;
+  min-height: 40px;
 }
 html.touch-enabled { --ui-font-scale: 1.15; }
 #touchLandscapeNotice { display: none; }
