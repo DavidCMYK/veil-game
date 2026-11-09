@@ -683,7 +683,7 @@ function renderMenuTabs(targetEl, forceInactive = false, allowScale = false) {
     btn.className = 'playerMenuTabBtn';
     if (isActive) btn.dataset.active = '1';
     btn.style.width = '';
-    if (p.hotkey && p.hotkey.length > 0) {
+    if (!isMobileTouchUI() && p.hotkey && p.hotkey.length > 0) {
       const label = String(p.label || '');
       const hot = String(p.hotkey || '').toLowerCase();
       const idx = label.toLowerCase().indexOf(hot);
@@ -2689,7 +2689,7 @@ function buildAbilityCard(actor, ability, opts = {}) {
 
   const card = document.createElement('div');
   card.className = `abilityCard ${classifyAbilityClass(ability)}${extraClass ? ` ${extraClass}` : ''}`;
-  if (hotKey && !showPortrait) {
+  if (hotKey && !showPortrait && !isMobileTouchUI()) {
     card.classList.add('abilityCard--hotkeyIndent');
   }
   if (onClick) {
@@ -2836,7 +2836,7 @@ function renderMenuPage_Abilities_OLD() {
     }
 
     const ownerName = (actor === player) ? 'Player' : actor.name;
-    const label = hotKey
+    const label = (hotKey && !isMobileTouchUI())
       ? `${hotKey}. ${ownerName} — ${abName}`
       : `${ownerName} — ${abName}`;
 
@@ -3005,7 +3005,7 @@ function renderMenuPage_Abilities_OLD2() {
 
     const title = document.createElement('div');
     title.className = 'abilityCardTitle';
-    title.textContent = hotKey ? `${abName} [${hotKey}]` : abName;
+    title.textContent = (hotKey && !isMobileTouchUI()) ? `${abName} [${hotKey}]` : abName;
     header.appendChild(title);
     header.appendChild(toggle);
     content.appendChild(header);
@@ -25307,7 +25307,7 @@ async function loadPhrase(id) {
 
   } else {
     const p = document.createElement('div');
-    p.textContent = 'Press any key to continue...';
+    p.textContent = isMobileTouchUI() ? 'Tap to continue...' : 'Press any key to continue...';
     optionsBox.appendChild(p);
   }
   // Final layout pass (now that optionsBox has its real height)
@@ -28639,13 +28639,13 @@ function drawRecruitIconForNpc(npc, yOffset = 0) {
     return img.height + 6;
   }
 
-  // Fallback: plain "R" only if image missing
+  // Fallback: retain a tappable recruit symbol without a keyboard tag on mobile.
   ctx.save();
   ctx.fillStyle = '#fff';
   ctx.font = uiFont(40);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
-  ctx.fillText('R', sx, sy);
+  ctx.fillText(isMobileTouchUI() ? '+' : 'R', sx, sy);
   ctx.restore();
 
   const fw = 26;
@@ -28673,8 +28673,12 @@ const KEYBADGE_DEFAULT_OVERLAP_X_MULT = 0.2;
 const KEYBADGE_DEFAULT_OVERLAP_Y_MULT = 1.8;
 const KEYBADGE_DOM_SCALE = 0.55;
 
+function isMobileTouchUI() {
+  return document.documentElement.classList.contains('touch-enabled');
+}
+
 function getKeyBadgeLayout(label, opts = {}) {
-  if (!label) return null;
+  if (!label || isMobileTouchUI()) return null;
   const r = Number(opts.r || 26);
   const overlapX = (opts.overlapX != null) ? Number(opts.overlapX) : r * KEYBADGE_DEFAULT_OVERLAP_X_MULT;
   const overlapY = (opts.overlapY != null) ? Number(opts.overlapY) : r * KEYBADGE_DEFAULT_OVERLAP_Y_MULT;
@@ -28713,7 +28717,7 @@ function drawKeyBadge(ctx, cx, cy, label, opts = {}) {
 }
 
 function attachHotkeyBadge(el, hotKey, opts = {}) {
-  if (!el || hotKey == null) return null;
+  if (!el || hotKey == null || isMobileTouchUI()) return null;
   const badge = document.createElement('div');
   badge.className = 'hotkeyBadge';
   badge.textContent = String(hotKey);
@@ -28915,7 +28919,7 @@ function drawInteractionIcon(x, y, label = 'I') {
   ctx.fill();
 
   ctx.fillStyle = '#fff';
-  ctx.fillText(String(label || 'I'), x, y + 1);
+  ctx.fillText(isMobileTouchUI() ? '✦' : String(label || 'I'), x, y + 1);
 
   ctx.restore();
   return { x: Math.floor(x - 14), y: Math.floor(y - 14), w: 28, h: 28 };
@@ -30540,8 +30544,8 @@ function gameLoop(ts) {
     if (isActorUnconscious(actor)) continue;
     let yOffset = headStack.get(actor) || 0;
 
-    let keyLabel = 'T';
-    if (party.includes(actor)) {
+    let keyLabel = isMobileTouchUI() ? null : 'T';
+    if (!isMobileTouchUI() && party.includes(actor)) {
       keyLabel = (Number.isFinite(p.keyNum) && p.keyNum > 0) ? String(p.keyNum) : null;
     }
 

@@ -148,3 +148,17 @@ html.touch-enabled #playerMenuContent .partyCardSlot .partyCard {
   outline: none;
 }
 
+
+/* Keyboard labels are desktop-only. Keep mobile cards and icon hit areas intact. */
+html.touch-enabled .hotkeyBadge,
+html.touch-enabled .dialogOptionKeyBadge,
+html.touch-enabled .playerMenuItemKey,
+html.touch-enabled .dialogPromptKey {
+  display: none !important;
+}
+html.touch-enabled .playerMenuTabHotkey {
+  text-decoration: none;
+}
+html.touch-enabled .abilityCard--hotkeyIndent .abilityCardTitle {
+  padding-left: 0;
+}
