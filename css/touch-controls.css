@@ -87,9 +87,9 @@ html.touch-enabled #playerMenuOverlay {
 html.touch-enabled #playerMenuContent {
   box-sizing: border-box;
   top: 6px;
-  left: 8px;
-  transform: none;
-  width: calc(100% - 16px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(92%, 1200px);
   height: calc(100% - 12px);
   overflow-x: hidden;
   overflow-y: auto;
@@ -132,7 +132,7 @@ html.touch-enabled #optionsBox .dialogOptionKeyBadge {
 
 /* Swiping the selected cards changes their pages rather than scrolling. */
 html.touch-enabled #playerMenuContent .partyCardsGrid {
-  justify-content: flex-start;
+  justify-content: safe center;
   overflow-x: auto;
   overflow-y: hidden;
   max-width: 100%;
