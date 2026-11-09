@@ -23876,6 +23876,11 @@ function resetConversationOverlayLayout() {
     optionsBox.style.bottom = '';
     optionsBox.style.width = '';
     optionsBox.style.maxWidth = '';
+    if (document.documentElement.classList.contains('touch-enabled')) {
+      optionsBox.style.maxHeight = '';
+      optionsBox.style.overflowY = '';
+      optionsBox.style.overscrollBehavior = '';
+    }
     optionsBox.style.transform = '';
     optionsBox.style.textAlign = '';
   }
