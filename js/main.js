@@ -9810,6 +9810,83 @@ const HEAD_STAT_BAR_H = 26;
 const HEAD_STAT_BAR_GAP = 10;
 const HEAD_STAT_BAR_LABEL_Y_PAD = 2;
 
+// Keep the mobile STA/COM readouts a readable size regardless of canvas
+// resolution, CSS scaling, or camera zoom. The desktop world bars are untouched.
+function drawMobileActorStatBars(actor, renderX, renderY, staCurrent, staMax, comCurrent, comMax) {
+  const rect = canvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) return 0;
+
+  const px = canvas.width / rect.width; // canvas pixels per CSS screen pixel
+  if (!Number.isFinite(px) || px <= 0) return 0;
+
+  const labelW = 29 * px;
+  const barW = 122 * px;
+  const valueW = 43 * px;
+  const gapX = 5 * px;
+  const pad = 6 * px;
+  const barH = 14 * px;
+  const rowH = 20 * px;
+  const rowGap = 3 * px;
+  const boxW = pad * 2 + labelW + barW + valueW + gapX * 2;
+  const boxH = pad * 2 + rowH * 2 + rowGap;
+  const margin = 4 * px;
+
+  const centerX = __renderToScreenX(renderX + actor.w * 0.5);
+  const topY = __renderToScreenY(renderY);
+  const boxX = Math.max(margin, Math.min(WIDTH - boxW - margin, centerX - boxW * 0.5));
+  const boxY = Math.max(margin, topY - boxH - 8 * px);
+
+  // This function is called while world rendering has the camera zoom
+  // transform applied. Draw in untransformed canvas coordinates so all
+  // text and bars remain the same physical size on the phone.
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = 'rgba(14, 19, 23, 0.88)';
+  drawRoundedRect(ctx, boxX, boxY, boxW, boxH, 7 * px);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+  ctx.lineWidth = Math.max(1, px);
+  ctx.stroke();
+
+  const fmt = v => String(Math.round(Math.max(0, Number(v) || 0) * 10) / 10);
+  const drawRow = (index, label, current, maximum, color) => {
+    const y = boxY + pad + index * (rowH + rowGap);
+    const centerY = y + rowH * 0.5;
+    const startX = boxX + pad;
+    const fillX = startX + labelW + gapX;
+    const fillY = centerY - barH * 0.5;
+
+    ctx.font = `700 ${Math.max(1, Math.round(11 * px))}px sans-serif`;
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(label, startX, centerY);
+
+    drawRoundedRect(ctx, fillX, fillY, barW, barH, 3 * px);
+    ctx.fillStyle = '#101820';
+    ctx.fill();
+    const fraction = maximum > 0 ? Math.max(0, Math.min(1, current / maximum)) : 0;
+    if (fraction > 0) {
+      const filled = barW * fraction;
+      drawRoundedRect(ctx, fillX, fillY, filled, barH, Math.min(3 * px, filled * 0.5));
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
+    drawRoundedRect(ctx, fillX, fillY, barW, barH, 3 * px);
+    ctx.lineWidth = px;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.stroke();
+
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(`${fmt(current)}/${fmt(maximum)}`, boxX + boxW - pad, centerY);
+  };
+  drawRow(0, 'STA', staCurrent, staMax, '#269849');
+  drawRow(1, 'COM', comCurrent, comMax, '#3f7ed5');
+  ctx.restore();
+  return boxH;
+}
+
 function drawFixedStatBar(cx, yBottom, label, current, base, opts = {}) {
   const w = Math.floor(Number(opts.w ?? 220));
   const h = Math.floor(Number(opts.h ?? HEAD_STAT_BAR_H));
@@ -10647,6 +10724,10 @@ function drawNpcHeadBars(npc, x, y) {
   let used = 0;
 
   const comMax = Number(getStatEffectiveValue(npc, 'composure') ?? comRec.max ?? 0);
+  if (document.documentElement.classList.contains('touch-enabled')) {
+    const staMax = Number(getStatEffectiveValue(npc, 'stamina') ?? staRec.max ?? 0);
+    return drawMobileActorStatBars(npc, x, y, staVal, staMax, comVal, comMax);
+  }
   const usedCom = drawFixedStatBar(cx, yBottom, 'COM', comVal, comMax, {
     fill: 'rgba(16, 55, 122, 0.95)'
   });
@@ -10705,6 +10786,10 @@ function drawPlayerHeadBars(x, yBottomStart) {
 
   // COM (top) then STA (bottom)
   const comMax = Number(getStatEffectiveValue(player, 'composure') ?? comRec.max ?? 0);
+  if (document.documentElement.classList.contains('touch-enabled')) {
+    const staMax = Number(getStatEffectiveValue(player, 'stamina') ?? staRec.max ?? 0);
+    return drawMobileActorStatBars(player, x, player.y, staVal, staMax, comVal, comMax);
+  }
   const usedCom = drawFixedStatBar(cx, yBottom, 'COM', comVal, comMax, {
     fill: 'rgba(16, 55, 122, 0.95)'
   });
