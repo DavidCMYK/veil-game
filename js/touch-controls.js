@@ -28,7 +28,7 @@
   menuButton.setAttribute('aria-controls', 'mobilePanel');
   const locationLabel = make('div', 'mobileLocation', toolbar);
   const mapButton = button('Map', toolbar, () => send('KeyM'));
-  const panel = make('aside', 'mobilePanel', game);
+  const panel = make('aside', 'mobilePanel', viewportEl);
   panel.setAttribute('aria-label', 'Game information');
   const panelHeader = make('div', 'mobilePanelHeader', panel);
   const heading = make('h2', 'mobilePanelTitle', panelHeader);
@@ -177,9 +177,8 @@
     notice.hidden=!toast;
     locationLabel.textContent=`${currentArea?.displayName||currentArea?.name||currentAreaName||'Veil'} · ${time.phase||''}`;
     updateActorNav();updateActions(mode);
-    const emptyFooter = mode !== 'play' && !actions.children.length && !toast && playerMenuError.style.display === 'none';
-    footer.hidden = emptyFooter;
-    root.classList.toggle('mobile-footer-empty', emptyFooter);
+    // Keep the movement viewport the same size when an overlay opens or closes.
+    footer.hidden = false;
   }
   canvas.addEventListener('pointerdown',e=>{
     if(!mounted || e.pointerType==='mouse' && !new URLSearchParams(location.search).has('touch')) return;
