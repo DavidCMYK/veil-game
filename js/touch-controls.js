@@ -190,9 +190,8 @@
     if (active && !canvasEl.contains(e.target)) setDirection(null);
   }, true);
 
-  // Swipe vertically on a selected character card to flip its four
-  // sub-cards. Use the existing keyboard navigation so the same selection
-  // and slide animation logic is shared with desktop.
+  // Swipe each character's card independently, without keyboard selection.
+  // The abilities overview still uses its existing arrow-key navigation.
   const menuContent = document.getElementById('playerMenuContent');
   let menuSwipe = null;
   if (menuContent) {
@@ -211,14 +210,14 @@
       const target = e.target;
       const onCard = page === 'abilities'
         ? target.closest?.('.abilityCard')
-        : target.closest?.('.partyCardSlot.selected');
+        : target.closest?.('.partyCardSlot[data-mobile-card-key]');
       if (!onCard) return;
       const touch = e.touches[0];
       menuSwipe = {
         id: touch.identifier,
         x: touch.clientX, y: touch.clientY,
         lastX: touch.clientX, lastY: touch.clientY,
-        page
+        page, actorKey: onCard.dataset.mobileCardKey || null
       };
     }, { passive: true });
 
@@ -249,10 +248,15 @@
       const dy = touch.clientY - gesture.y;
       if (Math.abs(dy) < 45 || Math.abs(dy) <= Math.abs(dx) * 1.2) return;
       e.preventDefault(); // avoid an accidental card tap at the end
-      const code = dy < 0 ? 'ArrowDown' : 'ArrowUp';
-      window.dispatchEvent(new KeyboardEvent('keydown', {
-        code, key: code, bubbles: true, cancelable: true
-      }));
+      const dir = dy < 0 ? 1 : -1;
+      if (gesture.page === 'party' || gesture.page === 'npcs') {
+        advanceMobileCard(gesture.page, gesture.actorKey, dir);
+      } else {
+        const code = dir > 0 ? 'ArrowDown' : 'ArrowUp';
+        window.dispatchEvent(new KeyboardEvent('keydown', {
+          code, key: code, bubbles: true, cancelable: true
+        }));
+      }
     }, { passive: false });
 
     menuContent.addEventListener('touchcancel', () => { menuSwipe = null; });

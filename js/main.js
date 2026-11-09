@@ -505,6 +505,42 @@ let npcMenuCardAnimUntilMs = 0;
 let npcMenuWheelAccum = 0;
 let npcMenuWheelLastAt = 0;
 
+// On touchscreens every character card has its own page; keyboard selection
+// remains unchanged on desktop.
+const mobileCardPages = { party: new Map(), npcs: new Map() };
+function advanceMobileCard(page, actorKey, dir) {
+  if (!document.documentElement.classList.contains('touch-enabled')) return;
+  const store = mobileCardPages[page];
+  if (!store || !actorKey || !inMenu || inManualTargeting) return;
+  const key = String(actorKey);
+  const previous = store.get(key)?.index ?? 0;
+  const direction = dir > 0 ? 1 : -1;
+  store.set(key, {
+    previous, index: (previous + direction + 4) % 4,
+    direction, until: performance.now() + 1000
+  });
+  renderPlayerMenu();
+}
+
+function renderMobileCardStage(state, builders) {
+  const stage = document.createElement('div');
+  stage.className = 'partyCardStageFull';
+  const index = state?.index ?? 0;
+  const previous = state?.previous ?? index;
+  const animating = previous !== index && performance.now() < (state?.until ?? 0);
+  if (animating) {
+    const outgoing = builders[previous]();
+    const incoming = builders[index]();
+    outgoing.classList.add('partyCardAnim', state.direction > 0 ? 'to-up' : 'to-down', 'outgoing');
+    incoming.classList.add('partyCardAnim', state.direction > 0 ? 'from-down' : 'from-up', 'incoming');
+    stage.appendChild(outgoing);
+    stage.appendChild(incoming);
+  } else {
+    stage.appendChild(builders[index]());
+  }
+  return stage;
+}
+
 const MENU_PAGES = []; // { id, label, hotkey, render() }
 function registerMenuPage(id, label, hotkey, renderFn) {
   MENU_PAGES.push({
@@ -567,6 +603,10 @@ function openPlayerMenu(pageId = null) {
   if (pageId) activeMenuPageId = String(pageId);
 
   // Always open on stats/picture card, but keep selected character per menu
+  if (document.documentElement.classList.contains('touch-enabled')) {
+    mobileCardPages.party.clear();
+    mobileCardPages.npcs.clear();
+  }
   partyMenuCardIndex = 0;
   partyMenuPrevCardIndex = 0;
   partyMenuCardAnimUntilMs = 0;
@@ -975,6 +1015,7 @@ function collectJournalGoalsForStore(store, ownerName) {
 
 function renderMenuPage_PartyCards() {
   ensurePlayerStats();
+  const touchCards = document.documentElement.classList.contains('touch-enabled');
 
   const wrap = document.createElement('div');
   wrap.className = 'partyCardsGrid';
@@ -1013,8 +1054,8 @@ function renderMenuPage_PartyCards() {
   const nonSelectedH = nonSelectedW * 1.5;
   wrap.style.setProperty('--party-card-height', `${cardH}px`);
   wrap.style.setProperty('--party-card-width', `${cardW}px`);
-  wrap.style.setProperty('--party-card-scaled-height', `${nonSelectedH}px`);
-  wrap.style.setProperty('--party-card-scaled-width', `${nonSelectedW}px`);
+  wrap.style.setProperty('--party-card-scaled-height', `${touchCards ? cardH : nonSelectedH}px`);
+  wrap.style.setProperty('--party-card-scaled-width', `${touchCards ? cardW : nonSelectedW}px`);
   partyMenuCardSize = { h: cardH, w: cardW };
 
   const labelForStat = (key) => {
@@ -1354,10 +1395,12 @@ function renderMenuPage_PartyCards() {
   for (let i = 0; i < members.length; i++) {
     const member = members[i];
     if (!member) continue;
-    const isSelected = (i === partyMenuSelectedIndex);
+    const isSelected = !touchCards && (i === partyMenuSelectedIndex);
     const slot = document.createElement('div');
-    slot.className = 'partyCardSlot' + (isSelected ? ' selected' : ' scaled');
+    slot.className = 'partyCardSlot' + (touchCards ? '' : (isSelected ? ' selected' : ' scaled'));
+    if (touchCards) slot.dataset.mobileCardKey = lc(member.name || 'player');
     slot.addEventListener('mouseenter', () => {
+      if (touchCards) return;
       if (partyMenuSelectedIndex !== i) {
         partyMenuSelectedIndex = i;
         partyMenuCardIndex = 0;
@@ -1391,7 +1434,17 @@ function renderMenuPage_PartyCards() {
       e.preventDefault();
     }, { passive: false });
 
-    if (isSelected) {
+    if (touchCards) {
+      slot.appendChild(renderMobileCardStage(
+        mobileCardPages.party.get(slot.dataset.mobileCardKey),
+        [
+          () => buildStatsCard(member, 'party'),
+          () => buildAbilitiesCard(member, { showHotkeys: false }),
+          () => buildInventoryCard(member),
+          () => buildGoalsCard(member)
+        ]
+      ));
+    } else if (isSelected) {
       const stage = document.createElement('div');
       stage.className = 'partyCardStageFull';
 
@@ -1985,6 +2038,7 @@ function renderMenuPage_NPCs() {
 }
 
 function renderMenuPage_NPCs_Cards() {
+  const touchCards = document.documentElement.classList.contains('touch-enabled');
   const wrap = document.createElement('div');
   wrap.className = 'partyCardsGrid';
 
@@ -2029,16 +2083,16 @@ function renderMenuPage_NPCs_Cards() {
   const nonSelectedH = nonSelectedW * 1.5;
   wrap.style.setProperty('--party-card-height', `${cardH}px`);
   wrap.style.setProperty('--party-card-width', `${cardW}px`);
-  wrap.style.setProperty('--party-card-scaled-height', `${nonSelectedH}px`);
-  wrap.style.setProperty('--party-card-scaled-width', `${nonSelectedW}px`);
+  wrap.style.setProperty('--party-card-scaled-height', `${touchCards ? cardH : nonSelectedH}px`);
+  wrap.style.setProperty('--party-card-scaled-width', `${touchCards ? cardW : nonSelectedW}px`);
 
   const sel = npcMenuSelectedIndex;
-  let start = Math.max(0, sel - 2);
-  let end = Math.min(entries.length - 1, start + 4);
-  start = Math.max(0, end - 4);
+  let start = touchCards ? 0 : Math.max(0, sel - 2);
+  let end = touchCards ? entries.length - 1 : Math.min(entries.length - 1, start + 4);
+  start = touchCards ? 0 : Math.max(0, end - 4);
 
-  const leftPad = Math.max(0, 2 - (sel - start));
-  const rightPad = Math.max(0, 2 - (end - sel));
+  const leftPad = touchCards ? 0 : Math.max(0, 2 - (sel - start));
+  const rightPad = touchCards ? 0 : Math.max(0, 2 - (end - sel));
 
   const addPlaceholder = () => {
     const slot = document.createElement('div');
@@ -2360,10 +2414,12 @@ function renderMenuPage_NPCs_Cards() {
   for (let i = start; i <= end; i++) {
     const name = entries[i];
     const actor = buildNpcMenuActor(name);
-    const isSelected = (i === sel);
+    const isSelected = !touchCards && (i === sel);
     const slot = document.createElement('div');
-    slot.className = 'partyCardSlot' + (isSelected ? ' selected' : ' scaled');
+    slot.className = 'partyCardSlot' + (touchCards ? '' : (isSelected ? ' selected' : ' scaled'));
+    if (touchCards) slot.dataset.mobileCardKey = lc(name);
     slot.addEventListener('mouseenter', () => {
+      if (touchCards) return;
       if (npcMenuSelectedIndex !== i) {
         npcMenuSelectedIndex = i;
         npcMenuCardIndex = 0;
@@ -2397,7 +2453,17 @@ function renderMenuPage_NPCs_Cards() {
       e.preventDefault();
     }, { passive: false });
 
-    if (isSelected) {
+    if (touchCards) {
+      slot.appendChild(renderMobileCardStage(
+        mobileCardPages.npcs.get(slot.dataset.mobileCardKey),
+        [
+          () => buildStatsCard(actor),
+          () => buildAbilitiesCard(actor),
+          () => buildInventoryCard(actor),
+          () => buildGoalsCard(actor)
+        ]
+      ));
+    } else if (isSelected) {
       const stage = document.createElement('div');
       stage.className = 'partyCardStageFull';
 
