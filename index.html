@@ -18,8 +18,12 @@
         <canvas id="miniMapCanvas" width="500" height="500"></canvas>
       </div>
       <div id="mapOverlay">
-        <canvas id="mapCanvas" width="520" height="360"></canvas>
+        <div id="mapPanel">
+          <canvas id="mapCanvas" width="520" height="360"></canvas>
+          <button id="mapCloseButton" type="button" aria-label="Close map">×</button>
+        </div>
       </div>
+      <button id="manualTargetingBackButton" type="button">← Back</button>
 
       <div id="conversationOverlay">
         <img id="conversationPortrait" src="" alt="Portrait">
