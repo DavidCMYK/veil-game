@@ -2,8 +2,9 @@
     "spirit_wisp": {
         "name": "Spirit Wisp",
 
-        "tags": ["spirit", "wisp", "veil_tear_pass"],
+        "tags": ["spirit", "wisp", "veil_pass"],
         "faction": "wild",
+        "factions": ["mob", "wild"],
         "temperament": "skittish",
 
         "body": {
@@ -40,34 +41,34 @@
         },
 
         "stats": {
-            "hp": 3,
-            "endurance": 0,
-            "fortitude": 0 
+            "hp": { "max": 3, "current": 3 },
+            "endurance": { "base": 0 },
+            "fortitude": { "base": 0 }
         },
 
         "contactEffects": {
-        "onStart": [
-            {
-            "type": "updateStat",
-            "stat": "composure",
-            "npc": "@target",
-            "field": "current",
-            "delta": -1
-            }
-        ],
+          "onStart": [
+              {
+              "type": "updateStat",
+              "stat": "composure",
+              "npc": "@target",
+              "field": "current",
+              "delta": -1
+              }
+          ],
 
-        "onTick": {
-            "everyMs": 2000,
-            "effects": [
-            {
-                "type": "updateStat",
-                "stat": "composure",
-                "npc": "@target",
-                "field": "current",
-                "delta": -1
-            }
+          "onTick": {
+              "everyMs": 2000,
+              "effects": [
+              {
+                  "type": "updateStat",
+                  "stat": "composure",
+                  "npc": "@target",
+                  "field": "current",
+                  "delta": -1
+              }
             ]
-        }
+          }
         },
 
         "drops": [
@@ -80,6 +81,7 @@
 
       "tags": ["spirit"],
       "faction": "wild",
+      "factions": ["mob", "wild"],
       "temperament": "defensive",
 
       "body": {
@@ -106,58 +108,51 @@
           },
           "moving": {
               "speedPxPerSec": 2000
-          }
+          },
+          "targeting": {
+              "priority": ["enemy"],
+              "allowed": ["enemy"],
+              "section": "currentSection",
+              "remove": {
+                  "unconscious": true,
+                  "leaveArea": true
+              },
+              "sort": [
+                  { "by": "distance" },
+                  { "by": "stamina", "order": "asc" }
+              ],
+              "resort": {
+                  "when": "onChange"
+              },
+              "action": {
+                  "stopRangePx": 80,
+                  "chaseTarget": true
+              },
+              "onEmpty": {
+                  "type": "returnToAnchor"
+              }
+          },
+          "autoCastRules": [
+              {
+                  "ability": "regen_1",
+                  "when": { "actorParam": { "key": "hp", "op": "lte", "value": 3 } }
+              },
+              {
+                  "ability": "close_strike",
+                  "when": { "actorParam": { "key": "hp", "op": "gte", "value": 9 } }
+              }
+          ]
       },
 
-      "targeting": {
-          "add": {
-              "includePlayer": true,
-              "includeParty": true,
-              "includeWorldNPCs": true,
-              "section": "currentSection"
-          },
-          "remove": {
-              "unconscious": true,
-              "leaveSection": true
-          },
-          "sort": [
-              { "by": "distance" },
-              { "by": "lowestStat", "stat": "stamina" }
-          ],
-          "resort": {
-              "when": "onChange"
-          },
-          "action": {
-              "stopRangePx": 80
-          },
-          "onEmpty": {
-              "type": "returnToAnchor"
-          }
-        },
-
         "stats": {
-            "hp": 3,
-            "endurance": 0,
-            "fortitude": 0  
+            "hp": { "max": 10, "current": 10 },
+            "endurance": { "base": 0 },
+            "fortitude": { "base": 0 }
         },
 
         "abilities": [
-          {
-              "id": "close_strike",
-              "cooldownMs": 1000,
-              "rangePx": 100,
-              "requiresContact": false,
-              "animation":"attack",
-              "effects": [
-                  {
-                  "type": "updateStat",
-                  "npc": "@target",
-                  "stat": "stamina",
-                  "field": "current",
-                  "delta": -3
-                  }
-              ]
-          }
+          "close_strike",
+          "regen_1"
         ],
 
         "drops": [
@@ -177,30 +172,25 @@
             },
         "moving": {
             "speedPxPerSec": 800
-            }
-        },
-
-      "targeting": {
-        "add": {
-            "includePlayer": true,
-            "includeParty": true,
-            "includeWorldNPCs": true,
-            "withinPx": 900
-        },
-        "remove": {
-            "unconscious": true
-        },
-        "sort": [
-            { "by": "lowestStat", "stat": "fortitude" }
-        ],
-        "resort": {
-            "when": "onChange"
-        },
-        "action": {
-            "stopRangePx": 80
-        },
-        "onEmpty": {
-            "type": "returnToAnchor"
+            },
+        "targeting": {
+          "priority": ["enemy"],
+          "allowed": ["enemy"],
+          "withinPx": 900,
+          "remove": {
+              "unconscious": true,
+              "leaveArea": true
+          },
+          "sort": [
+              { "by": "fortitude", "order": "asc" }
+          ],
+          "resort": {
+              "when": "onChange"
+          },
+          "action": {
+              "stopRangePx": 80,
+              "chaseTarget": true
+          }
         }
       },
 
@@ -216,46 +206,148 @@
       "tags": ["spirit", "wisp", "elite"],
 
       "stats": {
-        "hp": 6
+        "hp": { "max": 6, "current": 6 }
       },
 
       "abilities": [
-        {
-          "id": "wisp_pulse",
-          "cooldownMs": 1800,
-          "rangePx": 170,
-          "requiresContact": false,
-          "effects": [
-            {
-              "type": "updateStat",
-              "stat": "composure",
-              "field": "current",
-              "delta": -1
-            }
-          ]
-        },
-        {
-          "id": "veil_haze",
-          "cooldownMs": 7000,
-          "rangePx": 220,
-          "requiresContact": false,
-          "effects": [
-            {
-              "type": "setFlag",
-              "scope": "area",
-              "key": "veil_haze_active",
-              "value": true
-            }
-          ]
-        }
+        "wisp_pulse",
+        "veil_haze"
       ]
     },
+
+    "mira_colossus": {
+      "name": "Veil Colossus",
+
+      "tags": ["veil_pass"],
+      "faction": "wild",
+      "factions": ["mob", "wild"],
+      "temperament": "defensive",
+
+      "allianceByInstance": {
+        "npc:mira": 3
+      },
+      "allianceByFaction": {
+        "party": -3
+      },
+
+      "body": {
+        "w": 3000,
+        "h": 1500,
+        "hitbox": {
+          "type": "rect",
+          "x": 150,
+          "y": 200,
+          "w": 1100,
+          "h": 350
+        }
+      },
+
+      "locomotion": {
+        "mode": "ground"
+      },
+
+      "ai": {
+        "moving": {
+          "speedPxPerSec": 250
+        },
+        "targeting": {
+          "priority": ["enemy"],
+          "allowed": ["enemy"],
+          "sort": [
+            { "by": "distance", "order": "asc" }
+          ],
+          "resort": {
+            "when": "always"
+          },
+          "action": {
+            "stopRangePx": 200
+          },
+          "onEmpty": {
+            "type": "idle"
+          }
+        },
+        "movementTargeting": {
+          "priority": ["ally"],
+          "allowed": ["ally"],
+          "sort": [
+            { "by": "distance", "order": "asc" }
+          ],
+          "resort": {
+            "when": "always"
+          },
+          "action": {
+            "stopRangePx": 1400
+          },
+          "onEmpty": {
+            "type": "idle"
+          }
+        },
+        "autoCastRules": [
+          {
+            "ability": "sustain_colossus",
+            "when": {
+              "eligibleTargetInAbilityRangeStat": {
+                "stat": "composure",
+                "field": "current",
+                "op": "eq",
+                "value": 0
+              }
+            },
+            "lockUntil": {
+              "allEligibleTargetsInAbilityRangeStat": {
+                "stat": "composure",
+                "field": "current",
+                "op": "gte",
+                "rhs": { "field": "max" }
+              }
+            },
+            "sort": [{ "by": "composure", "order": "asc" }]
+          },
+          {
+            "ability": "reset_colossus",
+            "when": {
+              "eligibleTargetInAbilityRangeStat": {
+                "stat": "composure",
+                "field": "current",
+                "op": "lt",
+                "rhs": { "field": "max" }
+              }
+            },
+            "sort": [{ "by": "composure", "order": "asc" }]
+          },
+          {
+            "ability": "unseen_hand_colossus",
+            "when": { "eligibleTargetInAbilityRange": true },
+            "sort": [{ "by": "distance", "order": "asc" }]
+          },
+          {
+            "ability": "chilling_sensation_colossus",
+            "when": { "eligibleTargetInAbilityRange": true },
+            "sort": [{ "by": "distance", "order": "asc" }]
+          }
+        ]
+      },
+
+      "stats": {
+        "hp": { "max": 20, "current": 20 },
+        "endurance": { "base": 0 },
+        "fortitude": { "base": 0 }
+      },
+
+        "abilities": [
+          "chilling_sensation_colossus",
+          "unseen_hand_colossus",
+          "sustain_colossus",
+          "reset_colossus"
+        ]
+      },
 
     "burrowling": {
       "name": "Burrowling",
 
       "tags": ["wild", "burrow"],
       "faction": "wild",
+      "factions": ["mob", "wild"],
       "temperament": "defensive",
 
       "body": {
@@ -288,9 +380,9 @@
       },
 
       "stats": {
-        "hp": 5,
-        "endurance": 0,
-        "fortitude": 0 
+        "hp": { "max": 5, "current": 5 },
+        "endurance": { "base": 0 },
+        "fortitude": { "base": 0 }
       },
 
       "contactEffects": {
@@ -307,20 +399,7 @@
       },
 
       "abilities": [
-        {
-          "id": "burrow_lunge",
-          "cooldownMs": 3200,
-          "rangePx": 120,
-          "requiresContact": true,
-          "effects": [
-            {
-              "type": "updateStat",
-              "stat": "stamina",
-              "field": "current",
-              "delta": -1
-            }
-          ]
-        }
+        "burrow_lunge"
       ],
 
       "drops": [

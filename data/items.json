@@ -4,8 +4,13 @@
       "name": "Tua Leaves",
       "description": "A handful of bitter leaves. Settle nerves and recover composure.",
       "usesPerItem": 5,
+      "targeting": {
+        "priority": ["party", "player"],
+        "allowed": ["npc", "object"],
+        "sort": [{ "by": "composure", "order": "asc" }]
+      },
       "effects": [
-        { "type": "updateStat", "stat": "composure", "field": "current", "delta": 1 }
+        { "type": "updateStat", "npc": "@target", "stat": "composure", "field": "current", "delta": 1 }
       ]
     },
     "letta_berry": {
@@ -13,7 +18,55 @@
       "description": "A sweet and slightly spicy berry that recovers stamina.",
       "usesPerItem": 1,
       "effects": [
-        { "type": "updateStat", "stat": "stamina", "field": "current", "delta": 1 }
+        { "type": "updateStat", "npc": "@target", "stat": "stamina", "field": "current", "delta": 1 }
+      ],
+      "targeting": {
+        "priority": ["party", "player"],
+        "allowed": ["npc", "object"],
+        "sort": [{ "by": "stamina", "order": "asc" }]
+      }
+    },
+    "map_kit": {
+      "name": "Mapping Supplies",
+      "description": "Old parchment and pencils, to keep track of the world around you.",
+      "usesPerItem": 0,
+      "effects": [
+        { "type": "openMap" }
+      ],
+      "grants": [
+        { "kind": "feature", "id": "map_access", "mode": "hold_use" }
+      ]
+    },
+    "test_relation_ping_charm": {
+      "name": "Relation Ping Charm",
+      "description": "A test charm that grants relation-based targeting.",
+      "image": "tua_leaves",
+      "grants": [
+        { "kind": "ability", "id": "test_relation_ping", "mode": "hold_use" }
+      ]
+    },
+    "blue_pendant": {
+      "name": "Blue Pendant",
+      "description": "A cold blue pendant that stirs something familiar.",
+      "usesPerItem": 0,
+      "grants": [
+        { "kind": "statMod", "stat": "affection", "delta": 2, "mode": "hold_use", "eligible": { "names": ["Mira"] } }
+      ]
+    },
+    "fortitude_charm": {
+      "name": "Fortitude Charm",
+      "description": "A small charm that steadies the mind while held.",
+      "usesPerItem": 0,
+      "grants": [
+        { "kind": "statMod", "stat": "fortitude", "delta": 2, "mode": "hold_use" }
+      ]
+    },
+    "etiram_map": {
+      "name": "Etiram's Map",
+      "description": "An old map found on a body in the Edertide Forest shrine.",
+      "usesPerItem": 0,
+      "grants": [
+        { "kind": "statMod", "stat": "fortitude", "delta": 2, "mode": "hold_use" }
       ]
     }
   }

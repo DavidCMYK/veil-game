@@ -1,0 +1,235 @@
+{
+  "veil_charm": {
+    "id": "veil_charm",
+    "name": "Veil Charm",
+    "description": "Weakens the effect of manifestations of the veil.",
+    "animation": "ability",
+    "cooldownMs": 10000,
+    "fixedTarget": "party",
+    "castingTimeMs": 2000,
+    "stopMoving": true,
+    "effects": [
+      { "type": "addTag", "npc": "@target", "tag": "veil_pass", "durationMs": 10000 }
+    ]
+  },
+  "chilling_sensation": {
+    "id": "chilling_sensation",
+    "name": "Chilling Sensation",
+    "description": "Hurts the composure of a target from a distance.",
+    "rangePx": 1000,
+    "cooldownMs": 1500,
+    "castingTimeMs": 1000,
+    "targeting": {
+      "priority": ["enemy"],
+      "withinPx": 3000,
+      "sort": [
+        { "by": "distance", "order": "asc" }
+      ]
+    },
+    "effects": [
+      { "type": "updateStat", "npc": "@target", "stat": "composure", "delta": -1 }
+    ]
+  },
+  "chilling_sensation_colossus": {
+    "id": "chilling_sensation_colossus",
+    "name": "Chilling Sensation",
+    "description": "Hurts the composure of a target from a distance.",
+    "rangePx": 3000,
+    "cooldownMs": 2000,
+    "castingTimeMs": 1000,
+    "targeting": {
+      "priority": ["enemy"],
+      "withinPx": 3000,
+      "sort": [
+        { "by": "distance", "order": "asc" }
+      ]
+    },
+    "effects": [
+      { "type": "updateStat", "npc": "@target", "stat": "composure", "delta": -1 }
+    ]
+  },
+  "sustain_colossus": {
+    "id": "sustain_colossus",
+    "name": "Sustain",
+    "description": "Heals the composure of an ally at close range.",
+    "rangePx": 4000,
+    "warmupMs": 5000,
+    "cooldownMs": 2000,
+    "castingTimeMs": 5000,
+    "targeting": {
+      "priority": ["ally"],
+      "withinPx": 4000,
+      "sort": [
+        { "by": "composure", "order": "asc" }
+      ]
+    },
+    "effects": [
+      { "type": "setStat", "npc": "@target", "stat": "composure", "field": "current", "value": { "stat": "composure", "field": "max" } },
+      { "type": "setStat", "npc": "@target", "stat": "alignment", "field": "current", "value": 0 },
+      { "type": "setStat", "npc": "@target", "stat": "affection", "field": "current", "value": 0 }
+    ]
+  },
+  "reset_colossus": {
+    "id": "reset_colossus",
+    "name": "Reset",
+    "description": "Instantly restores composure, and sets alignment/affection to 0.",
+    "rangePx": 4000,
+    "cooldownMs": 1000,
+    "targeting": {
+      "priority": ["ally"],
+      "withinPx": 4000,
+      "sort": [
+        { "by": "composure", "order": "asc" }
+      ]
+    },
+    "effects": [
+      { "type": "setStat", "npc": "@target", "stat": "composure", "field": "current", "value": { "stat": "composure", "field": "max" } },
+      { "type": "setStat", "npc": "@target", "stat": "alignment", "field": "current", "value": 0 },
+      { "type": "setStat", "npc": "@target", "stat": "affection", "field": "current", "value": 0 }
+    ]
+  },
+  "close_strike": {
+    "id": "close_strike",
+    "cooldownMs": 1000,
+    "rangePx": 500,
+    "requiresContact": false,
+    "animation": "attack",
+    "targeting": {
+      "priority": ["enemy"],
+      "allowed": ["enemy"],
+      "sort": [
+        { "by": "distance", "order": "asc" }
+      ]
+    },
+    "effects": [
+      { "type": "updateStat", "npc": "@target", "stat": "stamina", "field": "current", "delta": -3 }
+    ]
+  },
+  "regen_1": {
+    "id": "regen_1",
+    "cooldownMs": 1000,
+    "animation": "ability_cast",
+    "fixedTarget": "self",
+    "effects": [
+      { "type": "updateStat", "npc": "@target", "stat": "hp", "field": "current", "delta": 1 }
+    ]
+  },
+  "wisp_pulse": {
+    "id": "wisp_pulse",
+    "cooldownMs": 1800,
+    "rangePx": 170,
+    "requiresContact": false,
+    "targeting": {
+      "priority": ["enemy"],
+      "allowed": ["enemy"]
+    },
+    "effects": [
+      { "type": "updateStat", "stat": "composure", "field": "current", "delta": -1 }
+    ]
+  },
+  "veil_haze": {
+    "id": "veil_haze",
+    "cooldownMs": 7000,
+    "rangePx": 220,
+    "requiresContact": false,
+    "targeting": {
+      "priority": ["enemy"],
+      "allowed": ["enemy"]
+    },
+    "effects": [
+      { "type": "setFlag", "scope": "area", "key": "veil_haze_active", "value": true }
+    ]
+  },
+  "sunder_resolve": {
+    "id": "sunder_resolve",
+    "name": "Sunder Resolve",
+    "description": "Temporarily weakens a target's endurance.",
+    "cooldownMs": 1000,
+    "rangePx": 1500,
+    "castingTimeMs": 500,
+    "targeting": {
+      "priority": ["enemy", "neutral", "ally", "party", "player", "npc", "mob"],
+      "allowed": ["enemy", "neutral", "ally", "party", "player", "npc", "mob"],
+      "sort": [
+        { "by": "distance", "order": "asc" }
+      ]
+    },
+    "effects": [
+      { "type": "updateStat", "npc": "@target", "stat": "endurance", "delta": -2, "durationMs": 5000 }
+    ]
+  },
+  "burrow_lunge": {
+    "id": "burrow_lunge",
+    "cooldownMs": 3200,
+    "rangePx": 120,
+    "requiresContact": true,
+    "targeting": {
+      "priority": ["enemy"],
+      "allowed": ["enemy"]
+    },
+    "effects": [
+      { "type": "updateStat", "stat": "stamina", "field": "current", "delta": -1 }
+    ]
+  },
+  "test_relation_ping": {
+    "id": "test_relation_ping",
+    "name": "Test Relation Ping",
+    "description": "Test ability for relation-based targeting.",
+    "cooldownMs": 800,
+    "rangePx": 1200,
+    "targeting": {
+      "priority": ["enemy"],
+      "allowed": ["neutral"],
+      "excluded": ["ally"],
+      "sort": [{ "by": "distance", "order": "asc" }]
+    },
+    "effects": [
+      { "type": "updateStat", "npc": "@target", "stat": "stamina", "field": "current", "delta": -1 }
+    ]
+  },
+  "unseen_hand": {
+    "id": "unseen_hand",
+    "name": "Unseen Hand",
+    "description": "Stuns and knocks the target away.",
+    "cooldownMs": 1000,
+    "rangePx": 1000,
+    "targeting": {
+      "allowed": ["enemy", "neutral"]
+    },
+    "effects": [
+      { "type": "stun", "actor": "@target", "durationMs": 2000 },
+      { "type": "push", "actor": "@target", "direction": "awayFromCaster", "distance": 1000, "speedFactor": 4 }
+    ]
+  },
+  "unseen_hand_colossus": {
+    "id": "unseen_hand_colossus",
+    "name": "Unseen Hand",
+    "description": "Stuns and knocks the target away.",
+    "cooldownMs": 1000,
+    "rangePx": 2000,
+    "targeting": {
+      "allowed": ["enemy", "neutral"]
+    },
+    "effects": [
+      { "type": "stun", "actor": "@target", "durationMs": 2000 },
+      { "type": "push", "actor": "@target", "direction": "awayFromCaster", "distance": 1000, "speedFactor": 4 }
+    ]
+  },
+  "push_burst": {
+    "id": "push_burst",
+    "name": "Push Burst",
+    "description": "Knocks the target away.",
+    "warmupMs": 2000,
+    "cooldownMs": 2000,
+    "castingTimeMs": 3000,
+    "stopMoving": true,
+    "rangePx": 1000,
+    "targeting": {
+      "priority": ["enemy", "neutral", "ally"],
+      "allowed": ["enemy", "neutral", "ally"]
+    },
+    "effects": [
+      { "type": "push", "actor": "@target", "direction": "awayFromCaster", "distance": 1000, "speedFactor": 4 }
+    ]
+  }
+}

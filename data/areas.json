@@ -1,5 +1,7 @@
 {
   "Grove": {
+    "region": "Eldertide Forest",
+    "name": "Grove",
     "defaultground": "ground_bank_1",
     "distantbackgrounds": [],
     "backgrounds": [
@@ -9,17 +11,17 @@
     "foreobjects": [
       {
         "name": "forest_trunk_1",
-        "height": 200,
+        "height": 51.11,
         "density": 0.1
       },
       {
         "name": "forest_trunk_2",
-        "height": 400,
+        "height": 102.22,
         "density": 0.1
       },
       {
         "name": "forest_trunk_3",
-        "height": 400,
+        "height": 102.22,
         "density": 0.1
       }
     ],
@@ -29,19 +31,28 @@
         "position": 1,
         "groundimage": "ground_bank_1",
         "groundBackObjects": [
-
+          {
+            "name": "tua_bush",
+            "id": "start_tua_bush",
+            "height": 25,
+            "position": 1500
+          }
+        ],
+        "items": [
         ],
         "foreobjects": [],
-        "exits": {
-          "exit1": {
-            "direction": "up",
-            "Position": 600,
-            "targetexit": "Forest1.forest1_clear.exit2"
-          }
+        "characters": {
+          "name": "Mira",
+          "position": 2000,
+          "mode": "stopped"
         },
-        "mobs": [
-          { "id": "spirit_wisp_forest", "position": 1500, "mode": "waiting" }
-        ]
+        "exits":{
+          "test_exit": {
+            "direction": "down",
+            "Position": 3000,
+            "targetexit": "eldertide_forest_north.forest_north_2.test_exit"
+          }
+        }
       },
       "rowyn_section": {
         "position": 2,
@@ -49,20 +60,18 @@
         "groundBackObjects": [
           {
             "name": "letta_bush",
-            "height": 75,
-            "position": 3000
-          },
-          {
-            "name": "tua_bush",
-            "height": 80,
-            "position": 1000
+            "id": "rowyn_letta_bush",
+            "height": 20,
+            "position": 4000
           }
         ],
         "foreobjects": [],
-        "exits": {},
         "safeplaces": {
           "rowyn_spawn": { "Position": 2000 }
         },
+        "groundForeObjects": [
+
+        ],
         "characters": {
           "name": "Rowyn",
           "position": 2000,
@@ -72,9 +81,12 @@
 
     },
     "leftarea": null,
-    "rightarea": "Forest1"
+    "rightarea": "eldertide_forest_riverside"
   },
-  "Forest1": {
+  
+  "eldertide_forest_riverside": {
+    "region": "Eldertide Forest",
+    "name": "Riverside Path",
     "defaultground": "ground_bank_1",
     "distantbackgrounds": [],
     "backgrounds": [
@@ -84,111 +96,130 @@
     "foreobjects": [
       {
         "name": "forest_trunk_1",
-        "height": 200,
+        "height": 51.11,
         "density":0.1
       },
       {
         "name": "forest_trunk_2",
-        "height": 400,
+        "height": 102.22,
         "density":0.1
       }
     ],
-    "sectioncount": 12,
+    "sectioncount": 23,
     "sections": {
 
-      "forest1_start": {
+      "eldertide_forest_riverside_start": {
         "groundimage": "ground_bank_1",
         "groundForeObjects": [
           {
             "name": "section_mist",
-            "height": 800,
+            "height": 102.22,
+            "position": 4000,
+            "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }],
+            "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }]
+          }
+        ],
+        "position": 1
+      },
+      "eldertide_forest_riverside_mist": {
+        "groundimage": "ground_bank_1",
+        "position": 2,
+        "groundBackObjects": [
+          {
+            "name": "forest_barrier",
+            "id":"test_barrier_1",
+            "open": false,
+            "height": 51.11,
             "position": 2000
           }
         ],
-        "characters": {
-          "name": "Mira",
-          "position": 1000,
-          "mode": "stopped"
-        },
-        "position": 1
-      },
-      "forest1_mist": {
-        "groundimage": "ground_bank_1",
-        "position": 2
+        "groundForeObjects": [
+          {
+            "name": "section_mist",
+            "height": 102.22,
+            "position": 1000,
+            "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }],
+            "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }]
+          }
+        ]
       },
 
-      "forest1_wisp": {
+      "eldertide_forest_riverside_wisp": {
         "groundimage": "ground_bank_1",
         "safeplaces": {
-          "before_wisps": { "Position": 500 }
+          "before_wisps": { "Position": 1500 }
         },
         "mobs": [
-          { "id": "spirit_wisp", "position": 3000, "mode": "waiting" }
+          { "id": "spirit_wisp", "position": 3000, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] }
         ],
         "groundBackObjects": [
           {
             "name": "tua_bush",
-            "height": 80,
+            "id":"wisp_tua_bush",
+            "height": 25,
             "position": 4500
           }
         ],
         "position": 3
       },
 
-      "forest1_wisps": {
+      "eldertide_forest_riverside_wisps": {
         "groundimage": "ground_bank_1",
         "mobs": [
-          { "id": "spirit_wisp", "position": 1000, "mode": "waiting" },
-          { "id": "spirit_wisp", "position": 3000, "mode": "waiting" },
-          { "id": "spirit_wisp", "position": 4000, "mode": "waiting" }
+          { "id": "spirit_wisp", "position": 1000, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] },
+          { "id": "spirit_wisp", "position": 3000, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] },
+          { "id": "spirit_wisp", "position": 4000, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] }
         ],
         "position": 5
       },
 
-      "forest1_blocked": {
+      "eldertide_forest_riverside_blocked": {
         "groundimage": "ground_bank_1",
         "mobs": [
-          { "id": "spirit_wisp", "position": 2600, "mode": "waiting" },
-          { "id": "spirit_wisp", "position": 2700, "mode": "waiting" },
-          { "id": "spirit_wisp", "position": 2800, "mode": "waiting" },
-          { "id": "spirit_wisp", "position": 2900, "mode": "waiting" },
-          { "id": "spirit_wisp", "position": 3000, "mode": "waiting" },
-          { "id": "spirit_wisp", "position": 3100, "mode": "waiting" },
-          { "id": "spirit_wisp", "position": 3200, "mode": "waiting" },
-          { "id": "spirit_wisp", "position": 3300, "mode": "waiting" },
-          { "id": "spirit_wisp", "position": 3400, "mode": "waiting" },
-          { "id": "spirit_wisp", "position": 3600, "mode": "waiting" },
-          { "id": "spirit_wisp", "position": 3900, "mode": "waiting" },
-          { "id": "spirit_wisp", "position": 4000, "mode": "waiting" }
+          { "id": "spirit_wisp", "position": 2600, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] },
+          { "id": "spirit_wisp", "position": 2700, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] },
+          { "id": "spirit_wisp", "position": 2800, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] },
+          { "id": "spirit_wisp", "position": 2900, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] },
+          { "id": "spirit_wisp", "position": 3000, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] },
+          { "id": "spirit_wisp", "position": 3100, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] },
+          { "id": "spirit_wisp", "position": 3200, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] },
+          { "id": "spirit_wisp", "position": 3300, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] },
+          { "id": "spirit_wisp", "position": 3400, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] },
+          { "id": "spirit_wisp", "position": 3600, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] },
+          { "id": "spirit_wisp", "position": 3900, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] },
+          { "id": "spirit_wisp", "position": 4000, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] }
         ],
         "groundBackObjects": [
           {
             "name": "veil_tear",
-            "height": 400,
-            "position": 3000
+            "height": 102.22,
+            "position": 3000,
+            "id": "veil_tear",
+            "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }],
+            "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }]
           }
         ],
         "exits": {
           "exit1": {
             "direction": "down",
             "Position": 10,
-            "targetexit": "Forest3.forest3_entrance.exit1"
+            "targetexit": "eldertide_forest_south.eldertide_forest_south_entrance.exit1"
           }
         },
         "position": 6
       },
 
-      "forest1_clear": {
+      "eldertide_forest_riverside_clear": {
         "groundimage": "ground_bank_1",
         "exits": {
           "exit2": {
             "direction": "down",
             "Position": 2000,
-            "targetexit": "Forest3.forest3_exit.exit2"
+            "targetexit": "eldertide_forest_south.eldertide_forest_south_exit.exit2"
           }
         },
         "safeplaces": {
-          "forest1_clear": { "Position": 2000 }
+          "eldertide_forest_riverside_clear": { "Position": 2000 }
         },
         "characters": {
           "name": "Mira",
@@ -196,86 +227,323 @@
           "mode": "stopped",
             "spawnIf": [
               { "type": "timePhase", "is": "night" },
-              { "type": "npcInArea", "npc": "Mira", "area": "Forest1", "is": false },
-              { "type": "playerInSection", "area": "Forest1", "section": "forest1_clear", "is": false }
+              { "type": "npcInArea", "npc": "Mira", "area": "eldertide_forest_riverside", "is": false },
+              { "type": "playerInSection", "area": "eldertide_forest_riverside", "section": "eldertide_forest_riverside_clear", "is": false }
             ]
         },
         "position": 7
       },
-      "splitpath1": {
+      "eldertide_forest_riverside_before_guardian": {
         "groundimage": "ground_bank_1",
         "foreobjects": [
           {
             "name": "fore_bush_1",
-            "height": 100,
+            "height": 25.56,
             "density": 20
           }
         ],
         "position": 8,
         "exits": {
-          "splitpath1_bridge": {
-            "direction": "up",
-            "Position": 1500,
-            "targetexit": "Forest2.entrance1.1"
-          },
           "exit1": {
             "direction": "down",
-            "Position": 10000,
-            "targetexit": "Forest4.forest4_start.exit1"
+            "Position": 5000,
+            "targetexit": "eldertide_forest_south.forest_south_5.exit1"
           }
         }
       },
-      "forest1_guardian": {
+      "eldertide_forest_riverside_guardian": {
         "groundimage": "ground_bank_1",
-        "position": 10,
+        "position": 9,
         "groundBackObjects": [
           {
             "name": "forest_barrier",
-            "id":"barrier1",
+            "id":"guardian_barrier_1",
             "open": false,
-            "height": 200,
+            "height": 51.11,
             "position": 1300
           },
           {
             "name": "forest_barrier",
-            "id":"barrier2",
+            "id":"guardian_barrier_2",
             "open":true,
-            "height": 200,
+            "height": 51.11,
             "position": 3500
           }
         ],
         "mobs": [
-          { "id": "hunter_spirit", "position": 4000, "mode": "waiting" }
+          { "id": "hunter_spirit", "position": 4000, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] }
         ],
         "exits": {
           "exit1": {
             "direction": "down",
             "Position": 4000,
-            "targetexit": "Forest4.forest4_start.exit2"
+            "targetexit": "eldertide_forest_south.forest_south_5.exit2"
           }
-        },
-        "safeplaces": {
-          "forest1_after_hunter": { "Position": 5000 }
         }
       },
-      "forest1_follower": {
+      "splitpath1": {
+        "groundimage": "ground_bank_1",
+        "position": 10,
+        "safeplaces": {
+          "safe_splitpath1": { "Position": 1000 }
+        },
+        "exits": {
+          "splitpath1_bridge": {
+            "direction": "up",
+            "Position": 3000,
+            "targetexit": "eldertide_forest_north.forest_north_1.exit1"
+          }
+        }
+      },
+      "eldertide_forest_riverside_follower": {
         "groundimage": "ground_bank_1",
         "mobs": [
-          { "id": "spirit_wisp_forest", "position": 2000, "mode": "waiting" }
+          { "id": "spirit_wisp_forest", "position": 3000, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] }
         ],
         "position": 11
       },
+      "eldertide_forest_riverside_wisps_2": {
+        "groundimage": "ground_bank_1",
+        "mobs": [
+          { "id": "spirit_wisp", "position": 1000, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] },
+          { "id": "spirit_wisp", "position": 3000, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] },
+          { "id": "spirit_wisp", "position": 5000, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] }
+        ],
+        "position": 12
+      },
+      "forest_1_unfollowed": {
+        "position": 13,
+        "groundimage": "ground_bank_1",
+        "groundBackObjects": [
+          {
+            "name": "tua_bush",
+            "height": 25,
+            "position": 2000
+          }
+        ],
+        "groundForeObjects": [
+          {
+            "name": "section_mist",
+            "height": 204.44,
+            "position": 0,
+            "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }],
+            "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }]
+          }
+        ]
+      },
+      "eldertide_forest_riverside_followers": {
+        "groundimage": "ground_bank_1",
+        "mobs": [
+          { "id": "spirit_wisp_forest", "position": 3800, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] },
+          { "id": "spirit_wisp_forest", "position": 4400, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] },
+          { "id": "spirit_wisp_forest", "position": 5000, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] }
+        ],
+        "position": 14
+      },
+      "eldertide_forest_riverside_mira_point": {
+        "groundimage": "ground_bank_1",
+        "characters": {
+          "name": "Mira",
+          "position": 3000,
+          "mode": "stopped",
+            "spawnIf": [
+              { "type": "npcInArea", "npc": "Mira", "area": "eldertide_forest_riverside", "is": false },
+              { "type": "playerInSection", "area": "eldertide_forest_riverside", "section": "eldertide_forest_riverside_followers", "is": true }
+            ]
+        },
+        "groundBackObjects": [
+          {
+            "name": "forest_barrier",
+            "id":"mira_point_barrier_1",
+            "open": false,
+            "height": 51.11,
+            "position": 1000
+          },
+          {
+            "name": "forest_barrier",
+            "id":"mira_point_barrier_2",
+            "open": true,
+            "height": 51.11,
+            "position": 4000
+          }
+
+        ],
+        "groundForeObjects": [
+          {
+            "name": "section_mist",
+            "height": 102.22,
+            "position": 4500,
+            "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }],
+            "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }]
+          }
+        ],
+        "safeplaces": {
+          "eldertide_forest_riverside_unfollowed": { "Position": 5000 }
+        },
+        "position": 15
+      },
+      "eldertide_forest_riverside_past_mira": {
+        "groundimage": "ground_bank_1",
+        "groundForeObjects": [
+          {
+            "name": "section_mist",
+            "height": 102.22,
+            "position": 2500,
+            "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }],
+            "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }]
+          }
+        ],
+        "mobs": [
+          { "id": "hunter_spirit", "position": 2000, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] }
+        ],
+        "position": 16
+      },
+      "eldertide_forest_riverside_18": {
+        "groundimage": "ground_bank_1",
+        "groundForeObjects": [
+          {
+            "name": "section_mist",
+            "height": 102.22,
+            "position": 0,
+            "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }],
+            "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }]
+          }
+        ],
+
+        "mobs": [
+          { "id": "spirit_wisp", "position": 1000, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] },
+          { "id": "spirit_wisp", "position": 2000, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] },
+          { "id": "spirit_wisp", "position": 3000, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] },
+          { "id": "spirit_wisp", "position": 4000, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] }
+        ],
+        "position": 18
+      },
+      "eldertide_forest_riverside_19": {
+        "groundimage": "ground_bank_1",
+        "groundForeObjects": [
+          {
+            "name": "section_mist",
+            "height": 102.22,
+            "position": 3500,
+            "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }],
+            "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }]
+          }
+        ],
+        "position": 19
+      },
+      "eldertide_forest_riverside_20": {
+        "groundimage": "ground_bank_1",
+        "groundForeObjects": [
+          {
+            "name": "section_mist",
+            "height": 102.22,
+            "position": 500,
+            "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }],
+            "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }]
+          }
+        ],
+        "mobs": [
+          { "id": "hunter_spirit", "position": 200, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] }
+        ],
+        "position": 20
+      },
+      "eldertide_forest_riverside_21": {
+        "groundimage": "ground_bank_1",
+        "position": 21,
+        "groundBackObjects":[
+          {
+            "name": "veil_tear",
+            "height": 102.22,
+            "position": 500,
+            "id": "veil_tear",
+            "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }],
+            "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }],
+            "portal": {
+              "rect": { "x": 50, "y": 50, "w": 300, "h": 1900 },
+              "target": "eldertide_forest_south.forest_south_8.veil_tear"
+            }
+          }
+        ],
+        "safeplaces": {
+          "forest_riverside_21": { "Position": 2000 }
+        },
+        "groundForeObjects": [
+          {
+            "name": "section_mist",
+            "height": 102.22,
+            "position": 3500,
+            "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }],
+            "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }]
+          }
+        ],
+        "exits":{
+          "exit1": {
+            "direction": "down",
+            "Position": 5000,
+            "targetexit": "eldertide_forest_south.forest_south_18.exit1"
+          }
+        }
+      },
+      "eldertide_forest_riverside_22": {
+        "groundimage": "ground_bank_1",
+        "position": 22,
+        "groundBackObjects": [
+          {
+            "name": "forest_barrier",
+            "id":"barrier_1",
+            "open": false,
+            "height": 51.11,
+            "position": 1000
+          },
+          {
+            "name": "forest_barrier",
+            "id":"barrier_2",
+            "open": true,
+            "height": 51.11,
+            "position": 4000
+          }
+        ],
+        "groundForeObjects": [
+          {
+            "name": "section_mist",
+            "height": 102.22,
+            "position": 0,
+            "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }],
+            "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }]
+          }
+        ],
+        "exits":{
+          "exit1": {
+            "direction": "down",
+            "Position": 5000,
+            "targetexit": "eldertide_forest_south.forest_south_19.exit1"
+          }
+        },
+        "mobs":[
+          { "id": "spirit_wisp_forest", "position": 100, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] },
+          { "id": "hunter_spirit", "position": 2800, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] }
+        ]
+      },
+
+      
       "forest_1_end": {
-        "position": 12,
-        "groundimage": "ground_bank_1"
+        "position": 23,
+        "groundimage": "ground_bank_1",
+        "exits":{
+          "exit1": {
+            "direction": "up",
+            "Position": 4000
+          }
+        }
       }
     },
     "leftarea": "Grove",
-    "rightarea": null
+    "rightarea": "lunara_village"
   },
 
-
-  "Forest2": {
+  "lunara_village": {
+    "region": "Eldertide Forest",
+    "name": "Lunara Village",
     "defaultground": "ground_bank_1",
     "distantbackgrounds": null,
     "backgrounds": [
@@ -285,30 +553,219 @@
     "foreobjects": [
       {
         "name": "forest_trunk_1",
-        "height": 200
+        "height": 51.11
       },
       {
         "name": "forest_trunk_2",
-        "height": 400
+        "height": 102.22
       }
     ],
     "sectioncount": 3,
     "sections": {
-      "entrance1": {
+      "lunara_village_1": {
+        "position": 1,
+        "groundimage": "ground_bank_1"
+      },
+      "lunara_village_2": {
+        "position": 2,
+        "groundimage": "ground_bank_1"
+      },
+      "lunara_village_3": {
+        "position": 3,
+        "groundimage": "ground_bank_1"
+      }
+    },
+    "leftarea": "eldertide_forest_riverside",
+    "rightarea": null
+  },
+
+
+  "eldertide_forest_north": {
+    "region": "Eldertide Forest",
+    "name": "Northern Woods",
+    "defaultground": "ground_bank_1",
+    "distantbackgrounds": null,
+    "backgrounds": [
+      "forest_background_2"
+    ],
+    "backobjects": null,
+    "foreobjects": [
+      {
+        "name": "forest_trunk_1",
+        "height": 51.11
+      },
+      {
+        "name": "forest_trunk_2",
+        "height": 102.22
+      },
+      {
+        "name": "fore_bush_1",
+        "height": 25.56,
+        "density": 20
+      }
+    ],
+    "sectioncount": 4,
+    "sections": {
+      "forest_north_1": {
         "groundimage": "ground_bank_1",
         "foreobjects": [
-          {
-            "name": "fore_bush_1",
-            "height": 100,
-            "density": 20
-          }
         ],
         "position": 1,
         "exits": {
-          "1": {
+          "exit1": {
             "direction": "down",
             "Position": 300,
-            "targetexit": "Forest1.splitpath1.splitpath1_bridge"
+            "targetexit": "eldertide_forest_riverside.splitpath1.splitpath1_bridge"
+          }
+        },
+        "groundBackObjects": [
+          {
+            "name": "forest_barrier",
+            "id":"forest_north_1",
+            "open": false,
+            "height": 51.11,
+            "position": 2000
+          },
+          {
+            "name": "forest_barrier",
+            "id":"forest_north_2",
+            "open": true,
+            "height": 51.11,
+            "position": 4000
+          }
+        ],
+        "mobs":[
+          { 
+            "id": "spirit_wisp_forest", 
+            "position": 1500, 
+            "mode": "waiting", 
+            "spawnIf": [{ "any": [
+              { "type": "timePhase", "is": "morning" }, 
+              { "type": "timePhase", "is": "day" }, 
+              { "type": "timePhase", "is": "evening" }, 
+              { "type": "timePhase", "is": "night" }
+            ] }] 
+          },
+          { 
+            "id": "spirit_wisp_forest", 
+            "position": 2000, 
+            "mode": "waiting", 
+            "spawnIf": [{ "any": [
+              { "type": "timePhase", "is": "morning" }, 
+              { "type": "timePhase", "is": "day" }, 
+              { "type": "timePhase", "is": "evening" }, 
+              { "type": "timePhase", "is": "night" }
+            ] }]
+          },
+          { 
+            "id": "spirit_wisp_forest", 
+            "position": 2500, 
+            "mode": "waiting", 
+            "spawnIf": [{ "any": [
+              { "type": "timePhase", "is": "morning" }, 
+              { "type": "timePhase", "is": "day" }, 
+              { "type": "timePhase", "is": "evening" }, 
+              { "type": "timePhase", "is": "night" }
+            ] }] 
+          },
+          { 
+            "id": "spirit_wisp_forest", 
+            "position": 3000, 
+            "mode": "waiting", 
+            "spawnIf": [{ "any": [
+              { "type": "timePhase", "is": "morning" }, 
+              { "type": "timePhase", "is": "day" }, 
+              { "type": "timePhase", "is": "evening" }, 
+              { "type": "timePhase", "is": "night" }
+            ] }]
+          },
+          { 
+            "id": "spirit_wisp_forest", 
+            "position": 3500, 
+            "mode": "waiting", 
+            "spawnIf": [{ "any": [
+              { "type": "timePhase", "is": "morning" }, 
+              { "type": "timePhase", "is": "day" }, 
+              { "type": "timePhase", "is": "evening" }, 
+              { "type": "timePhase", "is": "night" }
+            ] }] 
+          }
+        ]
+      },
+      "forest_north_2": {
+        "groundimage": "ground_bank_1",
+        "foreobjects": [
+        ],
+        "mobs": [
+          { 
+            "id": "mira_colossus", 
+            "position": 0,
+            "instanceId": "mira_colossus_event_1",
+            "spawnIf": [
+              { "type": "flag", "scope": "global", "key": "mira_forest_north_2_event_started", "is": true },
+              { "type": "flag", "scope": "global", "key": "mira_forest_north_2_event_finished", "is": false }
+            ],
+            "despawnIf": [
+              { "type": "flag", "scope": "global", "key": "mira_forest_north_2_event_finished", "is": true }
+            ],
+            "despawnWhen": [
+              { "event": "area_leave", "area": "eldertide_forest_north", "npc": "Player" }
+            ]
+          }
+
+        ],
+        "exits":{
+          "test_exit": {
+            "direction": "up",
+            "Position": 1000,
+            "targetexit": "Grove.rowyn_section.test_exit"
+          }
+        },
+        "position": 2
+      },
+      "forest_north_3": {
+        "groundimage": "ground_bank_1",
+        "foreobjects": [
+        ],
+        "position": 3,
+        "exits":{
+          "exit1": {
+            "direction": "up",
+            "Position": 1000,
+            "targetexit": "eldertide_forest_shrine_front.forest_shrine_front_middle.exit1"
+          },
+          "exit2": {
+            "direction": "up",
+            "Position": 5000,
+            "targetexit": "eldertide_forest_shrine_front.forest_shrine_front_middle.exit2"
+          }
+        },
+        "safeplaces":{
+          "forest_north": { "Position": 0 }
+        },
+        "groundBackObjects":[
+          {
+            "name": "veil_tear",
+            "height": 102.22,
+            "position": 1500,
+            "id": "veil_tear",
+            "portal": {
+              "rect": { "x": 50, "y": 50, "w": 300, "h": 1900 },
+              "target": "eldertide_forest_south.eldertide_forest_south_blocked.veil_tear"
+            }
+          }
+        ]
+      },
+      "forest_north_4": {
+        "groundimage": "ground_bank_1",
+        "foreobjects": [
+        ],
+        "position": 4,
+        "exits":{
+          "exit1": {
+            "direction": "down",
+            "Position": 4000,
+            "targetexit": "eldertide_forest_riverside.forest_1_end.exit1"
           }
         }
       }
@@ -317,7 +774,279 @@
     "rightarea": null
   },
 
-  "Forest3": {
+  "eldertide_forest_shrine_front":{
+    "region": "Eldertide Forest",
+    "name": "Eldertide Shrine Entrance",
+    "defaultground": "ground_bank_1",
+    "distantbackgrounds": null,
+    "backgrounds": [
+    ],
+    "backobjects": null,
+    "foreobjects": [
+
+    ],
+    "sectioncount": 3,
+    "sections": {
+      "forest_shrine_front_left": {
+        "groundimage": "ground_bank_1",
+        "groundBackObjects":[
+          {
+            "name": "etiram_skeleton",
+            "position": 1500,
+            "height": 30,
+            "id": "etiram_skeleton"
+          }
+        ],
+        "characters": [
+          {
+            "name": "Etiram",
+            "position": 1000,
+            "mode": "waiting",
+            "spawnWhen": [
+              {
+                "event": "object_interact",
+                "area": "eldertide_forest_shrine_front",
+                "section": "forest_shrine_front_left",
+                "id": "etiram_skeleton"
+              }
+            ],
+            "spawnIf": [
+              { "type": "flag", "scope": "global", "key": "etiram_skeleton_scene_done", "is": false }
+            ],
+            "despawnIf": [
+              { "type": "flag", "scope": "global", "key": "etiram_skeleton_scene_done", "is": true }
+            ]
+          }
+        ],
+        "foreobjects": [
+        ],
+        "position": 1,
+        "exits":{
+          "exit1": {
+            "direction": "up",
+            "Position": 500,
+            "targetexit": "eldertide_forest_shrine_back.forest_shrine_back_left.exit1"
+          }
+        }
+      },
+      "forest_shrine_front_middle": {
+        "groundimage": "ground_bank_1",
+        "foreobjects": [
+        ],
+        "mobs": [
+          {
+            "id": "mira_colossus",
+            "position": 2000,
+            "spawnIf": [
+              { "type": "flag", "scope": "global", "key": "mira_forest_north_2_event_started", "is": true },
+              { "type": "flag", "scope": "global", "key": "mira_forest_north_2_event_finished", "is": false }
+            ],
+            "spawnWhen": [
+              {
+                "event": "section_enter",
+                "area": "eldertide_forest_shrine_front",
+                "section": "forest_shrine_front_left",
+                "npc": "Player"
+              },
+              {
+                "event": "section_enter",
+                "area": "eldertide_forest_shrine_front",
+                "section": "forest_shrine_front_right",
+                "npc": "Player"
+              }
+            ],
+            "despawnIf": [
+              { "type": "flag", "scope": "global", "key": "mira_forest_north_2_event_finished", "is": true }
+            ],
+            "despawnWhen": [
+              {
+                "event": "area_leave",
+                "area": "eldertide_forest_shrine_front",
+                "npc": "Player"
+              }
+            ]
+          }
+        ],
+        "position": 2,
+        "exits":{
+          "exit1": {
+            "direction": "down",
+            "Position": 1250,
+            "targetexit": "eldertide_forest_north.forest_north_3.exit1"
+          },
+          "exit2": {
+            "direction": "down",
+            "Position": 4250,
+            "targetexit": "eldertide_forest_north.forest_north_3.exit2"
+          }
+        },
+        "groundBackObjects":[
+          {
+            "name": "veil_tear",
+            "height": 153.33,
+            "position": 2750,
+            "id": "veil_tear",
+            "portal": {
+              "rect": { "x": 50, "y": 50, "w": 300, "h": 1900 },
+              "target": "eldertide_forest_south.forest_south_17.veil_tear2"
+            }
+          }
+        ]
+      },
+      "forest_shrine_front_right": {
+        "groundimage": "ground_bank_1",
+        "foreobjects": [
+        ],
+        "position": 3,
+        "exits":{
+          "exit1": {
+            "direction": "up",
+            "Position": 4500,
+            "targetexit": "eldertide_forest_shrine_back.forest_shrine_back_right.exit1"
+          }
+        },
+        "groundBackObjects":[
+          {
+            "name": "aiden_skeleton",
+            "position": 3000,
+            "height": 30,
+            "id": "aiden_skeleton"
+          }
+        ],
+        "characters": [
+          {
+            "name": "Aiden",
+            "position": 3000,
+            "mode": "waiting",
+            "spawnWhen": [
+              {
+                "event": "object_interact",
+                "area": "eldertide_forest_shrine_front",
+                "section": "forest_shrine_front_right",
+                "id": "aiden_skeleton"
+              }
+            ],
+            "spawnIf": [
+              { "type": "flag", "scope": "global", "key": "aiden_skeleton_scene_done", "is": false }
+            ],
+            "despawnIf": [
+              { "type": "flag", "scope": "global", "key": "aiden_skeleton_scene_done", "is": true }
+            ]
+          }
+        ]
+      }
+    }
+  },
+
+  "eldertide_forest_shrine_back":{
+    "region": "Eldertide Forest",
+    "name": "Eldertide Shrine Interior",
+    "defaultground": "ground_bank_1",
+    "distantbackgrounds": null,
+    "backgrounds": [
+    ],
+    "backobjects": null,
+    "foreobjects": [
+
+    ],
+    "sectioncount": 3,
+    "sections": {
+      "forest_shrine_back_left": {
+        "groundimage": "ground_bank_1",
+        "foreobjects": [
+        ],
+        "position": 1,
+        "exits":{
+          "exit1": {
+            "direction": "down",
+            "Position": 500,
+            "targetexit": "eldertide_forest_shrine_front.forest_shrine_front_left.exit1"
+          }
+        }
+      },
+      "forest_shrine_back_middle": {
+        "groundimage": "ground_bank_1",
+        "foreobjects": [
+        ],
+        "mobs": [
+          {
+            "id": "mira_colossus",
+            "position": 2500,
+            "spawnIf": [
+              { "type": "flag", "scope": "global", "key": "mira_forest_north_2_event_started", "is": true },
+              { "type": "flag", "scope": "global", "key": "mira_forest_north_2_event_finished", "is": false }
+            ],
+            "spawnWhen": [
+              {
+                "event": "area_enter",
+                "area": "eldertide_forest_shrine_back",
+                "npc": "Player"
+              }
+            ],
+            "despawnIf": [
+              { "type": "flag", "scope": "global", "key": "mira_forest_north_2_event_finished", "is": true }
+            ],
+            "despawnWhen": [
+              {
+                "event": "area_leave",
+                "area": "eldertide_forest_shrine_back",
+                "npc": "Player"
+              }
+            ]
+          }
+        ],
+        "position": 2
+        
+      },
+      "forest_shrine_back_right": {
+        "groundimage": "ground_bank_1",
+        "foreobjects": [
+        ],
+        "groundBackObjects":[
+          {
+            "name": "caira_skeleton",
+            "position": 2500,
+            "height": 30,
+            "id": "caira_skeleton"
+          }
+        ],
+        "characters": [
+          {
+            "name": "caira",
+            "position": 2700,
+            "mode": "waiting",
+            "spawnWhen": [
+              {
+                "event": "object_interact",
+                "area": "eldertide_forest_shrine_back",
+                "section": "forest_shrine_back_right",
+                "id": "caira_skeleton"
+              }
+            ],
+            "spawnIf": [
+              { "type": "flag", "scope": "global", "key": "caira_skeleton_scene_done", "is": false }
+            ],
+            "despawnIf": [
+              { "type": "flag", "scope": "global", "key": "caira_skeleton_scene_done", "is": true }
+            ]
+          }
+        ],
+        "position": 3,
+        "exits":{
+          "exit1": {
+            "direction": "down",
+            "Position": 4500,
+            "targetexit": "eldertide_forest_shrine_front.forest_shrine_front_right.exit1"
+          }
+        }
+      }
+      
+    }
+  },
+
+  "eldertide_forest_south": {
+    "region": "Eldertide Forest",
+    "name": "Southern Woods",
     "defaultground": "ground_bank_1",
     "distantbackgrounds": null,
     "backgrounds": [
@@ -327,32 +1056,51 @@
     "foreobjects": [
       {
         "name": "forest_trunk_1",
-        "height": 200
+        "height": 51.11
       },
       {
         "name": "forest_trunk_2",
-        "height": 400
+        "height": 102.22
       }
     ],
-    "sectioncount": 4,
+    "sectioncount": 19,
     "sections": {
-      "forest3_left": {
+      "eldertide_forest_south_left": {
         "groundimage": "ground_bank_1",
         "foreobjects": [
           {
             "name": "fore_bush_1",
-            "height": 100,
+            "height": 25.56,
             "density": 20
           }
         ],
+        "groundForeObjects": [
+          {
+            "name": "section_mist",
+            "height": 102.22,
+            "position": 0,
+            "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }],
+            "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }]
+          }
+        ],
+        "items": [
+          {
+            "item": "map_kit",
+            "position": 800
+          }
+        ],
+        "mobs": [
+          { "id": "spirit_wisp_forest", "position": 300, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] }
+
+        ],
         "position": 1
       },
-      "forest3_entrance": {
+      "eldertide_forest_south_entrance": {
         "groundimage": "ground_bank_1",
         "foreobjects": [
           {
             "name": "fore_bush_1",
-            "height": 100,
+            "height": 25.56,
             "density": 20
           }
         ],
@@ -361,16 +1109,16 @@
           "exit1": {
             "direction": "up",
             "Position": 500,
-            "targetexit": "Forest1.forest1_blocked.exit1"
+            "targetexit": "eldertide_forest_riverside.eldertide_forest_riverside_blocked.exit1"
           }
         }
       },
-      "forest3_exit": {
+      "eldertide_forest_south_exit": {
         "groundimage": "ground_bank_1",
         "foreobjects": [
           {
             "name": "fore_bush_1",
-            "height": 100,
+            "height": 25.56,
             "density": 20
           }
         ],
@@ -378,66 +1126,359 @@
           "exit2": {
             "direction": "up",
             "Position": 2000,
-            "targetexit": "Forest1.forest1_clear.exit2"
+            "targetexit": "eldertide_forest_riverside.eldertide_forest_riverside_clear.exit2"
           }
         },
         "position": 3
       },
-      "forest3_right": {
+      "eldertide_forest_south_blocked": {
         "groundimage": "ground_bank_1",
+        "groundBackObjects":[
+          {
+            "name": "veil_tear",
+            "height": 102.22,
+            "position": 3000,
+            "id": "veil_tear",
+            "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }],
+            "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }],
+            "portal": {
+              "rect": { "x": 50, "y": 50, "w": 300, "h": 1900 },
+              "target": "eldertide_forest_riverside.eldertide_forest_riverside_blocked.veil_tear"
+            }
+          }
+        ],
         "foreobjects": [
           {
             "name": "fore_bush_1",
-            "height": 100,
+            "height": 25.56,
             "density": 20
           }
         ],
         "position": 4
-      }
-    },
-    "leftarea": null,
-    "rightarea": null
-  },
-  
-  "Forest4": {
-    "defaultground": "ground_bank_1",
-    "distantbackgrounds": null,
-    "backgrounds": [
-      "forest_background_2"
-    ],
-    "backobjects": null,
-    "foreobjects": [
-      {
-        "name": "forest_trunk_1",
-        "height": 200
       },
-      {
-        "name": "forest_trunk_2",
-        "height": 400
-      }
-    ],
-    "sectioncount": 1,
-    "sections": {
-      "forest4_start": {
+      "forest_south_5": {
         "groundimage": "ground_bank_1",
         "foreobjects": [
           {
             "name": "fore_bush_1",
-            "height": 100,
+            "height": 25.56,
             "density": 20
           }
         ],
-        "position": 1,
+        "position": 5,
         "exits": {
           "exit1": {
             "direction": "up",
             "Position": 500,
-            "targetexit": "Forest1.splitpath1.exit1"
+            "targetexit": "eldertide_forest_riverside.eldertide_forest_riverside_before_guardian.exit1"
           },
           "exit2": {
             "direction": "up",
             "Position": 5000,
-            "targetexit": "Forest1.forest1_guardian.exit1"
+            "targetexit": "eldertide_forest_riverside.eldertide_forest_riverside_guardian.exit1"
+          }
+        }
+      },
+      "forest_south_8": {
+        "groundimage": "ground_bank_1",
+        "foreobjects": [
+          {
+            "name": "fore_bush_1",
+            "height": 25.56,
+            "density": 20
+          }
+        ],
+        "position": 8,
+        "safeplaces": {
+          "forest_south": { "Position": 1500 }
+        },
+        "groundBackObjects":[
+          {
+            "name": "veil_tear",
+            "height": 102.22,
+            "position": 2500,
+            "id": "veil_tear",
+            "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }],
+            "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }],
+            "portal": {
+              "rect": { "x": 50, "y": 50, "w": 300, "h": 1900 },
+              "target": "eldertide_forest_south.eldertide_forest_south_blocked.veil_tear"
+            }
+          }
+        ],
+        "mobs": [
+          { "id": "spirit_wisp_forest", "position": 3500, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] }
+
+        ]
+      },
+      "forest_south_9": {
+        "groundimage": "ground_bank_1",
+        "foreobjects": [
+          {
+            "name": "fore_bush_1",
+            "height": 25.56,
+            "density": 20
+          }
+        ],
+        "position": 9,
+        "groundBackObjects":[
+          {
+            "name": "forest_barrier",
+            "id":"forest_south_9_1",
+            "open": false,
+            "height": 51.11,
+            "position": 1000
+          },
+          {
+            "name": "forest_barrier",
+            "id":"forest_south_9_2",
+            "open": false,
+            "height": 51.11,
+            "position": 4000
+          }
+        ],
+        "mobs": [
+          { "id": "spirit_wisp_forest", "position": 4500, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] }
+        ]
+      },
+      "forest_south_10": {
+        "groundimage": "ground_bank_1",
+        "foreobjects": [
+          {
+            "name": "fore_bush_1",
+            "height": 25.56,
+            "density": 20
+          }
+        ],
+        "position": 10,
+        "groundBackObjects":[
+          {
+            "name": "forest_barrier",
+            "id":"forest_south_10_1",
+            "open": false,
+            "height": 51.11,
+            "position": 1000
+          },
+          {
+            "name": "forest_barrier",
+            "id":"forest_south_10_2",
+            "open": true,
+            "height": 51.11,
+            "position": 4000
+          }
+        ],
+        "mobs": [
+          { "id": "spirit_wisp_forest", "position": 1500, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] }
+        ]
+      },
+      "forest_south_11": {
+        "groundimage": "ground_bank_1",
+        "foreobjects": [
+          {
+            "name": "fore_bush_1",
+            "height": 25.56,
+            "density": 20
+          }
+        ],
+        "position": 11,
+        "groundBackObjects":[
+          {
+            "name": "forest_barrier",
+            "id":"forest_south_11_1",
+            "open": false,
+            "height": 51.11,
+            "position": 1000
+          }
+        ],
+        "mobs": [
+          { "id": "spirit_wisp_forest", "position": 1500, "mode": "waiting", "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }], "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }] }
+        ]
+      },
+      "forest_south_12": {
+        "groundimage": "ground_bank_1",
+        "foreobjects": [
+          {
+            "name": "fore_bush_1",
+            "height": 25.56,
+            "density": 20
+          }
+        ],
+        "position": 12,
+        "groundBackObjects":[
+          {
+            "name": "veil_tear",
+            "height": 102.22,
+            "position": 2000,
+            "id": "veil_tear",
+            "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }],
+            "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }],
+            "portal": {
+              "rect": { "x": 50, "y": 50, "w": 300, "h": 1900 },
+              "target": "eldertide_forest_south.forest_south_15.veil_tear"
+            }
+          }
+        ]
+      },
+      "forest_south_13": {
+        "groundimage": "ground_bank_1",
+        "foreobjects": [
+          {
+            "name": "fore_bush_1",
+            "height": 25.56,
+            "density": 20
+          }
+        ],
+        "position": 13,
+        "groundBackObjects":[
+          {
+            "name": "veil_tear",
+            "height": 102.22,
+            "position": 2000,
+            "id": "veil_tear",
+            "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }],
+            "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }],
+            "portal": {
+              "rect": { "x": 50, "y": 50, "w": 300, "h": 1900 },
+              "target": "eldertide_forest_south.forest_south_12.veil_tear"
+            }
+          }
+        ]
+      },
+      "forest_south_14": {
+        "groundimage": "ground_bank_1",
+        "foreobjects": [
+          {
+            "name": "fore_bush_1",
+            "height": 25.56,
+            "density": 20
+          }
+        ],
+        "position": 14,
+        "groundBackObjects":[
+          {
+            "name": "veil_tear",
+            "height": 102.22,
+            "position": 2000,
+            "id": "veil_tear",
+            "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }],
+            "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }],
+            "portal": {
+              "rect": { "x": 50, "y": 50, "w": 300, "h": 1900 },
+              "target": "eldertide_forest_south.forest_south_16.veil_tear"
+            }
+          }
+        ]
+      },
+      "forest_south_15": {
+        "groundimage": "ground_bank_1",
+        "foreobjects": [
+          {
+            "name": "fore_bush_1",
+            "height": 25.56,
+            "density": 20
+          }
+        ],
+        "position": 15,
+        "groundBackObjects":[
+          {
+            "name": "veil_tear",
+            "height": 102.22,
+            "position": 2000,
+            "id": "veil_tear",
+            "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }],
+            "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }],
+            "portal": {
+              "rect": { "x": 50, "y": 50, "w": 300, "h": 1900 },
+              "target": "eldertide_forest_south.forest_south_13.veil_tear"
+            }
+          }
+        ]
+      },
+      "forest_south_16": {
+        "groundimage": "ground_bank_1",
+        "foreobjects": [
+          {
+            "name": "fore_bush_1",
+            "height": 25.56,
+            "density": 20
+          }
+        ],
+        "position": 16,
+        "groundBackObjects":[
+          {
+            "name": "veil_tear",
+            "height": 102.22,
+            "position": 2000,
+            "id": "veil_tear",
+            "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }],
+            "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }],
+            "portal": {
+              "rect": { "x": 50, "y": 50, "w": 300, "h": 1900 },
+              "target": "eldertide_forest_south.forest_south_12.veil_tear"
+            }
+          }
+        ]
+      },
+      "forest_south_17": {
+        "groundimage": "ground_bank_1",
+        "foreobjects": [
+          {
+            "name": "fore_bush_1",
+            "height": 25.56,
+            "density": 20
+          }
+        ],
+        "position": 17,
+        "groundBackObjects":[
+
+          {
+            "name": "veil_tear",
+            "height": 102.22,
+            "position": 5000,
+            "id": "veil_tear2",
+            "spawnIf": [{ "any": [{ "type": "timePhase", "is": "evening" }, { "type": "timePhase", "is": "night" }] }],
+            "despawnIf": [{ "any": [{ "type": "timePhase", "is": "morning" }, { "type": "timePhase", "is": "day" }] }],
+            "portal": {
+              "rect": { "x": 50, "y": 50, "w": 300, "h": 1900 },
+              "target": "eldertide_forest_riverside.eldertide_forest_riverside_21.veil_tear"
+            }
+          }
+          
+        ]
+      },
+      "forest_south_18": {
+        "groundimage": "ground_bank_1",
+        "position": 18,
+        "foreobjects": [
+          {
+            "name": "fore_bush_1",
+            "height": 25.56,
+            "density": 20
+          }
+        ],
+        "exits":{
+          "exit1": {
+            "direction": "up",
+            "Position": 2000,
+            "targetexit": "eldertide_forest_riverside.eldertide_forest_riverside_21.exit1"
+          }
+        }
+      },
+      "forest_south_19": {
+        "groundimage": "ground_bank_1",
+        "position": 19,
+        "foreobjects": [
+          {
+            "name": "fore_bush_1",
+            "height": 25.56,
+            "density": 20
+          }
+        ],
+        "exits":{
+          "exit1": {
+            "direction": "up",
+            "Position": 2000,
+            "targetexit": "eldertide_forest_riverside.eldertide_forest_riverside_22.exit1"
           }
         }
       }
@@ -446,3 +1487,5 @@
     "rightarea": null
   }
 }
+
+

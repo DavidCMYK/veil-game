@@ -1,5 +1,5 @@
 {
-  "start": "first_meeting_forest1",
+  "start": "first_meeting_eldertide_forest",
   "phrases": {
     "passout_rescue_start": {
       "speaker": "Mira",
@@ -31,7 +31,7 @@
       "text": "Did you carry me here...?"
     },
 
-    "first_meeting_forest1": {
+    "first_meeting_eldertide_forest": {
       "speaker": "mira",
       "text": "Are you heading to Lunara village?",
       "reaction": "worried",
@@ -39,20 +39,23 @@
         "0_yes": {
           "text": "Yes",
           "next": "8",
-          "alignmentEffect": 2,
-          "affectionEffect": 0
+          "effects": [
+            { "type": "updateStat", "npc": "Mira", "stat": "alignment", "delta": 2 }
+          ]
         },
         "0_no": {
           "text": "No",
           "next": "9",
-          "alignmentEffect": 3,
-          "affectionEffect": 0
+          "effects": [
+            { "type": "updateStat", "npc": "Mira", "stat": "alignment", "delta": 3 }
+          ]
         },
         "0_who": {
           "text": "Who are you?",
           "next": "1",
-          "alignmentEffect": -1,
-          "affectionEffect": 0
+          "effects": [
+            { "type": "updateStat", "npc": "Mira", "stat": "alignment", "delta": -1 }
+          ]
         }
       }
     },
@@ -83,20 +86,23 @@
         "6_yes": {
           "text": "Yes",
           "next": "8",
-          "alignmentEffect": 2,
-          "affectionEffect": 0
+          "effects": [
+            { "type": "updateStat", "npc": "Mira", "stat": "alignment", "delta": 2 }
+          ]
         },
         "6_no": {
           "text": "No",
           "next": "9",
-          "alignmentEffect": 3,
-          "affectionEffect": 0
+          "effects": [
+            { "type": "updateStat", "npc": "Mira", "stat": "alignment", "delta": 3 }
+          ]
         },
         "6_why": {
           "text": "What are you doing out here?",
           "next": "4",
-          "alignmentEffect": -1,
-          "affectionEffect": 0
+          "effects": [
+            { "type": "updateStat", "npc": "Mira", "stat": "alignment", "delta": -1 }
+          ]
         }
       }
     },
@@ -120,20 +126,23 @@
         "6_yes": {
           "text": "Yes",
           "next": "8",
-          "alignmentEffect": 2,
-          "affectionEffect": 0
+          "effects": [
+            { "type": "updateStat", "npc": "Mira", "stat": "alignment", "delta": 2 }
+          ]
         },
         "6_no": {
           "text": "No",
           "next": "9",
-          "alignmentEffect": 3,
-          "affectionEffect": 0
+          "effects": [
+            { "type": "updateStat", "npc": "Mira", "stat": "alignment", "delta": 3 }
+          ]
         },
         "6_why": {
           "text": "Why aren't you wearing shoes?",
           "next": "7",
-          "alignmentEffect": -1,
-          "affectionEffect": 0
+          "effects": [
+            { "type": "updateStat", "npc": "Mira", "stat": "alignment", "delta": -1 }
+          ]
         }
       }
     },

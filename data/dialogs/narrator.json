@@ -8,6 +8,11 @@
     },
     "passout_alone_2": {
       "speaker": "narrator",
+      "text": "It looks like some time has passed.",
+      "next": "passout_alone_3"
+    },
+    "passout_alone_3": {
+      "speaker": "narrator",
       "text": "You were in real trouble there. I wonder how you got out of it?"
     }
   }

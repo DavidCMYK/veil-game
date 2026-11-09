@@ -3,8 +3,14 @@
         "name": "Tua Bush",
         "animFramePx": { "w": 383, "h": 400 },
         "interact": ["plant"],
-        "oncePerInstance": true,
-        "sceneEvery": { "start": "rowyn.rowyn_walks_to_bush" },
+        "interactionsBeforeInactive": 1,
+        "inactiveMs": 200000000,
+        "dialog": {
+            "firstType": "rowyn.tua_bush_first_type",
+            "firstInstance": "rowyn.tua_bush_first_instance",
+            "everyType": "rowyn.tua_bush_every_type"
+        },
+        "approach": { "mode": "range" },
         "effects": [
             { "type": "addItem", "id": "tua_leaves", "qty": 1 }
         ]
@@ -13,8 +19,14 @@
         "name": "Letta Bush",
         "animFramePx": { "w": 410, "h": 300 },
         "interact": ["plant"],
-        "oncePerInstance": true,
-        "sceneEvery": { "start": "rowyn.rowyn_walks_to_bush" },
+        "interactionsBeforeInactive": 1,
+        "inactiveMs": 200000000,
+        "dialog": {
+            "firstType": "rowyn.letta_bush_first_type",
+            "firstInstance": "rowyn.letta_bush_first_instance",
+            "everyType": "rowyn.letta_bush_every_type"
+        },
+        "approach": { "mode": "range" },
         "effects": [
             { "type": "addItem", "id": "letta_berry", "qty": 1 }
         ]
@@ -23,7 +35,18 @@
         "name": "Thick Mist",
         "animFramePx": { "w": 3072, "h": 1024 },
         "blocker": {
-            "rect": { "x": 5000, "y": 0.0, "w": 100, "h": 3000 },
+            "rect": { "x": -0, "y": -2000.0, "w": 1, "h": 1 },
+            "requiredTag": "veil_pass"
+        },
+        "cover": {
+            "rect": { "x": 700, "y": 0, "w": 1600, "h": 1024 }
+        }
+    },
+    "blocker_object": {
+        "name": "Test Blocker",
+        "animFramePx": { "w": 200, "h": 1024 },
+        "blocker": {
+            "rect": { "x": 0, "y": 0.0, "w": 200, "h": 1024 },
             "requiredTag": "veil_pass"
         }
     },
@@ -32,7 +55,7 @@
         "animFramePx": { "w": 1000, "h": 2000 },
         "blocker": {
             "rect": { "x": 0, "y": 0.0, "w": 400, "h": 2000 },
-            "requiredTag": "veil_tear_pass"
+            "requiredTag": "veil_pass"
         }
     },
     "forest_barrier": {
@@ -43,8 +66,49 @@
             "defaultOpen": false
         },
         "interact": ["basic"],
+        "interactionsBeforeInactive": 1,
+        "inactiveMs": 20000,
+        "resetMs": 20000,
         "effects": [
             { "type": "toggleGate" }
         ]
+    },
+    "etiram_skeleton": {
+        "name": "Etiram's Skeleton",
+        "animFramePx": { "w": 500, "h": 500 },
+        "interact": ["basic"],
+        "interactionsBeforeInactive": 0,
+        "inactiveMs": 0,
+        "dialog": {
+            "everyType": "eldertide_forest.etiram_skeleton_scene_1"
+        },
+        "approach": { "mode": "range" },
+        "effectsFirstInstance": [
+            { "type": "addItem", "id": "map_kit", "qty": 1 },
+            { "type": "addItem", "id": "etiram_map", "qty": 1 }
+        ]
+    },
+    "caira_skeleton": {
+        "name": "Caira's Skeleton",
+        "animFramePx": { "w": 500, "h": 500 },
+        "interact": ["basic"],
+        "interactionsBeforeInactive": 0,
+        "inactiveMs": 0,
+        "dialog": {
+            "firstInstance": "eldertide_forest.caira_skeleton_scene_1",
+            "everyType": "eldertide_forest.caira_skeleton_second"
+        },
+        "approach": { "mode": "range" }
+    },
+    "aiden_skeleton": {
+        "name": "Aiden's Body",
+        "animFramePx": { "w": 500, "h": 500 },
+        "interact": ["basic"],
+        "interactionsBeforeInactive": 0,
+        "inactiveMs": 0,
+        "dialog": {
+            "everyType": "eldertide_forest.aiden_skeleton_scene_1"
+        },
+        "approach": { "mode": "range" }
     }
 }

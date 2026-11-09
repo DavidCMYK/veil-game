@@ -5,6 +5,7 @@ const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 ctx.imageSmoothingEnabled = false;
 const promptEl = document.getElementById('prompt');
+const viewportEl = document.getElementById('viewport');
 
 // Conversation overlay elements
 const conversationOverlay = document.getElementById('conversationOverlay');
@@ -14,9 +15,27 @@ const optionsBox = document.getElementById('optionsBox');
 
 // Player menu elements
 const playerMenuOverlay = document.getElementById('playerMenuOverlay');
-const playerMenuTabs = document.getElementById('playerMenuTabs');
 const playerMenuContent = document.getElementById('playerMenuContent');
 const playerMenuError = document.getElementById('playerMenuError');
+const menuTopTabs = document.getElementById('menuTopTabs');
+const miniMapEl = document.getElementById('miniMap');
+const miniMapCanvas = document.getElementById('miniMapCanvas');
+const mapOverlayEl = document.getElementById('mapOverlay');
+const mapCanvas = document.getElementById('mapCanvas');
+const miniMapCtx = miniMapCanvas ? miniMapCanvas.getContext('2d') : null;
+const mapCtx = mapCanvas ? mapCanvas.getContext('2d') : null;
+globalThis.loading = true;
+
+const UI_FONT_FAMILY = '"Parchment MF", serif';
+const UI_FONT_SCALE = 2.00;
+function uiFont(sizePx, weight = 'normal', style = 'normal') {
+  const scaled = Math.max(1, Math.round(Number(sizePx) * UI_FONT_SCALE));
+  const parts = [];
+  if (style && style !== 'normal') parts.push(style);
+  if (weight && weight !== 'normal') parts.push(weight);
+  parts.push(`${scaled}px`, UI_FONT_FAMILY);
+  return parts.join(' ');
+}
 
 let __menuErrorTimer = null;
 function showPlayerMenuError(msg, ms = 1800) {
@@ -37,6 +56,85 @@ function clearPlayerMenuError() {
   playerMenuError.textContent = '';
   if (__menuErrorTimer) clearTimeout(__menuErrorTimer);
   __menuErrorTimer = null;
+}
+
+// ===== Map UI =====
+let mapOverlayOpen = false;
+let mapPanX = 0;
+let mapPanY = 0;
+let mapPanNeedsInit = false;
+let mapOverlayDebug = false;
+
+function actorHasFeature(actor, featureId) {
+  const id = lc(featureId || '');
+  if (!actor || !id) return false;
+  if (actor.itemGrantedFeatures && actor.itemGrantedFeatures.has(id)) return true;
+  return false;
+}
+
+function playerHasFeature(featureId) {
+  return actorHasFeature(player, featureId);
+}
+
+function canOpenMapOverlay() {
+  if (!playerHasFeature('map_access')) {
+    showPlayerMenuError('You need a map.');
+    return false;
+  }
+  return true;
+}
+
+function setMapOverlayOpen(open, debug = false) {
+  mapOverlayOpen = !!open;
+  mapOverlayDebug = !!debug;
+  if (mapOverlayEl) {
+    mapOverlayEl.style.display = mapOverlayOpen ? 'flex' : 'none';
+  }
+  if (miniMapEl) {
+    miniMapEl.style.display = mapOverlayOpen ? 'none' : 'block';
+  }
+  if (mapOverlayOpen) {
+    mapPanNeedsInit = true;
+    resizeMapCanvases();
+  }
+}
+
+if (miniMapEl) {
+  miniMapEl.addEventListener('click', (e) => {
+    if (loading) return;
+    if (inMenu || inConversation || inActionPhrase || controlsLocked || isPlayerStunned()) return;
+    if (!canOpenMapOverlay()) return;
+    setMapOverlayOpen(true, false);
+    e.preventDefault();
+    e.stopPropagation();
+  });
+}
+
+if (mapOverlayEl) {
+  mapOverlayEl.addEventListener('click', (e) => {
+    if (e.target === mapOverlayEl) {
+      setMapOverlayOpen(false);
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  });
+}
+
+function ensureMapCanvasSize(c, ctx) {
+  if (!c || !ctx) return;
+  const rect = c.getBoundingClientRect();
+  const w = Math.max(1, Math.floor(rect.width || c.clientWidth || c.width));
+  const h = Math.max(1, Math.floor(rect.height || c.clientHeight || c.height));
+  if (c.width !== w || c.height !== h) {
+    c.width = w;
+    c.height = h;
+  }
+  ctx.imageSmoothingEnabled = false;
+}
+
+function resizeMapCanvases() {
+  ensureMapCanvasSize(miniMapCanvas, miniMapCtx);
+  ensureMapCanvasSize(mapCanvas, mapCtx);
 }
 
 // ===== UI flash helper (general-purpose) =====
@@ -114,6 +212,13 @@ function flashMenuItemRow(itemId, itemUid = null, opts = {}) {
 }
 
 async function tryUseItemWithFeedback(itemId, itemUid = null, rowEl = null) {
+  const def = getItemDef(itemId);
+  const hasTargeting = !!(def && (def.fixedTarget || def?.targeting));
+  if (hasTargeting) {
+    const res = beginManualItemTargeting(itemId, itemUid);
+    return res ? true : false;
+  }
+
   const ok = useItemOnce(itemId, itemUid);
 
   const sel =
@@ -137,7 +242,8 @@ async function tryUseItemWithFeedback(itemId, itemUid = null, rowEl = null) {
       });
     }
 
-    renderPlayerMenu();
+    if (inMenu) hideMenuOverlayForHeadBars();
+    else renderPlayerMenu();
   } else {
     const el = rowEl || (
       playerMenuContent &&
@@ -160,56 +266,296 @@ async function tryUseItemWithFeedback(itemId, itemUid = null, rowEl = null) {
   return ok;
 }
 
-function tryCastPartyAbility(npcName, abilityId) {
+async function tryUseActorItemWithFeedback(actor, itemId, itemUid = null, rowEl = null) {
+  if (!actor) return false;
+  if (actor === player) return tryUseItemWithFeedback(itemId, itemUid, rowEl);
+
+  const def = getItemDef(itemId);
+  const hasTargeting = !!(def && (def.fixedTarget || def?.targeting));
+  if (hasTargeting) {
+    const res = beginManualItemTargetingForActor(actor, itemId, itemUid);
+    return res ? true : false;
+  }
+
+  const ok = useActorItemOnce(actor, itemId, itemUid, actor);
+  if (ok && rowEl) {
+    await flashElement(rowEl, {
+      color: 'rgba(0, 140, 255, 0.85)',
+      times: 1,
+      onMs: 150,
+      offMs: 120
+    });
+  }
+  return ok;
+}
+
+function __getAbilityTiming(ability) {
+  if (!ability || typeof ability !== 'object') {
+    return { warmupMs: 0, cooldownMs: 0, lockoutMs: 0, castingTimeMs: 0 };
+  }
+  const warmupMs = Math.max(0, Number(ability.warmupMs ?? 0));
+  const cooldownMs = Math.max(0, Number(ability.cooldownMs ?? ability.cooldown ?? 0));
+  const lockoutMs = Math.max(0, Number(ability.lockoutMs ?? 0));
+  const castingTimeMs = Math.max(0, Number(ability.castingTimeMs ?? 0));
+  return { warmupMs, cooldownMs, lockoutMs, castingTimeMs };
+}
+
+function __applyAbilityEffectsWithTiming(kind, caster, ability, targets, extraPayload = null, nowMs = null) {
+  const effects = Array.isArray(ability?.effects) ? ability.effects : [];
+  if (!effects.length) return false;
+
+  const now = (nowMs == null) ? getGameNowMs() : Number(nowMs);
+  const timing = __getAbilityTiming(ability);
+  const abilityId = lc(ability?.id || ability?.name || '');
+  const payload = { source: 'ability', ability: abilityId, ...(extraPayload || {}) };
+  const targetList = Array.isArray(targets) ? targets : [targets];
+
+  if (timing.castingTimeMs > 0) {
+    const animType = lc(ability?.animation || ability?.anim || 'ability');
+    setActorTempAnim(caster, animType || 'ability', timing.castingTimeMs, now);
+    if (ability?.stopMoving === true) {
+      lockActorMovementForMs(caster, timing.castingTimeMs);
+    }
+  }
+
+  const applyNow = () => {
+    for (const t of targetList) {
+      if (!t) continue;
+      const rel = getRelation(caster, t);
+      const casterName = caster?.name || caster?.id || 'player';
+      const targetName = t?.name || t?.id || 'unknown';
+      const targetKind = isMobActor(t) ? 'mob' : (isNpcActor(t) ? 'npc' : (t === player ? 'player' : 'unknown'));
+      const effectsStr = Array.isArray(effects) ? JSON.stringify(effects) : String(effects || '');
+      console.log(
+        `dbg/ability_fire ability=${abilityId} caster=${casterName}(${kind}) target=${targetName}(${targetKind}) relation=${rel} effects=${effectsStr}`
+      );
+    }
+    if (abilityId === 'reset_mira_alignment_colossus' || abilityId === 'sustain_colossus') {
+      for (const t of targetList) {
+        const rel = t ? getRelation(caster, t) : 'none';
+        console.log('[ability-timing] effect', { abilityId, rel, target: t?.name || t?.id || null });
+      }
+    }
+    const fixedNow = resolveAbilityFixedTargets(caster, ability);
+    const candidates = fixedNow ? fixedNow : __getAbilityTargetCandidates(caster, ability, { priorityOnly: false });
+    if (Array.isArray(candidates) && candidates.length === 0) return;
+    for (const t of targetList) {
+      if (!t) continue;
+      if (Array.isArray(candidates) && !candidates.includes(t)) continue;
+      if ((ability?.requiresContact || ability?.inContact) && kind === 'mob') {
+        const pairKey = contactPairKey(caster.instanceId, t);
+        if (!pairKey || !contactInsidePairs.has(pairKey)) continue;
+      }
+      if (kind === 'mob') applyMobEffects(effects, caster, payload, t);
+      else if (kind === 'npc') applyNpcEffects(effects, caster, payload, t);
+      else if (kind === 'player') applyPlayerEffects(effects, payload, t);
+    }
+  };
+
+  if (abilityId === 'reset_mira_alignment_colossus' || abilityId === 'sustain_colossus') {
+    const rels = targetList.map(t => (t ? getRelation(caster, t) : 'none'));
+    console.log('[ability-timing] cast', { abilityId, warmupMs: timing.warmupMs, rels });
+  }
+
+  if (timing.warmupMs > 0) scheduleTimedEffect(now + timing.warmupMs, applyNow);
+  else applyNow();
+
+  if (timing.lockoutMs > 0) {
+    const until = now + timing.warmupMs + timing.lockoutMs;
+    const prev = Number(caster.__abilityLockUntilMs || 0);
+    caster.__abilityLockUntilMs = Math.max(prev, until);
+  }
+
+  if (!caster.abilityNextAtMs) caster.abilityNextAtMs = Object.create(null);
+  const nextAt = now + timing.warmupMs + timing.cooldownMs;
+  caster.abilityNextAtMs[abilityId] = nextAt;
+
+  return true;
+}
+
+function tryCastPartyAbility(npcName, abilityId, targetActor = null) {
   const wantNpc = lc(npcName);
   const wantAb = lc(abilityId);
   if (!wantNpc || !wantAb) return false;
 
   if (loading) return false;
   if (inConversation || inActionPhrase) return false;
-  if (controlsLocked) return false;
+  if (controlsLocked || isPlayerStunned()) return false;
 
   const caster = party.find(n => n && lc(n.name) === wantNpc);
   if (!caster) return false;
+  if (actorHasTag(caster, 'stunned')) return false;
 
   const ability = (Array.isArray(caster.abilities) ? caster.abilities : []).find(a => a && lc(a.id) === wantAb);
   if (!ability) return false;
 
-  const now = performance.now();
+  const now = getGameNowMs();
+  const lockUntil = Number(caster.__abilityLockUntilMs || 0);
+  if (lockUntil > now) {
+    showPlayerMenuError('Ability is on cooldown.');
+    return false;
+  }
   const nextAt = Number(caster.abilityNextAtMs?.[wantAb] || 0);
   if (nextAt > now) {
     showPlayerMenuError('Ability is on cooldown.');
     return false;
   }
 
-  const effects = Array.isArray(ability.effects) ? ability.effects : [];
-  if (effects.length) {
-    applyEffects(effects, { source: 'ability', npc: caster.name, ability: ability.id });
+  const fixedTargets = resolveAbilityFixedTargets(caster, ability);
+  if (fixedTargets) {
+    __applyAbilityEffectsWithTiming('npc', caster, ability, fixedTargets, null, now);
+  } else {
+    __applyAbilityEffectsWithTiming('npc', caster, ability, targetActor || null, null, now);
   }
 
-  const cdMs = Number(ability.cooldownMs || 0);
-  if (!caster.abilityNextAtMs) caster.abilityNextAtMs = Object.create(null);
-  caster.abilityNextAtMs[wantAb] = now + Math.max(0, cdMs);
-
   emitGameEvent('npc_ability_cast', { npc: caster.name, ability: ability.id });
+
+  if (lc(caster.__forcedTargetAbilityId || '') === wantAb) {
+    caster.__forcedTargetKey = null;
+    caster.__forcedTargetAbilityId = null;
+  }
 
   return true;
 }
 
+function tryCastPlayerAbility(abilityId, targetActor = null) {
+  const wantAb = lc(abilityId);
+  if (!wantAb) return false;
+
+  if (loading) return false;
+  if (inConversation || inActionPhrase) return false;
+  if (controlsLocked || isPlayerStunned()) return false;
+
+  const ability = (Array.isArray(player.abilities) ? player.abilities : []).find(a => a && lc(a.id) === wantAb);
+  if (!ability) return false;
+  if (actorHasTag(player, 'stunned')) return false;
+
+  const now = getGameNowMs();
+  const lockUntil = Number(player.__abilityLockUntilMs || 0);
+  if (lockUntil > now) {
+    showPlayerMenuError('Ability is on cooldown.');
+    return false;
+  }
+  const nextAt = Number(player.abilityNextAtMs?.[wantAb] || 0);
+  if (nextAt > now) {
+    showPlayerMenuError('Ability is on cooldown.');
+    return false;
+  }
+
+  const fixedTargets = resolveAbilityFixedTargets(player, ability);
+  if (fixedTargets) {
+    __applyAbilityEffectsWithTiming('player', player, ability, fixedTargets, null, now);
+  } else {
+    __applyAbilityEffectsWithTiming('player', player, ability, targetActor || null, null, now);
+  }
+
+  emitGameEvent('player_ability_cast', { ability: ability.id });
+
+  if (lc(player.__forcedTargetAbilityId || '') === wantAb) {
+    player.__forcedTargetKey = null;
+    player.__forcedTargetAbilityId = null;
+  }
+
+  return true;
+}
+
+function toggleActorAutoCast(actor, abilityId) {
+  if (!actor) return false;
+  const wantAb = lc(abilityId);
+  if (!wantAb) return false;
+
+  const has = Array.isArray(actor.abilities) && actor.abilities.some(a => a && lc(a.id) === wantAb);
+  if (!has) return false;
+
+  actor.autoCastAbilityId = (lc(actor.autoCastAbilityId || '') === wantAb) ? null : wantAb;
+  return true;
+}
+
+// Pausable game-time clock (freezes when inMenu is true)
+let __gameNowMs = performance.now();
+function getGameNowMs() {
+  return __gameNowMs;
+}
 
 // UI flags
 let showNames = false; //don't show character names by default
+let showRangeIndicators = false;
 // Menu state
 let inMenu = false;
-let activeMenuPageId = 'pc';
+let activeMenuPageId = 'party';
+let inManualTargeting = false;
+let manualTargetingState = null; // { npcName, abilityId, candidates, selectedIndex, returnPageId }
+let manualTargetingMouse = { x: 0, y: 0, has: false };
+let wasMenuOpenBeforeDialog = false;
+let partyMenuSelectedIndex = 0;
+let partyMenuLastSelectedIndex = 0;
+let partyMenuCardIndex = 0; // 0=stats,1=abilities/tags,2=inventory
+let partyMenuCardSize = { h: 0, w: 0 };
+let partyMenuPrevCardIndex = 0;
+let partyMenuCardSlideDir = 1; // 1 = down, -1 = up
+let partyMenuCardAnimUntilMs = 0;
+let partyMenuWheelAccum = 0;
+let partyMenuWheelLastAt = 0;
+let npcMenuSelectedIndex = 0;
+let npcMenuLastSelectedIndex = 0;
+let npcMenuCardIndex = 0;
+let npcMenuPrevCardIndex = 0;
+let npcMenuCardSlideDir = 1;
+let npcMenuCardAnimUntilMs = 0;
+let npcMenuWheelAccum = 0;
+let npcMenuWheelLastAt = 0;
 
-const MENU_PAGES = []; // { id, label, render() }
-function registerMenuPage(id, label, renderFn) {
-  MENU_PAGES.push({ id: String(id), label: String(label), render: renderFn });
+const MENU_PAGES = []; // { id, label, hotkey, render() }
+function registerMenuPage(id, label, hotkey, renderFn) {
+  MENU_PAGES.push({
+    id: String(id),
+    label: String(label),
+    hotkey: String(hotkey || ''),
+    render: renderFn
+  });
+}
+
+function getNpcMenuNames() {
+  const entries = Object.entries(npcRegistry || {})
+    .filter(([_, rec]) => !!(rec?.met || rec?.hasBeenInParty));
+  const names = entries.map(([name]) => name).filter(n => lc(n) !== 'player');
+  names.sort((a, b) => a.localeCompare(b));
+  return names;
+}
+
+function isMenuPageEmpty(id) {
+  const p = globalThis.player;
+  if (!p) return false;
+  const pid = String(id || '').toLowerCase();
+  if (pid === 'abilities') return getAbilityList().length === 0;
+  if (pid === 'items') return getActorInventoryCards(p).length === 0;
+  if (pid === 'npcs') return getNpcMenuNames().length === 0;
+  return false;
+}
+
+function getVisibleMenuPages() {
+  return MENU_PAGES.filter(p => !isMenuPageEmpty(p.id));
+}
+
+function isMenuPageVisible(id) {
+  return getVisibleMenuPages().some(p => p.id === id);
 }
 
 function setActiveMenuPage(id) {
-  activeMenuPageId = String(id || 'pc');
+  const pages = getVisibleMenuPages();
+  const wanted = String(id || 'party');
+  const exists = pages.find(p => p.id === wanted);
+  activeMenuPageId = exists ? wanted : (pages[0]?.id || 'party');
+  if (activeMenuPageId === 'party') {
+    partyMenuCardIndex = 0;
+    partyMenuPrevCardIndex = 0;
+    partyMenuCardAnimUntilMs = 0;
+  }
+  if (activeMenuPageId === 'npcs') {
+    npcMenuCardIndex = 0;
+    npcMenuPrevCardIndex = 0;
+    npcMenuCardAnimUntilMs = 0;
+  }
   renderPlayerMenu();
 }
 
@@ -220,6 +566,14 @@ function openPlayerMenu(pageId = null) {
 
   if (pageId) activeMenuPageId = String(pageId);
 
+  // Always open on stats/picture card, but keep selected character per menu
+  partyMenuCardIndex = 0;
+  partyMenuPrevCardIndex = 0;
+  partyMenuCardAnimUntilMs = 0;
+  npcMenuCardIndex = 0;
+  npcMenuPrevCardIndex = 0;
+  npcMenuCardAnimUntilMs = 0;
+
   playerMenuOverlay.style.display = 'block';
   renderPlayerMenu();
 }
@@ -227,7 +581,11 @@ function openPlayerMenu(pageId = null) {
 function closePlayerMenu() {
   if (!playerMenuOverlay) return;
   inMenu = false;
+  inManualTargeting = false;
+  manualTargetingState = null;
+  closePartyInventoryOverlay();
   playerMenuOverlay.style.display = 'none';
+  renderMenuTabs(menuTopTabs, true, true);
 }
 
 function togglePlayerMenu(pageId = null) {
@@ -235,25 +593,171 @@ function togglePlayerMenu(pageId = null) {
   else openPlayerMenu(pageId);
 }
 
-function renderPlayerMenu() {
-  if (!playerMenuOverlay || !playerMenuTabs || !playerMenuContent) return;
+let __menuOverlayHideToken = 0;
+function hideMenuOverlayForHeadBars() {
+  if (!playerMenuOverlay || !inMenu) return;
+  const delayMs = Math.max(0, Number(HEAD_STAT_BAR_TIMING?.totalMs ?? 0));
+  const token = ++__menuOverlayHideToken;
+  playerMenuOverlay.style.display = 'none';
+  setTimeout(() => {
+    if (!inMenu) return;
+    if (token !== __menuOverlayHideToken) return;
+    playerMenuOverlay.style.display = 'block';
+    renderPlayerMenu();
+  }, delayMs);
+}
 
-  // Tabs
-  playerMenuTabs.innerHTML = '';
-  for (const p of MENU_PAGES) {
-    const btn = document.createElement('button');
-    btn.className = 'playerMenuTabBtn' + (p.id === activeMenuPageId ? ' active' : '');
-    btn.textContent = p.label;
-    btn.addEventListener('click', () => setActiveMenuPage(p.id));
-    playerMenuTabs.appendChild(btn);
+let __pendingNameLabels = [];
+let __pendingHeadBars = [];
+
+function renderMenuTabs(targetEl, forceInactive = false, allowScale = false) {
+  if (!targetEl) return;
+  if (globalThis.loading !== false) {
+    targetEl.style.display = 'none';
+    targetEl.style.pointerEvents = 'none';
+    targetEl.innerHTML = '';
+    return;
   }
+  if (globalThis.inConversation || globalThis.inActionPhrase) {
+    targetEl.style.display = 'none';
+    targetEl.style.pointerEvents = 'none';
+    targetEl.innerHTML = '';
+    return;
+  }
+  targetEl.style.display = '';
+  targetEl.style.pointerEvents = '';
+  targetEl.innerHTML = '';
+  if (allowScale) {
+    targetEl.style.setProperty('--menu-tab-scale', '1');
+    targetEl.style.setProperty('--menu-tabs-fit-scale', '1');
+    targetEl.style.width = '';
+  } else {
+    targetEl.style.setProperty('--menu-tab-scale', '1');
+    targetEl.style.setProperty('--menu-tabs-fit-scale', '1');
+    targetEl.style.width = '';
+  }
+  const pages = getVisibleMenuPages();
+  for (const p of pages) {
+    const btn = document.createElement('button');
+    const isActive = (!forceInactive && p.id === activeMenuPageId);
+    btn.className = 'playerMenuTabBtn';
+    if (isActive) btn.dataset.active = '1';
+    btn.style.width = '';
+    if (p.hotkey && p.hotkey.length > 0) {
+      const label = String(p.label || '');
+      const hot = String(p.hotkey || '').toLowerCase();
+      const idx = label.toLowerCase().indexOf(hot);
+      if (idx >= 0) {
+        const before = document.createElement('span');
+        before.textContent = label.slice(0, idx);
+        const key = document.createElement('span');
+        key.className = 'playerMenuTabHotkey';
+        key.textContent = label[idx];
+        const after = document.createElement('span');
+        after.textContent = label.slice(idx + 1);
+        btn.appendChild(before);
+        btn.appendChild(key);
+        btn.appendChild(after);
+      } else {
+        btn.textContent = label;
+      }
+    } else {
+      btn.textContent = p.label;
+    }
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!inMenu) {
+        openPlayerMenu(p.id);
+        return;
+      }
+      if (p.id === activeMenuPageId) {
+        closePlayerMenu();
+        return;
+      }
+      setActiveMenuPage(p.id);
+    });
+    targetEl.appendChild(btn);
+  }
+  if (allowScale) {
+    const gapRaw = getComputedStyle(targetEl).columnGap || getComputedStyle(targetEl).gap || '0';
+    const gap = parseFloat(gapRaw) || 0;
+    const tabs = Array.from(targetEl.children);
+    let maxW = 0;
+    for (const el of tabs) {
+      const w = el.scrollWidth;
+      if (w > maxW) maxW = w;
+    }
+    for (const el of tabs) {
+      el.style.width = `${Math.ceil(maxW)}px`;
+    }
+    const totalW = (Math.ceil(maxW) * tabs.length) + Math.max(0, tabs.length - 1) * gap;
+    const containerW = (viewportEl?.clientWidth || window.innerWidth) - 16;
+    const scale = Math.min(1, totalW > 0 ? (containerW / totalW) : 1);
+    targetEl.style.setProperty('--menu-tabs-fit-scale', String(scale));
+    if (isFinite(totalW) && totalW > 0) targetEl.style.width = `${totalW}px`;
+    for (const el of tabs) {
+      if (el.dataset.active === '1') el.classList.add('active');
+      else el.classList.remove('active');
+      delete el.dataset.active;
+    }
+  } else {
+    const tabs = Array.from(targetEl.children);
+    for (const el of tabs) {
+      if (el.dataset.active === '1') el.classList.add('active');
+      else el.classList.remove('active');
+      delete el.dataset.active;
+    }
+  }
+}
+
+function hideMenuTabsForDialog() {
+  if (!menuTopTabs) return;
+  menuTopTabs.classList.add('isHidden');
+}
+
+function showMenuTabsAfterDialog() {
+  if (!menuTopTabs) return;
+  menuTopTabs.classList.remove('isHidden');
+  renderMenuTabs(menuTopTabs, !inMenu, true);
+}
+
+function renderPlayerMenu() {
+  renderMenuTabs(menuTopTabs, !inMenu, true);
+  if (!playerMenuOverlay || !playerMenuContent) return;
 
   // Content
-  const page = MENU_PAGES.find(p => p.id === activeMenuPageId) || MENU_PAGES[0];
+  const pages = getVisibleMenuPages();
+  if (pages.length === 0) {
+    playerMenuContent.innerHTML = '';
+    return;
+  }
+  if (!pages.find(p => p.id === activeMenuPageId)) {
+    closePlayerMenu();
+    return;
+  }
+  const page = pages.find(p => p.id === activeMenuPageId) || pages[0];
   playerMenuContent.innerHTML = '';
   if (page && typeof page.render === 'function') {
     const node = page.render();
-    if (node) playerMenuContent.appendChild(node);
+    if (node) {
+      playerMenuContent.appendChild(node);
+      requestAnimationFrame(() => syncAbilityCardPortraits(playerMenuContent));
+    }
+  }
+}
+
+function syncAbilityCardPortraits(rootEl) {
+  const root = rootEl || document;
+  const cards = root.querySelectorAll('.abilityCard');
+  for (const card of cards) {
+    const portrait = card.querySelector('.abilityCardPortrait');
+    const content = card.querySelector('.abilityCardContent');
+    if (!portrait || !content) continue;
+    const h = Math.round(content.getBoundingClientRect().height || 0);
+    if (!h) continue;
+    portrait.style.width = `${h}px`;
+    portrait.style.height = `${h}px`;
   }
 }
 
@@ -292,10 +796,22 @@ function renderMenuPage_PC() {
 
   // Stats
   const statRows = [];
-  for (const d of PLAYER_STAT_DEFS) {
-    const k = String(d.key).toLowerCase();
-    const rec = player.stats?.[k] || { base: 0, current: 0 };
-    statRows.push([d.label, `${rec.current} / ${rec.base}`]);
+  for (const k of PLAYER_STAT_ORDER) {
+    const def = getStatDef(k);
+    if (!def) continue;
+    const rec = player.stats?.[k];
+    if (!rec) continue;
+    if (def.type === 'depletable') {
+      const cur = Number(rec.current ?? 0);
+      const max = Number(getStatEffectiveValue(player, k) ?? rec.max ?? 0);
+      statRows.push([def.label || k, `${cur} / ${max}`]);
+    } else if (def.type === 'scalar') {
+      const val = Number(getStatEffectiveValue(player, k) ?? rec.base ?? 0);
+      statRows.push([def.label || k, `${val}`]);
+    } else if (def.type === 'variable') {
+      const val = Number(getStatEffectiveValue(player, k) ?? rec.current ?? 0);
+      statRows.push([def.label || k, `${val}`]);
+    }
   }
   wrap.appendChild(makeMenuCard('Player Stats', statRows));
 
@@ -335,15 +851,1069 @@ function renderMenuPage_Party() {
   for (const m of party) {
     const rows = [
       ['Name', m.name ?? '—'],
-      ['Alignment', Number(m?.stats?.alignment?.current ?? 0)],
-      ['Affection', Number(m?.stats?.affection?.current ?? 0)],
-      ['Min Align Recruit', Number(m?.stats?.alignment?.base ?? 0)],
-      ['Min Aff Recruit', Number(m?.stats?.affection?.base ?? 0)]
+      ['Alignment', Number(getActorStatValue(m?.name || '', 'alignment', 'current') ?? 0)],
+      ['Affection', Number(getActorStatValue(m?.name || '', 'affection', 'current') ?? 0)],
+      ['Min Align Recruit', Number(getActorStatValue(m?.name || '', 'minalignment', 'base') ?? 0)],
+      ['Min Aff Recruit', Number(getActorStatValue(m?.name || '', 'minaffection', 'base') ?? 0)]
     ];
-    wrap.appendChild(makeMenuCard(m.name || 'Party Member', rows));
+    const card = makeMenuCard(m.name || 'Party Member', rows);
+
+    const invBtn = document.createElement('button');
+    invBtn.textContent = 'Inventory';
+    invBtn.style.marginTop = '10px';
+    invBtn.style.alignSelf = 'flex-start';
+    invBtn.addEventListener('click', () => {
+      showPartyInventoryOverlay(m);
+    });
+    card.appendChild(invBtn);
+
+    wrap.appendChild(card);
   }
 
   return wrap;
+}
+
+function getActorPortraitContext(actor, mode) {
+  const nm = String(actor?.name || '');
+  let areaName = null;
+  if (mode === 'party') {
+    areaName = currentAreaName ?? null;
+  } else if (mode === 'npcs') {
+    const nameLc = lc(nm);
+    const inPartyNow = Array.isArray(party) && party.some(p => lc(p?.name || '') === nameLc);
+    const inWorldNow = Array.isArray(npcs) && npcs.some(n => lc(n?.name || '') === nameLc);
+    if (inPartyNow || inWorldNow) areaName = currentAreaName ?? null;
+    else {
+      const rec = ensureNpcRecord(nm);
+      areaName = rec?.area || rec?.lastSeenArea || null;
+    }
+  }
+
+  const area = areaName ? buildAreaFromDefinition(areaName) : currentArea;
+
+  let worldX = null;
+  if (actor && isFinite(actor.worldX)) worldX = Number(actor.worldX);
+  else if (mode === 'party') {
+    worldX = Number(player?.worldX || 0);
+  } else if (mode === 'npcs') {
+    const rec = ensureNpcRecord(nm);
+    if (isFinite(rec?.worldX)) worldX = Number(rec.worldX);
+    else if (isFinite(rec?.lastSeenWorldX)) worldX = Number(rec.lastSeenWorldX);
+  }
+
+  if (!isFinite(worldX)) worldX = Number(player?.worldX || 0);
+  return { area, worldX };
+}
+
+function getGoalStoreForActor(actor) {
+  if (!actor) return null;
+  const name = String(actor?.name || '');
+  const nameLc = lc(name);
+  const playerLc = lc(player?.name || 'player');
+  if (actor === player || nameLc === playerLc || nameLc === 'player') {
+    ensurePlayerGoals();
+    return player;
+  }
+  if (name) return ensureNpcRecord(name);
+  return null;
+}
+
+function getGoalCompletionInfoForStore(store, goal) {
+  const count = __getGoalCount(store, goal?.id);
+  const max = __getGoalMax(goal);
+  const complete = (max !== 0 && count >= max);
+  return { count, max, complete };
+}
+
+function formatGoalStatusText(info) {
+  if (!info) return 'Incomplete';
+  if (info.max === 0) return `Completed ${info.count} times`;
+  if (!info.complete) return 'Incomplete';
+  if (info.max === 1) return 'Completed';
+  return `Completed ${info.count}/${info.max} times`;
+}
+
+function isPublicGoal(goal) {
+  return lc(goal?.visibility || 'public') !== 'private';
+}
+
+function getIncompletePublicGoalsForStore(store) {
+  if (!store || !Array.isArray(store.goalsActive)) return [];
+  const out = [];
+  for (const g of store.goalsActive) {
+    if (!g || !isPublicGoal(g)) continue;
+    const info = getGoalCompletionInfoForStore(store, g);
+    if (info.complete) continue;
+    out.push({ goal: g, info });
+  }
+  return out;
+}
+
+function collectJournalGoalsForStore(store, ownerName) {
+  if (!store) return [];
+  __initGoalStore(store);
+  const out = [];
+  const seen = new Set();
+
+  for (const g of store.goalsActive) {
+    if (!g || !isPublicGoal(g)) continue;
+    const info = getGoalCompletionInfoForStore(store, g);
+    out.push({ owner: ownerName, goal: g, info });
+    seen.add(g.id);
+  }
+
+  for (const [gid, g] of Object.entries(store.goalsRemoved || {})) {
+    if (seen.has(gid)) continue;
+    if (!g || !isPublicGoal(g)) continue;
+    const info = getGoalCompletionInfoForStore(store, g);
+    if (!info.complete) continue;
+    out.push({ owner: ownerName, goal: g, info });
+  }
+
+  return out;
+}
+
+function renderMenuPage_PartyCards() {
+  ensurePlayerStats();
+
+  const wrap = document.createElement('div');
+  wrap.className = 'partyCardsGrid';
+
+  const members = [player].concat(Array.isArray(party) ? party : []);
+  if (!members.length) {
+    const empty = document.createElement('div');
+    empty.className = 'playerMenuCard';
+    empty.textContent = 'No party members.';
+    wrap.appendChild(empty);
+    return wrap;
+  }
+  if (!Number.isFinite(partyMenuSelectedIndex)) partyMenuSelectedIndex = 0;
+  if (partyMenuSelectedIndex >= members.length) partyMenuSelectedIndex = members.length - 1;
+  if (partyMenuSelectedIndex < 0) partyMenuSelectedIndex = 0;
+  if (partyMenuLastSelectedIndex !== partyMenuSelectedIndex) {
+    partyMenuCardIndex = 0;
+    partyMenuLastSelectedIndex = partyMenuSelectedIndex;
+  }
+
+  const viewportRect = viewportEl?.getBoundingClientRect();
+  const tabsRect = menuTopTabs?.getBoundingClientRect();
+  const tabsBottom = (tabsRect && viewportRect) ? (tabsRect.bottom - viewportRect.top) : 120;
+  const availableHeight = Math.max(1, (viewportRect?.height || window.innerHeight) - tabsBottom);
+  const cardH = availableHeight * 0.8;
+  const cardW = cardH * 0.6667;
+  const gap = 18;
+  const n = members.length;
+  const availableWidth = Math.max(1, (viewportRect?.width || window.innerWidth) - (gap * 2));
+  let nonSelectedW = cardW;
+  if (n > 1) {
+    nonSelectedW = (availableWidth - cardW - (gap * (n + 1))) / (n - 1);
+    if (!isFinite(nonSelectedW)) nonSelectedW = cardW;
+  }
+  nonSelectedW = Math.max(0, Math.min(cardW, nonSelectedW));
+  const nonSelectedH = nonSelectedW * 1.5;
+  wrap.style.setProperty('--party-card-height', `${cardH}px`);
+  wrap.style.setProperty('--party-card-width', `${cardW}px`);
+  wrap.style.setProperty('--party-card-scaled-height', `${nonSelectedH}px`);
+  wrap.style.setProperty('--party-card-scaled-width', `${nonSelectedW}px`);
+  partyMenuCardSize = { h: cardH, w: cardW };
+
+  const labelForStat = (key) => {
+    const def = getStatDef(String(key || '').toLowerCase());
+    if (def && def.label) return String(def.label);
+    const raw = String(key || '');
+    return raw
+      .replace(/_/g, ' ')
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/\b\w/g, c => c.toUpperCase());
+  };
+
+  const buildSignedStatBar = (statKey, cur) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'partyStatBar';
+    wrap.style.position = 'relative';
+
+    const val = Math.max(-10, Math.min(10, Number(cur) || 0));
+    const pct = (val + 10) / 20; // 0..1
+
+    const marker = document.createElement('img');
+    const dir = (val >= 0) ? 'up' : 'down';
+    marker.src = `assets/icons/${statKey}_${dir}.png`;
+    marker.alt = `${statKey} ${dir}`;
+    marker.style.position = 'absolute';
+    marker.style.left = `${Math.round(pct * 100)}%`;
+    marker.style.top = '50%';
+    marker.style.transform = 'translate(-50%, -50%)';
+    marker.style.width = '16px';
+    marker.style.height = '16px';
+    wrap.appendChild(marker);
+
+    return wrap;
+  };
+
+  const buildStatValueNode = (actor, statKey, rec) => {
+    const k = String(statKey || '').toLowerCase();
+    const def = getStatDef(k);
+    const base = (rec && rec.base != null) ? Number(rec.base) : 0;
+    const cur = (rec && rec.current != null) ? Number(rec.current) : 0;
+
+    if (def && def.type === 'depletable') {
+      const wrap = document.createElement('div');
+      wrap.className = 'partyStatBar';
+      const actorKey = lc(actor?.name || 'player');
+      wrap.dataset.actor = actorKey;
+      wrap.dataset.stat = k;
+      const effMax = Number(getStatEffectiveValue(actor, k) ?? rec?.max ?? 0);
+      wrap.dataset.base = String(effMax);
+
+      const fill = document.createElement('div');
+      fill.className = 'partyStatBarFill';
+      const pct = (effMax > 0) ? Math.max(0, Math.min(1, cur / effMax)) : 0;
+      fill.style.width = `${Math.round(pct * 100)}%`;
+      wrap.appendChild(fill);
+
+      const text = document.createElement('div');
+      text.className = 'partyStatBarText';
+      text.textContent = `${cur} / ${effMax}`;
+      wrap.appendChild(text);
+
+      return wrap;
+    }
+
+    if (def && def.type === 'variable') {
+      const eff = Number(getStatEffectiveValue(actor, k) ?? cur);
+      return buildSignedStatBar(k, eff);
+    }
+
+    if (def && def.type === 'scalar') {
+      const wrap = document.createElement('span');
+      wrap.className = 'partyStatValue';
+
+      const curSpan = document.createElement('span');
+      curSpan.className = 'partyStatCurrent';
+      const eff = Number(getStatEffectiveValue(actor, k) ?? base);
+      curSpan.textContent = String(eff);
+      wrap.appendChild(curSpan);
+
+      const delta = eff - base;
+      if (isFinite(delta) && delta !== 0) {
+        const tail = document.createElement('span');
+        tail.className = 'partyStatBaseWrap';
+        tail.textContent = ` (${base} `;
+
+        const mod = document.createElement('span');
+        mod.className = 'partyStatMod ' + (delta > 0 ? 'pos' : 'neg');
+        mod.textContent = `${delta > 0 ? '+' : ''}${delta}`;
+
+        const close = document.createElement('span');
+        close.textContent = ')';
+
+        tail.appendChild(mod);
+        tail.appendChild(close);
+        wrap.appendChild(tail);
+      }
+
+      return wrap;
+    }
+
+    const fallback = document.createElement('span');
+    fallback.textContent = `${cur} / ${base}`;
+    return fallback;
+  };
+
+  const buildStatRows = (actor) => {
+    const stats = actor?.stats && typeof actor.stats === 'object' ? actor.stats : {};
+    const keys = Object.keys(stats);
+
+    const defKeys = NPC_STAT_ORDER.map(d => String(d).toLowerCase());
+    const ordered = [];
+    for (const k of defKeys) {
+      if (stats[k]) ordered.push(k);
+    }
+    const rest = keys.filter(k => !ordered.includes(k)).sort();
+    ordered.push(...rest);
+
+    return ordered.map((k) => {
+      const rec = stats[k] || {};
+      return [labelForStat(k), buildStatValueNode(actor, k, rec)];
+    });
+  };
+
+  const buildAbilitiesPanel = (actor, opts = {}) => {
+    const panel = document.createElement('div');
+    panel.className = 'partyCardPanel';
+
+    const name = document.createElement('div');
+    name.className = 'partyCardName';
+    name.textContent = actor?.name || 'Party Member';
+    panel.appendChild(name);
+
+    const titleI = document.createElement('div');
+    titleI.className = 'partyCardSectionTitle';
+    titleI.textContent = 'Can Interact With';
+    panel.appendChild(titleI);
+
+    const interacts = (typeof getActorInteractTags === 'function')
+      ? getActorInteractTags(actor)
+      : [];
+    const interactLine = document.createElement('div');
+    interactLine.className = 'partyTagLine';
+    interactLine.textContent = (Array.isArray(interacts) && interacts.length > 0)
+      ? interacts.join(', ')
+      : 'None';
+    panel.appendChild(interactLine);
+
+    const titleT = document.createElement('div');
+    titleT.className = 'partyCardSectionTitle';
+    titleT.textContent = 'Effects';
+    panel.appendChild(titleT);
+
+    const tagsSet = ensureActorTags(actor) || new Set();
+    const tags = Array.from(tagsSet.values()).sort();
+    const tagWrap = document.createElement('div');
+    tagWrap.className = 'partyTagList';
+    if (tags.length === 0) {
+      tagWrap.textContent = 'None';
+      tagWrap.classList.add('playerMenuMuted');
+    } else {
+      for (const t of tags) {
+        const pill = document.createElement('span');
+        pill.className = 'partyTagPill';
+        pill.textContent = t;
+        // Optional duration display if tag expiry data exists
+        const expMap = actor?.tagExpiresAtMs;
+        if (expMap && typeof expMap === 'object' && expMap[t] != null) {
+          const now = getGameNowMs();
+          const remainMs = Math.max(0, Number(expMap[t]) - now);
+          const remainS = Math.ceil(remainMs / 1000);
+          if (isFinite(remainS)) {
+            const dur = document.createElement('span');
+            dur.className = 'partyTagDuration';
+            dur.textContent = ` ${remainS}s`;
+            pill.appendChild(dur);
+          }
+        }
+        tagWrap.appendChild(pill);
+      }
+    }
+    panel.appendChild(tagWrap);
+
+    const titleA = document.createElement('div');
+    titleA.className = 'partyCardSectionTitle';
+    titleA.textContent = 'Abilities';
+    panel.appendChild(titleA);
+
+    const abilities = Array.isArray(actor?.abilities) ? actor.abilities : [];
+    if (abilities.length === 0) {
+      const none = document.createElement('div');
+      none.className = 'playerMenuMuted';
+      none.textContent = 'None';
+      panel.appendChild(none);
+    } else {
+      const list = document.createElement('div');
+      list.className = 'partyAbilityCardList';
+      for (let i = 0; i < abilities.length; i++) {
+        const ab = abilities[i];
+        const hotKey = (i < 9) ? (i + 1) : null;
+        const card = buildAbilityCard(actor, ab, {
+          hotKey,
+          includeToggle: true,
+          showPortrait: false,
+          badge: opts.badge || null,
+          onToggle: () => {
+            toggleActorAutoCast(actor, ab?.id || ab);
+            renderPlayerMenu();
+          },
+          onClick: (e) => {
+            if (e && e.shiftKey) {
+              toggleActorAutoCast(actor, ab?.id || ab);
+              renderPlayerMenu();
+              return;
+            }
+            triggerAbilityFromEntry({ actor, ability: ab });
+          }
+        });
+        list.appendChild(card);
+      }
+      panel.appendChild(list);
+    }
+
+    return panel;
+  };
+
+  const getActorAreaLabel = (actor, mode) => {
+    if (!actor) return '—';
+    const nm = String(actor.name || '');
+    if (mode === 'party') {
+      if (actor === player || lc(nm) === lc(player?.name || '')) return currentAreaName ?? '—';
+      const rec = ensureNpcRecord(nm);
+      return rec?.lastSeenArea || rec?.area || '—';
+    }
+    if (mode === 'npcs') {
+      const nameLc = lc(nm);
+      const inPartyNow = Array.isArray(party) && party.some(p => lc(p?.name || '') === nameLc);
+      const inWorldNow = Array.isArray(npcs) && npcs.some(n => lc(n?.name || '') === nameLc);
+      if (inPartyNow || inWorldNow) return currentAreaName ?? '—';
+      const rec = ensureNpcRecord(nm);
+      return rec?.area || rec?.lastSeenArea || '—';
+    }
+    return '—';
+  };
+
+  const buildStatsCard = (actor, mode = 'party') => {
+    const c = document.createElement('div');
+    c.className = 'partyCard partyCardStatsCard';
+
+    const portraitWrap = document.createElement('div');
+    portraitWrap.className = 'partyCardPortrait';
+    portraitWrap.style.backgroundColor = getCurrentSkyColor();
+    const bgKey = (() => {
+      const ctx = getActorPortraitContext(actor, mode);
+      const area = ctx.area;
+      if (!area || !area.sectionTileWidth || !Array.isArray(area.backgroundEntries)) return null;
+      const wx = ctx.worldX;
+      const idx = Math.max(0, Math.floor(wx / area.sectionTileWidth));
+      const entry = area.backgroundEntries[idx + 1] ?? area.backgroundEntries[idx] ?? null;
+      if (!entry) return null;
+      if (typeof entry === 'string') return entry;
+      if (entry?.img?.src) return entry.img.src;
+      return null;
+    })();
+    if (bgKey) {
+      const src = bgKey.includes('assets/')
+        ? bgKey
+        : `assets/tiles/${bgKey.includes('.') ? bgKey : `${bgKey}.png`}`;
+      portraitWrap.style.backgroundImage = `url("${src}")`;
+    }
+    const img = document.createElement('img');
+    img.alt = `${actor.name || 'Member'} portrait`;
+    img.src = `assets/portraits/character_portrait_${lc(actor.name || 'player')}_neutral.png`;
+    img.addEventListener('error', () => {
+      portraitWrap.style.display = 'none';
+    });
+    portraitWrap.appendChild(img);
+    c.appendChild(portraitWrap);
+
+    const overlay = document.createElement('div');
+    overlay.className = 'partyCardOverlay';
+
+    const nameBlock = document.createElement('div');
+    nameBlock.className = 'partyOverlayBlock';
+    const name = document.createElement('div');
+    name.className = 'partyCardName';
+    name.textContent = actor.name || 'Party Member';
+    nameBlock.appendChild(name);
+    const area = document.createElement('div');
+    area.className = 'partyCardArea playerMenuMuted';
+    area.textContent = getActorAreaLabel(actor, mode);
+    nameBlock.appendChild(area);
+    overlay.appendChild(nameBlock);
+
+    const table = document.createElement('table');
+    table.className = 'partyCardStats';
+    const rows = buildStatRows(actor);
+    for (const [k, v] of rows) {
+      const tr = document.createElement('tr');
+      const tdK = document.createElement('td');
+      const tdV = document.createElement('td');
+      tdK.textContent = String(k);
+      if (v instanceof Node) tdV.appendChild(v);
+      else tdV.textContent = String(v);
+      tr.appendChild(tdK);
+      tr.appendChild(tdV);
+      table.appendChild(tr);
+    }
+    const statsBlock = document.createElement('div');
+    statsBlock.className = 'partyOverlayBlock';
+    statsBlock.appendChild(table);
+    overlay.appendChild(statsBlock);
+    c.appendChild(overlay);
+    return c;
+  };
+
+  const buildAbilitiesCard = (actor, opts = {}) => {
+    const c = document.createElement('div');
+    c.className = 'partyCard';
+    c.appendChild(buildAbilitiesPanel(actor, opts));
+    return c;
+  };
+
+  const buildInventoryCard = (actor) => {
+    const c = document.createElement('div');
+    c.className = 'partyCard';
+    c.appendChild(buildInventoryPanel(actor));
+    return c;
+  };
+
+  const buildGoalsCard = (actor) => {
+    const c = document.createElement('div');
+    c.className = 'partyCard';
+    c.appendChild(buildGoalsPanel(actor));
+    return c;
+  };
+
+  for (let i = 0; i < members.length; i++) {
+    const member = members[i];
+    if (!member) continue;
+    const isSelected = (i === partyMenuSelectedIndex);
+    const slot = document.createElement('div');
+    slot.className = 'partyCardSlot' + (isSelected ? ' selected' : ' scaled');
+    slot.addEventListener('mouseenter', () => {
+      if (partyMenuSelectedIndex !== i) {
+        partyMenuSelectedIndex = i;
+        partyMenuCardIndex = 0;
+        renderPlayerMenu();
+      }
+    });
+    slot.addEventListener('wheel', (e) => {
+      const now = performance.now();
+      partyMenuWheelAccum += e.deltaY;
+      const threshold = 1000;
+      if (Math.abs(partyMenuWheelAccum) < threshold) {
+        e.preventDefault();
+        return;
+      }
+      if (now - partyMenuWheelLastAt < 120) {
+        e.preventDefault();
+        return;
+      }
+      const dir = (partyMenuWheelAccum > 0) ? 1 : -1;
+      partyMenuWheelAccum = 0;
+      partyMenuWheelLastAt = now;
+      if (partyMenuSelectedIndex !== i) {
+        partyMenuSelectedIndex = i;
+        partyMenuCardIndex = 0;
+      }
+      partyMenuPrevCardIndex = partyMenuCardIndex;
+      partyMenuCardSlideDir = dir;
+      partyMenuCardIndex = (partyMenuCardIndex + dir + 4) % 4;
+      partyMenuCardAnimUntilMs = performance.now() + 1000;
+      renderPlayerMenu();
+      e.preventDefault();
+    }, { passive: false });
+
+    if (isSelected) {
+      const stage = document.createElement('div');
+      stage.className = 'partyCardStageFull';
+
+      const cards = [
+        buildStatsCard(member, 'party'),
+        buildAbilitiesCard(member, { showHotkeys: true, badge: { overlapXMult: 1.8, overlapYMult: 1.8 } }),
+        buildInventoryCard(member),
+        buildGoalsCard(member)
+      ];
+
+      const nowMs = performance.now();
+      const animating = (partyMenuPrevCardIndex !== partyMenuCardIndex) && (nowMs < partyMenuCardAnimUntilMs);
+
+      if (animating) {
+        const outgoing = cards[partyMenuPrevCardIndex];
+        const incoming = cards[partyMenuCardIndex];
+
+        outgoing.classList.add('partyCardAnim', partyMenuCardSlideDir > 0 ? 'to-up' : 'to-down', 'outgoing');
+        incoming.classList.add('partyCardAnim', partyMenuCardSlideDir > 0 ? 'from-down' : 'from-up', 'incoming', 'selected');
+
+        stage.appendChild(outgoing);
+        stage.appendChild(incoming);
+      } else {
+        const current = cards[partyMenuCardIndex];
+        current.classList.add('selected');
+        stage.appendChild(current);
+        partyMenuPrevCardIndex = partyMenuCardIndex;
+      }
+
+      slot.appendChild(stage);
+    } else {
+      const statsCard = buildStatsCard(member, 'party');
+      statsCard.classList.add('partyCard--scaled');
+      slot.appendChild(statsCard);
+    }
+
+    wrap.appendChild(slot);
+  }
+
+  return wrap;
+}
+
+let partyInventoryOverlay = null;
+let partyInventoryOverlayTimer = null;
+let partyInventoryAfterClose = null;
+let partyInventoryPrevContentDisplay = null;
+let partyInventoryPrevInMenu = null;
+let manualTargetingItemPreview = null;
+let manualTargetingAbilityPreview = null;
+let manualTargetingCameraRestore = null;
+let manualTargetingDragTile = null;
+let __lastRecruitIcons = [];
+let __lastPromptLayouts = [];
+let __lastInteractIconRect = null;
+let __lastInteractObjectRect = null;
+let __lastInteractItemRect = null;
+let __pendingInteractIcon = null;
+
+function closePartyInventoryOverlay() {
+  if (partyInventoryOverlay && partyInventoryOverlay.parentNode) {
+    partyInventoryOverlay.parentNode.removeChild(partyInventoryOverlay);
+  }
+  partyInventoryOverlay = null;
+  if (partyInventoryOverlayTimer) {
+    clearTimeout(partyInventoryOverlayTimer);
+    partyInventoryOverlayTimer = null;
+  }
+  if (playerMenuContent && partyInventoryPrevContentDisplay !== null) {
+    playerMenuContent.style.display = partyInventoryPrevContentDisplay;
+  }
+  partyInventoryPrevContentDisplay = null;
+  if (partyInventoryPrevInMenu !== null) {
+    inMenu = !!partyInventoryPrevInMenu;
+    partyInventoryPrevInMenu = null;
+  }
+  if (typeof partyInventoryAfterClose === 'function') {
+    const fn = partyInventoryAfterClose;
+    partyInventoryAfterClose = null;
+    fn();
+  } else {
+    partyInventoryAfterClose = null;
+  }
+}
+
+function buildItemTile({
+  id,
+  uid,
+  inst,
+  showName = true,
+  showUses = true,
+  showDesc = true,
+  keyText = null,
+  badge = null,
+  onClick = null,
+  onHoldStart = null,
+  holdMs = 260,
+  showGiveButton = false,
+  onGive = null,
+  empty = false,
+  highlight = false
+}) {
+  const tile = document.createElement('div');
+  tile.className = 'playerMenuItemTile';
+  if (highlight) tile.classList.add('itemJustAdded');
+
+  if (!empty) {
+    tile.dataset.itemId = lc(id);
+    tile.dataset.itemUid = String(uid);
+  }
+
+  if (!empty && (onClick || onHoldStart)) {
+    let holdTimer = null;
+    let holdFired = false;
+    const clearHold = () => {
+      if (holdTimer) {
+        clearTimeout(holdTimer);
+        holdTimer = null;
+      }
+    };
+    tile.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      holdFired = false;
+      clearHold();
+      if (typeof onHoldStart === 'function') {
+        const delay = Math.max(80, Number(holdMs) || 0);
+        holdTimer = setTimeout(() => {
+          holdFired = true;
+          onHoldStart(id, uid, tile, e);
+        }, delay);
+      }
+    });
+    tile.addEventListener('mouseup', (e) => {
+      if (e.button !== 0) return;
+      clearHold();
+      if (!holdFired && typeof onClick === 'function') {
+        onClick(id, uid, tile, e);
+      }
+    });
+    tile.addEventListener('mouseleave', () => {
+      clearHold();
+    });
+    tile.addEventListener('dragstart', (e) => e.preventDefault());
+  }
+
+  if (!empty) {
+    const def = getItemDef(id) || {};
+    const usesPerItem = getItemUsesPerItem(def);
+
+    if (showName) {
+      const nameLine = document.createElement('div');
+      nameLine.className = 'playerMenuItemName';
+      nameLine.textContent = def.name ? String(def.name) : id;
+      tile.appendChild(nameLine);
+    }
+
+    const imgBox = document.createElement('div');
+    imgBox.className = 'playerMenuItemImgBox';
+
+    const img = document.createElement('img');
+    img.className = 'playerMenuItemImg';
+    img.alt = def.name ? String(def.name) : id;
+    img.src = `assets/items/${lc(id)}.png`;
+
+    img.onerror = () => {
+      img.style.display = 'none';
+      imgBox.classList.add('playerMenuItemImgBoxMissing');
+    };
+
+    imgBox.appendChild(img);
+    tile.appendChild(imgBox);
+
+    if (showUses && usesPerItem > 1) {
+      const countLine = document.createElement('div');
+      countLine.className = 'playerMenuItemCount';
+
+      const usesLeft =
+        (inst?.usesLeft == null || !isFinite(inst.usesLeft))
+          ? usesPerItem
+          : Math.max(0, Math.floor(inst.usesLeft));
+
+      countLine.textContent = `uses: ${usesLeft}/${usesPerItem}`;
+      tile.appendChild(countLine);
+    }
+
+    if (showGiveButton && typeof onGive === 'function') {
+      const giveBtn = document.createElement('div');
+      giveBtn.textContent = 'Give';
+      giveBtn.style.display = 'inline-block';
+      giveBtn.style.marginTop = '6px';
+      giveBtn.style.padding = '2px 6px';
+      giveBtn.style.border = '1px solid #888';
+      giveBtn.style.borderRadius = '4px';
+      giveBtn.style.fontSize = '12px';
+      giveBtn.style.cursor = 'pointer';
+      giveBtn.addEventListener('mousedown', (e) => e.stopPropagation());
+      giveBtn.addEventListener('mouseup', (e) => e.stopPropagation());
+      giveBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        onGive(id, uid);
+      });
+      tile.appendChild(giveBtn);
+    }
+
+    if (keyText) {
+      const merged = (badge && typeof badge === 'object') ? badge : {};
+      attachHotkeyBadge(tile, keyText, merged);
+    }
+
+    if (showDesc && def.description) {
+      const desc = document.createElement('div');
+      desc.className = 'playerMenuItemDesc playerMenuMuted';
+      desc.textContent = String(def.description);
+      tile.appendChild(desc);
+    }
+  } else {
+    const imgBox = document.createElement('div');
+    imgBox.className = 'playerMenuItemImgBox playerMenuItemImgBoxMissing';
+    tile.appendChild(imgBox);
+  }
+
+  return tile;
+}
+
+function buildInventoryPanel(actor, opts = {}) {
+  const panel = document.createElement('div');
+  panel.className = 'partyCardPanel partyCardInventory';
+
+  const name = document.createElement('div');
+  name.className = 'partyCardName';
+  name.textContent = actor?.name || 'Party Member';
+  panel.appendChild(name);
+
+  const title = document.createElement('div');
+  title.className = 'partyCardSectionTitle';
+  title.textContent = 'Inventory';
+  panel.appendChild(title);
+
+  const grid = document.createElement('div');
+  grid.className = 'playerMenuItemsGrid';
+  grid.style.gridTemplateColumns = 'repeat(2, minmax(0, 1fr))';
+
+  const cards = getActorInventoryCards(actor);
+
+  const slotCount = Math.max(
+    Math.floor(Number(actor?.inventorySize ?? 0)) || 0,
+    cards.length
+  );
+
+  const highlightUid = opts.highlightUid != null ? String(opts.highlightUid) : null;
+  for (let idx = 0; idx < slotCount; idx++) {
+    const c = cards[idx];
+    const tile = buildItemTile({
+      id: c?.id,
+      uid: c?.uid,
+      inst: c?.inst,
+      showName: true,
+      showUses: true,
+      showDesc: true,
+      keyText: (idx < 9) ? String(idx + 1) : null,
+      badge: { overlapXMult: 1.8, overlapYMult: 1.8 },
+      onClick: (id, uid, tileEl) => {
+        void tryUseActorItemWithFeedback(actor, id, uid, tileEl).then((ok) => {
+          if (!ok && __lastItemUseError) {
+            showPlayerMenuError(__lastItemUseError);
+            return;
+          }
+          if (ok) renderPlayerMenu();
+        });
+      },
+      onHoldStart: (id, uid, tileEl, e) => {
+        const res = beginManualItemGiveTargetingForActor(actor, id, uid);
+        if (res === 'started') {
+          showManualTargetingDragTile(id, uid, actor, tileEl);
+          const vrect = viewportEl?.getBoundingClientRect?.();
+          if (manualTargetingDragTile && vrect && e) {
+            manualTargetingDragTile.style.left = `${e.clientX - vrect.left + 8}px`;
+            manualTargetingDragTile.style.top = `${e.clientY - vrect.top + 8}px`;
+          }
+        }
+      },
+      empty: !c,
+      highlight: highlightUid != null && c && String(c.uid) === highlightUid
+    });
+    grid.appendChild(tile);
+  }
+
+  panel.appendChild(grid);
+  return panel;
+}
+
+function buildGoalsPanel(actor) {
+  const panel = document.createElement('div');
+  panel.className = 'partyCardPanel';
+
+  const name = document.createElement('div');
+  name.className = 'partyCardName';
+  name.textContent = actor?.name || 'Party Member';
+  panel.appendChild(name);
+
+  const title = document.createElement('div');
+  title.className = 'partyCardSectionTitle';
+  title.textContent = 'Goals';
+  panel.appendChild(title);
+
+  const store = getGoalStoreForActor(actor);
+  const goals = getIncompletePublicGoalsForStore(store);
+
+  if (!goals.length) {
+    const none = document.createElement('div');
+    none.className = 'playerMenuMuted';
+    none.textContent = 'None';
+    panel.appendChild(none);
+    return panel;
+  }
+
+  const list = document.createElement('div');
+  list.className = 'partyCardList';
+  for (const entry of goals) {
+    const g = entry.goal;
+    if (!g) continue;
+
+    const row = document.createElement('div');
+    row.className = 'partyCardListRow';
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'partyCardListName';
+    nameEl.textContent = g.name || g.id || 'Goal';
+    row.appendChild(nameEl);
+
+    if (g.description) {
+      const desc = document.createElement('div');
+      desc.className = 'playerMenuMuted';
+      desc.textContent = String(g.description);
+      row.appendChild(desc);
+    }
+
+    list.appendChild(row);
+  }
+
+  panel.appendChild(list);
+  return panel;
+}
+
+function buildGoalsCard(actor) {
+  const c = document.createElement('div');
+  c.className = 'partyCard';
+  c.appendChild(buildGoalsPanel(actor));
+  return c;
+}
+
+function getActorInventoryCards(actor) {
+  const inv = ensureActorInventory(actor) || {};
+  const cards = [];
+  for (const [id, bucket] of Object.entries(inv)) {
+    const b = getActorInvBucket(actor, id);
+    const insts = b?.instances;
+    if (!Array.isArray(insts) || insts.length === 0) continue;
+    for (const inst of insts) {
+      cards.push({ id: lc(id), uid: String(inst?.uid ?? ''), inst });
+    }
+  }
+
+  cards.sort((a, b) => {
+    const da = getItemDef(a.id) || {};
+    const db = getItemDef(b.id) || {};
+    const na = lc(da.name || a.id);
+    const nb = lc(db.name || b.id);
+    if (na < nb) return -1;
+    if (na > nb) return 1;
+    return String(a.uid) < String(b.uid) ? -1 : (String(a.uid) > String(b.uid) ? 1 : 0);
+  });
+
+  return cards;
+}
+
+function __renderActorInventoryGrid(actor) {
+  const wrap = document.createElement('div');
+  wrap.className = 'playerMenuItemsGrid';
+
+  const inv = ensureActorInventory(actor) || {};
+
+  const cards = [];
+  for (const [id, bucket] of Object.entries(inv)) {
+    const b = getActorInvBucket(actor, id);
+    const insts = b?.instances;
+    if (!Array.isArray(insts) || insts.length === 0) continue;
+    for (const inst of insts) {
+      cards.push({ id: lc(id), uid: String(inst?.uid ?? ''), inst });
+    }
+  }
+
+  cards.sort((a, b) => {
+    const da = getItemDef(a.id) || {};
+    const db = getItemDef(b.id) || {};
+    const na = lc(da.name || a.id);
+    const nb = lc(db.name || b.id);
+    if (na < nb) return -1;
+    if (na > nb) return 1;
+    return String(a.uid) < String(b.uid) ? -1 : (String(a.uid) > String(b.uid) ? 1 : 0);
+  });
+
+  if (cards.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'playerMenuMuted';
+    empty.textContent = 'No items.';
+    wrap.appendChild(empty);
+    return wrap;
+  }
+
+  for (const { id, uid, inst } of cards) {
+    const def = getItemDef(id) || {};
+    const usesPerItem = getItemUsesPerItem(def);
+
+    const tile = document.createElement('div');
+    tile.className = 'playerMenuItemTile';
+    tile.dataset.itemId = lc(id);
+    tile.dataset.itemUid = String(uid);
+
+    const nameLine = document.createElement('div');
+    nameLine.className = 'playerMenuItemName';
+    nameLine.textContent = def.name ? String(def.name) : id;
+    tile.appendChild(nameLine);
+
+    const imgBox = document.createElement('div');
+    imgBox.className = 'playerMenuItemImgBox';
+
+    const img = document.createElement('img');
+    img.className = 'playerMenuItemImg';
+    img.alt = def.name ? String(def.name) : id;
+    img.src = `assets/items/${lc(id)}.png`;
+
+    img.onerror = () => {
+      img.style.display = 'none';
+      imgBox.classList.add('playerMenuItemImgBoxMissing');
+    };
+
+    imgBox.appendChild(img);
+    tile.appendChild(imgBox);
+
+    if (usesPerItem > 1) {
+      const countLine = document.createElement('div');
+      countLine.className = 'playerMenuItemCount';
+
+      const usesLeft =
+        (inst?.usesLeft == null || !isFinite(inst.usesLeft))
+          ? usesPerItem
+          : Math.max(0, Math.floor(inst.usesLeft));
+
+      countLine.textContent = `uses: ${usesLeft}/${usesPerItem}`;
+      tile.appendChild(countLine);
+    }
+
+    if (def.description) {
+      const desc = document.createElement('div');
+      desc.className = 'playerMenuItemDesc playerMenuMuted';
+      desc.textContent = String(def.description);
+      tile.appendChild(desc);
+    }
+
+    wrap.appendChild(tile);
+  }
+
+  return wrap;
+}
+
+function showPartyInventoryOverlay(actor, opts = {}) {
+  if (!playerMenuOverlay || !actor) return;
+
+  closePartyInventoryOverlay();
+
+  const {
+    highlightUid = null,
+    flashBad = false,
+    autoCloseMs = 3000,
+    afterClose = null
+  } = opts || {};
+
+  if (playerMenuContent) {
+    partyInventoryPrevContentDisplay = playerMenuContent.style.display ?? '';
+    playerMenuContent.style.display = 'none';
+  }
+  partyInventoryPrevInMenu = inMenu;
+  inMenu = true;
+  playerMenuOverlay.style.display = 'block';
+
+  const overlay = document.createElement('div');
+  overlay.className = 'partyInventoryOverlay';
+  const ensureOverlaySizeVars = () => {
+    if (partyMenuCardSize && partyMenuCardSize.h && partyMenuCardSize.w) {
+      overlay.style.setProperty('--party-card-height', `${partyMenuCardSize.h}px`);
+      overlay.style.setProperty('--party-card-width', `${partyMenuCardSize.w}px`);
+      return;
+    }
+    const viewportRect = viewportEl?.getBoundingClientRect();
+    const tabsRect = menuTopTabs?.getBoundingClientRect();
+    const tabsBottom = (tabsRect && viewportRect) ? (tabsRect.bottom - viewportRect.top) : 120;
+    const availableHeight = Math.max(1, (viewportRect?.height || window.innerHeight) - tabsBottom);
+    const cardH = availableHeight * 0.8;
+    const cardW = cardH * 0.6667;
+    partyMenuCardSize = { h: cardH, w: cardW };
+    overlay.style.setProperty('--party-card-height', `${cardH}px`);
+    overlay.style.setProperty('--party-card-width', `${cardW}px`);
+  };
+  ensureOverlaySizeVars();
+
+  const card = document.createElement('div');
+  card.className = 'partyCard selected';
+
+  const invCard = buildInventoryPanel(actor, { highlightUid });
+  if (flashBad) invCard.classList.add('inventoryFlashBad');
+  card.appendChild(invCard);
+  overlay.appendChild(card);
+
+  partyInventoryOverlay = overlay;
+  playerMenuOverlay.appendChild(overlay);
+
+  partyInventoryAfterClose = (typeof afterClose === 'function') ? afterClose : null;
+  if (autoCloseMs != null && Number(autoCloseMs) >= 0) {
+    partyInventoryOverlayTimer = setTimeout(() => {
+      closePartyInventoryOverlay();
+    }, Math.max(0, Number(autoCloseMs) || 0));
+  }
 }
 
 function renderMenuPage_NPCs() {
@@ -387,8 +1957,8 @@ function renderMenuPage_NPCs() {
       name,
       rec.met ? 'Yes' : 'No',
       rec.inParty ? 'Yes' : 'No',
-      String(Number(rec?.stats?.alignment?.current ?? 0)),
-      String(Number(rec?.stats?.affection?.current ?? 0)),
+      String(Number(getActorStatValue(name, 'alignment', 'current') ?? 0)),
+      String(Number(getActorStatValue(name, 'affection', 'current') ?? 0)),
       lastKnown
     ];
 
@@ -413,77 +1983,2526 @@ function renderMenuPage_NPCs() {
   return wrap;
 }
 
+function renderMenuPage_NPCs_Cards() {
+  const wrap = document.createElement('div');
+  wrap.className = 'partyCardsGrid';
+
+  const entries = Object.entries(npcRegistry || {})
+    .filter(([_, rec]) => !!(rec?.met || rec?.hasBeenInParty))
+    .map(([name]) => name)
+    .filter((name) => lc(name) !== 'player');
+
+  entries.sort((a, b) => a.localeCompare(b));
+
+  if (entries.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'playerMenuMuted';
+    empty.textContent = 'No characters yet.';
+    wrap.appendChild(empty);
+    return wrap;
+  }
+
+  if (!Number.isFinite(npcMenuSelectedIndex)) npcMenuSelectedIndex = 0;
+  if (npcMenuSelectedIndex >= entries.length) npcMenuSelectedIndex = entries.length - 1;
+  if (npcMenuSelectedIndex < 0) npcMenuSelectedIndex = 0;
+  if (npcMenuLastSelectedIndex !== npcMenuSelectedIndex) {
+    npcMenuCardIndex = 0;
+    npcMenuLastSelectedIndex = npcMenuSelectedIndex;
+  }
+
+  const viewportRect = viewportEl?.getBoundingClientRect();
+  const tabsRect = menuTopTabs?.getBoundingClientRect();
+  const tabsBottom = (tabsRect && viewportRect) ? (tabsRect.bottom - viewportRect.top) : 120;
+  const availableHeight = Math.max(1, (viewportRect?.height || window.innerHeight) - tabsBottom);
+  const cardH = availableHeight * 0.8;
+  const cardW = cardH * 0.6667;
+  const gap = 18;
+  const visibleCount = Math.min(5, entries.length);
+  const availableWidth = Math.max(1, (viewportRect?.width || window.innerWidth) - (gap * 2));
+  let nonSelectedW = cardW;
+  if (visibleCount > 1) {
+    nonSelectedW = (availableWidth - cardW - (gap * (visibleCount + 1))) / (visibleCount - 1);
+    if (!isFinite(nonSelectedW)) nonSelectedW = cardW;
+  }
+  nonSelectedW = Math.max(0, Math.min(cardW, nonSelectedW));
+  const nonSelectedH = nonSelectedW * 1.5;
+  wrap.style.setProperty('--party-card-height', `${cardH}px`);
+  wrap.style.setProperty('--party-card-width', `${cardW}px`);
+  wrap.style.setProperty('--party-card-scaled-height', `${nonSelectedH}px`);
+  wrap.style.setProperty('--party-card-scaled-width', `${nonSelectedW}px`);
+
+  const sel = npcMenuSelectedIndex;
+  let start = Math.max(0, sel - 2);
+  let end = Math.min(entries.length - 1, start + 4);
+  start = Math.max(0, end - 4);
+
+  const leftPad = Math.max(0, 2 - (sel - start));
+  const rightPad = Math.max(0, 2 - (end - sel));
+
+  const addPlaceholder = () => {
+    const slot = document.createElement('div');
+    slot.className = 'partyCardSlot scaled';
+    wrap.appendChild(slot);
+  };
+
+  for (let i = 0; i < leftPad; i++) addPlaceholder();
+
+  const getActorAreaLabel = (actor) => {
+    if (!actor) return '—';
+    const nm = String(actor.name || '');
+    const nameLc = lc(nm);
+    const inPartyNow = Array.isArray(party) && party.some(p => lc(p?.name || '') === nameLc);
+    const inWorldNow = Array.isArray(npcs) && npcs.some(n => lc(n?.name || '') === nameLc);
+    if (inPartyNow || inWorldNow) return currentAreaName ?? '—';
+    const rec = ensureNpcRecord(nm);
+    return rec?.area || rec?.lastSeenArea || '—';
+  };
+
+  const labelForStat = (key) => {
+    const def = getStatDef(String(key || '').toLowerCase());
+    if (def && def.label) return String(def.label);
+    const raw = String(key || '');
+    return raw
+      .replace(/_/g, ' ')
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/\b\w/g, c => c.toUpperCase());
+  };
+
+  const buildSignedStatBar = (statKey, cur) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'partyStatBar';
+    wrap.style.position = 'relative';
+
+    const val = Math.max(-10, Math.min(10, Number(cur) || 0));
+    const pct = (val + 10) / 20; // 0..1
+
+    const marker = document.createElement('img');
+    const dir = (val >= 0) ? 'up' : 'down';
+    marker.src = `assets/icons/${statKey}_${dir}.png`;
+    marker.alt = `${statKey} ${dir}`;
+    marker.style.position = 'absolute';
+    marker.style.left = `${Math.round(pct * 100)}%`;
+    marker.style.top = '50%';
+    marker.style.transform = 'translate(-50%, -50%)';
+    marker.style.width = '16px';
+    marker.style.height = '16px';
+    wrap.appendChild(marker);
+
+    return wrap;
+  };
+
+  const buildStatValueNode = (statKey, rec) => {
+    const k = String(statKey || '').toLowerCase();
+    const def = getStatDef(k);
+    const base = (rec && rec.base != null) ? Number(rec.base) : 0;
+    const cur = (rec && rec.current != null) ? Number(rec.current) : 0;
+
+    if (def && def.type === 'depletable') {
+      const w = document.createElement('div');
+      w.className = 'partyStatBar';
+      const fill = document.createElement('div');
+      fill.className = 'partyStatBarFill';
+      const effMax = Number(getStatEffectiveValue(currentNpc, k) ?? rec?.max ?? 0);
+      const pct = (effMax > 0) ? Math.max(0, Math.min(1, cur / effMax)) : 0;
+      fill.style.width = `${Math.round(pct * 100)}%`;
+      w.appendChild(fill);
+      const text = document.createElement('div');
+      text.className = 'partyStatBarText';
+      text.textContent = `${cur} / ${effMax}`;
+      w.appendChild(text);
+      return w;
+    }
+
+    if (def && def.type === 'variable') {
+      const eff = Number(getStatEffectiveValue(currentNpc, k) ?? cur);
+      return buildSignedStatBar(k, eff);
+    }
+
+    if (def && def.type === 'scalar') {
+      const wrapV = document.createElement('span');
+      wrapV.className = 'partyStatValue';
+      const curSpan = document.createElement('span');
+      curSpan.className = 'partyStatCurrent';
+      const eff = Number(getStatEffectiveValue(currentNpc, k) ?? base);
+      curSpan.textContent = String(eff);
+      wrapV.appendChild(curSpan);
+      const delta = eff - base;
+      if (isFinite(delta) && delta !== 0) {
+        const tail = document.createElement('span');
+        tail.className = 'partyStatBaseWrap';
+        tail.textContent = ` (${base} `;
+        const mod = document.createElement('span');
+        mod.className = 'partyStatMod ' + (delta > 0 ? 'pos' : 'neg');
+        mod.textContent = `${delta > 0 ? '+' : ''}${delta}`;
+        const close = document.createElement('span');
+        close.textContent = ')';
+        tail.appendChild(mod);
+        tail.appendChild(close);
+        wrapV.appendChild(tail);
+      }
+      return wrapV;
+    }
+
+    const fallback = document.createElement('span');
+    fallback.textContent = `${cur} / ${base}`;
+    return fallback;
+  };
+
+  const buildStatRows = (actor) => {
+    const stats = actor?.stats && typeof actor.stats === 'object' ? actor.stats : {};
+    const keys = Object.keys(stats);
+    const defKeys = NPC_STAT_ORDER.map(d => String(d).toLowerCase());
+    const ordered = [];
+    for (const k of defKeys) {
+      if (stats[k]) ordered.push(k);
+    }
+    const rest = keys.filter(k => !ordered.includes(k)).sort();
+    ordered.push(...rest);
+    return ordered.map((k) => {
+      const rec = stats[k] || {};
+      return [labelForStat(k), buildStatValueNode(k, rec)];
+    });
+  };
+
+  const buildAbilitiesPanel = (actor, opts = {}) => {
+    const panel = document.createElement('div');
+    panel.className = 'partyCardPanel';
+    const name = document.createElement('div');
+    name.className = 'partyCardName';
+    name.textContent = actor?.name || 'Party Member';
+    panel.appendChild(name);
+
+    const titleI = document.createElement('div');
+    titleI.className = 'partyCardSectionTitle';
+    titleI.textContent = 'Can Interact With';
+    panel.appendChild(titleI);
+
+    const interacts = (typeof getActorInteractTags === 'function')
+      ? getActorInteractTags(actor)
+      : [];
+    const interactLine = document.createElement('div');
+    interactLine.className = 'partyTagLine';
+    interactLine.textContent = (Array.isArray(interacts) && interacts.length > 0)
+      ? interacts.join(', ')
+      : 'None';
+    panel.appendChild(interactLine);
+
+    const titleT = document.createElement('div');
+    titleT.className = 'partyCardSectionTitle';
+    titleT.textContent = 'Effects';
+    panel.appendChild(titleT);
+
+    const tagsSet = ensureActorTags(actor) || new Set();
+    const tags = Array.from(tagsSet.values()).sort();
+    const tagWrap = document.createElement('div');
+    tagWrap.className = 'partyTagList';
+    if (tags.length === 0) {
+      tagWrap.textContent = 'None';
+    } else {
+      for (const t of tags) {
+        const pill = document.createElement('span');
+        pill.className = 'partyTagPill';
+        pill.textContent = t;
+        const expMap = actor?.tagExpiresAtMs;
+        if (expMap && typeof expMap === 'object' && expMap[t] != null) {
+          const now = getGameNowMs();
+          const remainMs = Math.max(0, Number(expMap[t]) - now);
+          const remainS = Math.ceil(remainMs / 1000);
+          if (isFinite(remainS)) {
+            const dur = document.createElement('span');
+            dur.className = 'partyTagDuration';
+            dur.textContent = ` ${remainS}s`;
+            pill.appendChild(dur);
+          }
+        }
+        tagWrap.appendChild(pill);
+      }
+    }
+    panel.appendChild(tagWrap);
+
+    const titleA = document.createElement('div');
+    titleA.className = 'partyCardSectionTitle';
+    titleA.textContent = 'Abilities';
+    panel.appendChild(titleA);
+
+    const abilities = Array.isArray(actor?.abilities) ? actor.abilities : [];
+    if (abilities.length === 0) {
+      const none = document.createElement('div');
+      none.className = 'playerMenuMuted';
+      none.textContent = 'None';
+      panel.appendChild(none);
+    } else {
+      const list = document.createElement('div');
+      list.className = 'partyAbilityCardList';
+      const showHotkeys = !!opts.showHotkeys;
+      for (let i = 0; i < abilities.length; i++) {
+        const ab = abilities[i];
+        const hotKey = (showHotkeys && i < 9) ? (i + 1) : null;
+        const card = buildAbilityCard(actor, ab, {
+          includeToggle: false,
+          hotKey,
+          showPortrait: false,
+          badge: opts.badge || null
+        });
+        list.appendChild(card);
+      }
+      panel.appendChild(list);
+    }
+    return panel;
+  };
+
+  const buildStatsCard = (actor) => {
+    const c = document.createElement('div');
+    c.className = 'partyCard partyCardStatsCard';
+
+    const portraitWrap = document.createElement('div');
+    portraitWrap.className = 'partyCardPortrait';
+    portraitWrap.style.backgroundColor = getCurrentSkyColor();
+    const bgKey = (() => {
+      const ctx = getActorPortraitContext(actor, 'npcs');
+      const area = ctx.area;
+      if (!area || !area.sectionTileWidth || !Array.isArray(area.backgroundEntries)) return null;
+      const wx = ctx.worldX;
+      const idx = Math.max(0, Math.floor(wx / area.sectionTileWidth));
+      const entry = area.backgroundEntries[idx + 1] ?? area.backgroundEntries[idx] ?? null;
+      if (!entry) return null;
+      if (typeof entry === 'string') return entry;
+      if (entry?.img?.src) return entry.img.src;
+      return null;
+    })();
+    if (bgKey) {
+      const src = bgKey.includes('assets/')
+        ? bgKey
+        : `assets/tiles/${bgKey.includes('.') ? bgKey : `${bgKey}.png`}`;
+      portraitWrap.style.backgroundImage = `url("${src}")`;
+    }
+    const img = document.createElement('img');
+    img.alt = `${actor.name || 'Member'} portrait`;
+    img.src = `assets/portraits/character_portrait_${lc(actor.name || 'player')}_neutral.png`;
+    img.addEventListener('error', () => {
+      portraitWrap.style.display = 'none';
+    });
+    portraitWrap.appendChild(img);
+    c.appendChild(portraitWrap);
+
+    const overlay = document.createElement('div');
+    overlay.className = 'partyCardOverlay';
+
+    const nameBlock = document.createElement('div');
+    nameBlock.className = 'partyOverlayBlock';
+    const name = document.createElement('div');
+    name.className = 'partyCardName';
+    name.textContent = actor.name || 'Party Member';
+    nameBlock.appendChild(name);
+    const area = document.createElement('div');
+    area.className = 'partyCardArea playerMenuMuted';
+    area.textContent = getActorAreaLabel(actor);
+    nameBlock.appendChild(area);
+    overlay.appendChild(nameBlock);
+
+    const table = document.createElement('table');
+    table.className = 'partyCardStats';
+    const rows = buildStatRows(actor);
+    for (const [k, v] of rows) {
+      const tr = document.createElement('tr');
+      const tdK = document.createElement('td');
+      const tdV = document.createElement('td');
+      tdK.textContent = String(k);
+      if (v instanceof Node) tdV.appendChild(v);
+      else tdV.textContent = String(v);
+      tr.appendChild(tdK);
+      tr.appendChild(tdV);
+      table.appendChild(tr);
+    }
+    const statsBlock = document.createElement('div');
+    statsBlock.className = 'partyOverlayBlock';
+    statsBlock.appendChild(table);
+    overlay.appendChild(statsBlock);
+    c.appendChild(overlay);
+    return c;
+  };
+
+  const buildAbilitiesCard = (actor, opts = {}) => {
+    const c = document.createElement('div');
+    c.className = 'partyCard';
+    c.appendChild(buildAbilitiesPanel(actor, opts));
+    return c;
+  };
+
+  const buildInventoryCard = (actor) => {
+    const c = document.createElement('div');
+    c.className = 'partyCard';
+    c.appendChild(buildInventoryPanel(actor));
+    return c;
+  };
+
+  const buildNpcMenuActor = (name) => {
+    const nameLc = lc(name);
+    const liveParty = Array.isArray(party) ? party.find(p => lc(p?.name || '') === nameLc) : null;
+    if (liveParty) return liveParty;
+    const liveWorld = Array.isArray(npcs) ? npcs.find(n => lc(n?.name || '') === nameLc) : null;
+    if (liveWorld) return liveWorld;
+    const rec = ensureNpcRecord(name);
+    const def = (npcDetailsByLc ? npcDetailsByLc[nameLc] : null) || (npcDetails ? npcDetails[name] : null);
+    return {
+      name,
+      stats: rec?.stats,
+      inventory: rec?.inventory,
+      inventorySize: Number(def?.inventorySize ?? 0),
+      abilities: resolveAbilityList(def?.abilities),
+      tags: Array.isArray(rec?.tags) ? rec.tags.slice() : [],
+      worldX: rec?.worldX,
+      area: rec?.area
+    };
+  };
+
+  for (let i = start; i <= end; i++) {
+    const name = entries[i];
+    const actor = buildNpcMenuActor(name);
+    const isSelected = (i === sel);
+    const slot = document.createElement('div');
+    slot.className = 'partyCardSlot' + (isSelected ? ' selected' : ' scaled');
+    slot.addEventListener('mouseenter', () => {
+      if (npcMenuSelectedIndex !== i) {
+        npcMenuSelectedIndex = i;
+        npcMenuCardIndex = 0;
+        renderPlayerMenu();
+      }
+    });
+    slot.addEventListener('wheel', (e) => {
+      const now = performance.now();
+      npcMenuWheelAccum += e.deltaY;
+      const threshold = 1000;
+      if (Math.abs(npcMenuWheelAccum) < threshold) {
+        e.preventDefault();
+        return;
+      }
+      if (now - npcMenuWheelLastAt < 120) {
+        e.preventDefault();
+        return;
+      }
+      const dir = (npcMenuWheelAccum > 0) ? 1 : -1;
+      npcMenuWheelAccum = 0;
+      npcMenuWheelLastAt = now;
+      if (npcMenuSelectedIndex !== i) {
+        npcMenuSelectedIndex = i;
+        npcMenuCardIndex = 0;
+      }
+      npcMenuPrevCardIndex = npcMenuCardIndex;
+      npcMenuCardSlideDir = dir;
+      npcMenuCardIndex = (npcMenuCardIndex + dir + 4) % 4;
+      npcMenuCardAnimUntilMs = performance.now() + 1000;
+      renderPlayerMenu();
+      e.preventDefault();
+    }, { passive: false });
+
+    if (isSelected) {
+      const stage = document.createElement('div');
+      stage.className = 'partyCardStageFull';
+
+      const cards = [
+        buildStatsCard(actor),
+        buildAbilitiesCard(actor),
+        buildInventoryCard(actor),
+        buildGoalsCard(actor)
+      ];
+
+      const nowMs = performance.now();
+      const animating = (npcMenuPrevCardIndex !== npcMenuCardIndex) && (nowMs < npcMenuCardAnimUntilMs);
+
+      if (animating) {
+        const outgoing = cards[npcMenuPrevCardIndex];
+        const incoming = cards[npcMenuCardIndex];
+
+        outgoing.classList.add('partyCardAnim', npcMenuCardSlideDir > 0 ? 'to-up' : 'to-down', 'outgoing');
+        incoming.classList.add('partyCardAnim', npcMenuCardSlideDir > 0 ? 'from-down' : 'from-up', 'incoming', 'selected');
+
+        stage.appendChild(outgoing);
+        stage.appendChild(incoming);
+      } else {
+        const current = cards[npcMenuCardIndex];
+        current.classList.add('selected');
+        stage.appendChild(current);
+        npcMenuPrevCardIndex = npcMenuCardIndex;
+      }
+
+      slot.appendChild(stage);
+    } else {
+      const statsCard = buildStatsCard(actor);
+      statsCard.classList.add('partyCard--scaled');
+      slot.appendChild(statsCard);
+    }
+
+    wrap.appendChild(slot);
+  }
+
+  for (let i = 0; i < rightPad; i++) addPlaceholder();
+
+  return wrap;
+}
+
 function renderMenuPage_Journal() {
   const wrap = document.createElement('div');
   wrap.className = 'playerMenuCard';
 
   const h = document.createElement('div');
   h.className = 'playerMenuCardTitle';
-  h.textContent = 'Journal (placeholder)';
+  h.textContent = 'Journal';
   wrap.appendChild(h);
 
-  const t = document.createElement('div');
-  t.className = 'playerMenuMuted';
-  t.textContent = 'Future: quest log, recent scenes, key flags, discovered lore.';
-  wrap.appendChild(t);
+  const goalsTitle = document.createElement('div');
+  goalsTitle.className = 'partyCardSectionTitle';
+  goalsTitle.textContent = 'Goals';
+  wrap.appendChild(goalsTitle);
+
+  const entries = [];
+
+  ensurePlayerGoals();
+  if (player) {
+    entries.push(...collectJournalGoalsForStore(player, player?.name || 'Player'));
+  }
+
+  const npcEntries = Object.entries(npcRegistry || {})
+    .filter(([_, rec]) => !!(rec?.met || rec?.hasBeenInParty))
+    .map(([name]) => name)
+    .filter(n => lc(n) !== 'player')
+    .sort((a, b) => a.localeCompare(b));
+
+  for (const name of npcEntries) {
+    const rec = ensureNpcRecord(name);
+    entries.push(...collectJournalGoalsForStore(rec, name));
+  }
+
+  entries.sort((a, b) => {
+    if (a.info.complete !== b.info.complete) return a.info.complete ? 1 : -1;
+    const ownerCmp = String(a.owner || '').localeCompare(String(b.owner || ''));
+    if (ownerCmp) return ownerCmp;
+    return String(a.goal?.name || a.goal?.id || '').localeCompare(String(b.goal?.name || b.goal?.id || ''));
+  });
+
+  if (!entries.length) {
+    const empty = document.createElement('div');
+    empty.className = 'playerMenuMuted';
+    empty.textContent = 'No public goals yet.';
+    wrap.appendChild(empty);
+    return wrap;
+  }
+
+  const list = document.createElement('div');
+  list.className = 'partyCardList';
+
+  for (const entry of entries) {
+    const g = entry.goal;
+    if (!g) continue;
+
+    const row = document.createElement('div');
+    row.className = 'partyCardListRow';
+
+    const name = document.createElement('div');
+    name.className = 'partyCardListName';
+    name.textContent = g.name || g.id || 'Goal';
+    row.appendChild(name);
+
+    const owner = document.createElement('div');
+    owner.className = 'playerMenuMuted';
+    owner.textContent = entry.owner || 'Unknown';
+    row.appendChild(owner);
+
+    if (g.description) {
+      const desc = document.createElement('div');
+      desc.className = 'playerMenuMuted';
+      desc.textContent = String(g.description);
+      row.appendChild(desc);
+    }
+
+    const status = document.createElement('div');
+    status.className = 'partyTagLine';
+    status.textContent = formatGoalStatusText(entry.info);
+    row.appendChild(status);
+
+    list.appendChild(row);
+  }
+
+  wrap.appendChild(list);
 
   return wrap;
 }
 
 let itemsMenuHotkeys = []; // index 0..8 => itemId
 
-let abilitiesMenuHotkeys = []; // index 0..8 => { npcName, abilityId }
+let abilitiesMenuHotkeys = []; // index 0..8 => { actorName, abilityId }
+let abilitiesMenuEntries = []; // index => { actor, ability }
+let abilitiesMenuSelectedIndex = 0;
 
-function getPartyAbilityList() {
+function getAbilityList() {
   const out = [];
+  const pAbs = Array.isArray(player.abilities) ? player.abilities : [];
+  for (const a of pAbs) {
+    if (!a || !a.id) continue;
+    out.push({ actor: player, ability: a });
+  }
   for (const npc of party) {
     if (!npc) continue;
     const abs = Array.isArray(npc.abilities) ? npc.abilities : [];
     for (const a of abs) {
       if (!a || !a.id) continue;
-      out.push({ npc, ability: a });
+      out.push({ actor: npc, ability: a });
     }
   }
   return out;
 }
 
-function renderMenuPage_Abilities() {
+function abilityTargetLabel(t) {
+  const k = lc(String(t || ''));
+  if (!k) return '';
+  if (k === 'player' || k === 'self') return 'Self';
+  if (k === 'party' || k === 'wholeparty' || k === 'allparty') return 'Party';
+  if (k === 'ally') return 'Ally';
+  if (k === 'enemy') return 'Enemy';
+  if (k === 'neutral') return 'Neutral';
+  if (k === 'npc') return 'NPC';
+  if (k === 'mob') return 'Enemy';
+  if (k === 'object') return 'Object';
+  return t;
+}
+
+function formatAbilityTargets(ability) {
+  if (!ability) return 'â€”';
+  const fixed = lc(String(ability.fixedTarget || ''));
+  if (fixed) return abilityTargetLabel(fixed) || fixed;
+  const t = ability.targeting || {};
+  const pri = Array.isArray(t.priority) ? t.priority.map(abilityTargetLabel).filter(Boolean) : [];
+  const allowed = Array.isArray(t.allowed) ? t.allowed.map(abilityTargetLabel).filter(Boolean) : [];
+  if (pri.length === 0 && allowed.length === 0) return 'â€”';
+  const priTxt = pri.length ? pri.join(', ') : '';
+  const allowedTxt = allowed.length ? allowed.join(', ') : '';
+  if (priTxt && allowedTxt) return { priTxt, allowedTxt };
+  if (priTxt) return { priTxt, allowedTxt: '' };
+  return { priTxt: '', allowedTxt };
+}
+
+function classifyAbilityClass(ability) {
+  let hasRed = false;
+  let hasGreen = false;
+  let hasBlue = false;
+  let hasYellow = false;
+  const effects = Array.isArray(ability?.effects) ? ability.effects : [];
+  for (const ef of effects) {
+    if (!ef || lc(ef.type) !== 'updatestat') continue;
+    const stat = lc(ef.stat || '');
+    const delta = Number(ef.delta || 0);
+    if (!isFinite(delta) || delta === 0) continue;
+    if (stat === 'stamina' || stat === 'composure') {
+      if (delta > 0) hasGreen = true;
+      else hasRed = true;
+    } else {
+      if (delta > 0) hasBlue = true;
+      else hasYellow = true;
+    }
+  }
+  if (hasRed) return 'abilityCard--red';
+  if (hasGreen) return 'abilityCard--green';
+  if (hasBlue) return 'abilityCard--blue';
+  if (hasYellow) return 'abilityCard--yellow';
+  return 'abilityCard--sepia';
+}
+
+function buildAbilityCard(actor, ability, opts = {}) {
+  const hotKey = opts.hotKey ?? null;
+  const includeToggle = (opts.includeToggle !== false);
+  const onToggle = (typeof opts.onToggle === 'function') ? opts.onToggle : null;
+  const onClick = (typeof opts.onClick === 'function') ? opts.onClick : null;
+  const extraClass = opts.extraClass || '';
+  const badgeOpts = opts.badge || null;
+  const showPortrait = (opts.showPortrait !== false);
+
+  const ownerName = (actor === player) ? 'Player' : (actor?.name || 'Party Member');
+  const abName = String(ability?.name || ability?.id || 'Ability');
+  const desc = String(ability?.description || '');
+
+  const card = document.createElement('div');
+  card.className = `abilityCard ${classifyAbilityClass(ability)}${extraClass ? ` ${extraClass}` : ''}`;
+  if (hotKey && !showPortrait) {
+    card.classList.add('abilityCard--hotkeyIndent');
+  }
+  if (onClick) {
+    card.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      onClick(e);
+    });
+  }
+
+  if (showPortrait) {
+    const portrait = document.createElement('div');
+    portrait.className = 'abilityCardPortrait';
+    const img = document.createElement('img');
+    img.alt = `${ownerName} prompt`;
+    img.src = `assets/icons/${lc(ownerName)}_prompt.png`;
+    img.addEventListener('error', () => {
+      portrait.classList.add('no-img');
+    });
+    portrait.appendChild(img);
+    card.appendChild(portrait);
+  }
+
+  const content = document.createElement('div');
+  content.className = 'abilityCardContent';
+
+  const header = document.createElement('div');
+  header.className = 'abilityCardHeader';
+
+  const title = document.createElement('div');
+  title.className = 'abilityCardTitle';
+  title.textContent = abName;
+  header.appendChild(title);
+
+  if (includeToggle) {
+    const toggle = document.createElement('button');
+    toggle.textContent = (lc(actor?.autoCastAbilityId || '') === lc(ability?.id || '')) ? 'Auto: On' : 'Auto: Off';
+    toggle.className = 'playerMenuToggleBtn';
+    if (onToggle) toggle.addEventListener('click', onToggle);
+    toggle.addEventListener('click', (e) => e.stopPropagation());
+    header.appendChild(toggle);
+  }
+
+  content.appendChild(header);
+
+  const meta = document.createElement('div');
+  meta.className = 'abilityCardMeta';
+  const cdMs = Number(ability?.cooldownMs || 0);
+  const nextAt = Number(actor?.abilityNextAtMs?.[lc(ability?.id || '')] || 0);
+  const remainingMs = Math.max(0, nextAt - getGameNowMs());
+  const remainingSec = Math.ceil(remainingMs / 1000);
+  const cooldownTxt = (cdMs > 0 && remainingMs > 0) ? `CD: ${remainingSec}s` : '';
+  meta.textContent = cooldownTxt;
+  content.appendChild(meta);
+
+  const descWrap = document.createElement('div');
+  descWrap.className = 'abilityCardDesc';
+  descWrap.textContent = desc || 'â€”';
+  content.appendChild(descWrap);
+
+  const targetLine = document.createElement('div');
+  targetLine.className = 'abilityCardTargets';
+  const targets = formatAbilityTargets(ability);
+  if (typeof targets === 'string') {
+    targetLine.textContent = `Target: ${targets}`;
+  } else {
+    const label = document.createElement('span');
+    label.textContent = 'Target: ';
+    const pri = document.createElement('span');
+    pri.className = 'abilityCardTargetPriority';
+    pri.textContent = targets.priTxt || '';
+    targetLine.appendChild(label);
+    if (targets.priTxt) targetLine.appendChild(pri);
+    if (targets.allowedTxt) {
+      if (targets.priTxt) {
+        const sep = document.createElement('span');
+        sep.textContent = ' ';
+        targetLine.appendChild(sep);
+      }
+      const allowed = document.createElement('span');
+      allowed.className = 'abilityCardTargetAllowed';
+      allowed.textContent = targets.allowedTxt;
+      targetLine.appendChild(allowed);
+    }
+  }
+  content.appendChild(targetLine);
+
+  card.appendChild(content);
+
+  if (hotKey) {
+    const merged = (badgeOpts && typeof badgeOpts === 'object') ? badgeOpts : {};
+    attachHotkeyBadge(card, hotKey, merged);
+  }
+  return card;
+}
+
+function triggerAbilityFromEntry(entry) {
+  if (!entry || !entry.actor || !entry.ability) return;
+  const actorName = (entry.actor === player) ? 'player' : entry.actor.name;
+  const abilityId = String(entry.ability.id || '');
+  if (!abilityId) return;
+  const res = beginManualTargeting(actorName, abilityId);
+  if (res === 'started') return;
+  if (res === 'casted') {
+    closePlayerMenu();
+    renderPlayerMenu();
+    return;
+  }
+}
+
+function renderMenuPage_Abilities_OLD() {
   const wrap = document.createElement('div');
   wrap.className = 'playerMenuGrid';
 
-  const rows = [];
-
   abilitiesMenuHotkeys = [];
 
-  const list = getPartyAbilityList();
-  const now = performance.now();
+  const list = getAbilityList();
+  const now = getGameNowMs();
+
+  const card = document.createElement('div');
+  card.className = 'playerMenuCard';
+  const h = document.createElement('div');
+  h.className = 'playerMenuCardTitle';
+  h.textContent = 'Abilities';
+  card.appendChild(h);
+
+  const table = document.createElement('table');
+  table.className = 'playerMenuTable';
 
   for (let i = 0; i < list.length; i++) {
-    const { npc, ability } = list[i];
+    const { actor, ability } = list[i];
     const abId = String(ability.id);
     const abName = String(ability.name || ability.id);
     const desc = String(ability.description || '');
     const cdMs = Number(ability.cooldownMs || 0);
 
-    const nextAt = Number(npc.abilityNextAtMs?.[lc(abId)] || 0);
+    const nextAt = Number(actor.abilityNextAtMs?.[lc(abId)] || 0);
     const remainingMs = Math.max(0, nextAt - now);
     const remainingSec = Math.ceil(remainingMs / 1000);
 
     const hotKey = (i < 9) ? (i + 1) : null;
     if (hotKey) {
-      abilitiesMenuHotkeys[hotKey - 1] = { npcName: npc.name, abilityId: abId };
+      abilitiesMenuHotkeys[hotKey - 1] = { actorName: (actor === player) ? 'player' : actor.name, abilityId: abId };
     }
 
+    const ownerName = (actor === player) ? 'Player' : actor.name;
     const label = hotKey
-      ? `${hotKey}. ${npc.name} — ${abName}`
-      : `${npc.name} — ${abName}`;
+      ? `${hotKey}. ${ownerName} — ${abName}`
+      : `${ownerName} — ${abName}`;
 
     const cooldownTxt = (cdMs > 0 && remainingMs > 0) ? ` (CD: ${remainingSec}s)` : '';
-    rows.push([label + cooldownTxt, desc]);
+
+    const tr = document.createElement('tr');
+    const tdK = document.createElement('td');
+    const tdV = document.createElement('td');
+    tdK.textContent = label + cooldownTxt;
+
+    const toggle = document.createElement('button');
+    toggle.textContent = (lc(actor.autoCastAbilityId || '') === lc(abId)) ? 'Auto: On' : 'Auto: Off';
+    toggle.className = 'playerMenuToggleBtn';
+    toggle.addEventListener('click', () => {
+      toggleActorAutoCast(actor, abId);
+      renderPlayerMenu();
+    });
+
+    const descWrap = document.createElement('div');
+    descWrap.textContent = desc;
+    tdV.appendChild(descWrap);
+    tdV.appendChild(toggle);
+
+    tr.appendChild(tdK);
+    tr.appendChild(tdV);
+    table.appendChild(tr);
   }
 
-  wrap.appendChild(makeMenuCard('Abilities', rows.length ? rows : [['—', 'No abilities available.']]));
+  if (list.length === 0) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 2;
+    td.textContent = 'No abilities available.';
+    tr.appendChild(td);
+    table.appendChild(tr);
+  }
+
+  card.appendChild(table);
+  wrap.appendChild(card);
   return wrap;
+}
+
+function renderMenuPage_Abilities_OLD2() {
+  const wrap = document.createElement('div');
+  wrap.className = 'abilitiesCardGrid';
+
+  abilitiesMenuHotkeys = [];
+
+  const list = getAbilityList();
+  abilitiesMenuEntries = list.slice();
+  const now = getGameNowMs();
+  if (!Number.isFinite(abilitiesMenuSelectedIndex)) abilitiesMenuSelectedIndex = 0;
+  if (abilitiesMenuSelectedIndex >= list.length) abilitiesMenuSelectedIndex = Math.max(0, list.length - 1);
+  if (abilitiesMenuSelectedIndex < 0) abilitiesMenuSelectedIndex = 0;
+
+  const classifyAbilityClass = (ability) => {
+    let hasRed = false;
+    let hasGreen = false;
+    let hasBlue = false;
+    let hasYellow = false;
+    const effects = Array.isArray(ability?.effects) ? ability.effects : [];
+    for (const ef of effects) {
+      if (!ef || lc(ef.type) !== 'updatestat') continue;
+      const stat = lc(ef.stat || '');
+      const delta = Number(ef.delta || 0);
+      if (!isFinite(delta) || delta === 0) continue;
+      if (stat === 'stamina' || stat === 'composure') {
+        if (delta > 0) hasGreen = true;
+        else hasRed = true;
+      } else {
+        if (delta > 0) hasBlue = true;
+        else hasYellow = true;
+      }
+    }
+    if (hasRed) return 'abilityCard--red';
+    if (hasGreen) return 'abilityCard--green';
+    if (hasBlue) return 'abilityCard--blue';
+    if (hasYellow) return 'abilityCard--yellow';
+    return 'abilityCard--sepia';
+  };
+
+  const targetLabel = (t) => {
+    const k = lc(String(t || ''));
+    if (!k) return '';
+    if (k === 'player' || k === 'self') return 'Self';
+    if (k === 'party' || k === 'wholeparty' || k === 'allparty') return 'Party';
+    if (k === 'npc') return 'NPC';
+    if (k === 'mob') return 'Enemy';
+    if (k === 'object') return 'Object';
+    return t;
+  };
+
+  const formatTargets = (ability) => {
+    if (!ability) return '—';
+    const fixed = lc(String(ability.fixedTarget || ''));
+    if (fixed) return targetLabel(fixed) || fixed;
+    const t = ability.targeting || {};
+    const pri = Array.isArray(t.priority) ? t.priority.map(targetLabel).filter(Boolean) : [];
+    const allowed = Array.isArray(t.allowed) ? t.allowed.map(targetLabel).filter(Boolean) : [];
+    if (pri.length === 0 && allowed.length === 0) return '—';
+    const priTxt = pri.length ? pri.join(', ') : '';
+    const allowedTxt = allowed.length ? allowed.join(', ') : '';
+    if (priTxt && allowedTxt) return { priTxt, allowedTxt };
+    if (priTxt) return { priTxt, allowedTxt: '' };
+    return { priTxt: '', allowedTxt };
+  };
+
+  for (let i = 0; i < list.length; i++) {
+    const { actor, ability } = list[i];
+    const abId = String(ability.id);
+    const abName = String(ability.name || ability.id);
+    const desc = String(ability.description || '');
+    const cdMs = Number(ability.cooldownMs || 0);
+
+    const nextAt = Number(actor.abilityNextAtMs?.[lc(abId)] || 0);
+    const remainingMs = Math.max(0, nextAt - now);
+    const remainingSec = Math.ceil(remainingMs / 1000);
+
+    const hotKey = (i < 9) ? (i + 1) : null;
+    if (hotKey) {
+      abilitiesMenuHotkeys[hotKey - 1] = { actorName: (actor === player) ? 'player' : actor.name, abilityId: abId };
+    }
+
+    const ownerName = (actor === player) ? 'Player' : actor.name;
+    const cooldownTxt = (cdMs > 0 && remainingMs > 0) ? ` (CD: ${remainingSec}s)` : '';
+
+    const toggle = document.createElement('button');
+    toggle.textContent = (lc(actor.autoCastAbilityId || '') === lc(abId)) ? 'Auto: On' : 'Auto: Off';
+    toggle.className = 'playerMenuToggleBtn';
+    toggle.addEventListener('click', () => {
+      // Keep card click from firing
+      toggle.blur();
+      toggleActorAutoCast(actor, abId);
+      renderPlayerMenu();
+    });
+    toggle.addEventListener('click', (e) => e.stopPropagation());
+
+    const card = document.createElement('div');
+    card.className = `abilityCard ${classifyAbilityClass(ability)}`;
+    if (i === abilitiesMenuSelectedIndex) card.classList.add('selected');
+    card.addEventListener('click', () => {
+      abilitiesMenuSelectedIndex = i;
+      triggerAbilityFromEntry({ actor, ability });
+    });
+
+    const portrait = document.createElement('div');
+    portrait.className = 'abilityCardPortrait';
+    const img = document.createElement('img');
+    img.alt = `${ownerName} prompt`;
+    img.src = `assets/icons/${lc(ownerName)}_prompt.png`;
+    img.addEventListener('error', () => {
+      portrait.classList.add('no-img');
+    });
+    portrait.appendChild(img);
+    const nameOverlay = document.createElement('div');
+    nameOverlay.className = 'abilityCardPortraitName';
+    nameOverlay.textContent = ownerName;
+    portrait.appendChild(nameOverlay);
+    card.appendChild(portrait);
+
+    const content = document.createElement('div');
+    content.className = 'abilityCardContent';
+
+    const header = document.createElement('div');
+    header.className = 'abilityCardHeader';
+
+    const title = document.createElement('div');
+    title.className = 'abilityCardTitle';
+    title.textContent = hotKey ? `${abName} [${hotKey}]` : abName;
+    header.appendChild(title);
+    header.appendChild(toggle);
+    content.appendChild(header);
+
+    const meta = document.createElement('div');
+    meta.className = 'abilityCardMeta';
+    meta.textContent = `${ownerName}${cooldownTxt}`;
+    content.appendChild(meta);
+
+    const descWrap = document.createElement('div');
+    descWrap.className = 'abilityCardDesc';
+    descWrap.textContent = desc || 'â€”';
+    content.appendChild(descWrap);
+
+    const targetLine = document.createElement('div');
+    targetLine.className = 'abilityCardTargets';
+    const targets = formatTargets(ability);
+    if (typeof targets === 'string') {
+      targetLine.textContent = `Target: ${targets}`;
+    } else {
+      const label = document.createElement('span');
+      label.textContent = 'Target: ';
+      const pri = document.createElement('span');
+      pri.className = 'abilityCardTargetPriority';
+      pri.textContent = targets.priTxt || '';
+      targetLine.appendChild(label);
+      if (targets.priTxt) targetLine.appendChild(pri);
+      if (targets.allowedTxt) {
+        if (targets.priTxt) {
+          const sep = document.createElement('span');
+          sep.textContent = ' ';
+          targetLine.appendChild(sep);
+        }
+        const allowed = document.createElement('span');
+        allowed.className = 'abilityCardTargetAllowed';
+        allowed.textContent = targets.allowedTxt;
+        targetLine.appendChild(allowed);
+      }
+    }
+    content.appendChild(targetLine);
+    card.appendChild(content);
+
+    wrap.appendChild(card);
+  }
+
+  if (list.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'playerMenuMuted';
+    empty.textContent = 'No abilities available.';
+    wrap.appendChild(empty);
+  }
+
+  return wrap;
+}
+
+function renderMenuPage_Abilities() {
+  const wrap = document.createElement('div');
+  wrap.className = 'abilitiesCardGrid';
+
+  abilitiesMenuHotkeys = [];
+
+  const list = getAbilityList();
+  abilitiesMenuEntries = list.slice();
+  if (!Number.isFinite(abilitiesMenuSelectedIndex)) abilitiesMenuSelectedIndex = 0;
+  if (abilitiesMenuSelectedIndex >= list.length) abilitiesMenuSelectedIndex = Math.max(0, list.length - 1);
+  if (abilitiesMenuSelectedIndex < 0) abilitiesMenuSelectedIndex = 0;
+
+  for (let i = 0; i < list.length; i++) {
+    const { actor, ability } = list[i];
+    const abId = String(ability.id);
+    const hotKey = (i < 9) ? (i + 1) : null;
+    if (hotKey) {
+      abilitiesMenuHotkeys[hotKey - 1] = { actorName: (actor === player) ? 'player' : actor.name, abilityId: abId };
+    }
+
+    const card = buildAbilityCard(actor, ability, {
+      hotKey,
+      includeToggle: true,
+      onToggle: () => {
+        toggleActorAutoCast(actor, abId);
+        renderPlayerMenu();
+      },
+      onClick: (e) => {
+        abilitiesMenuSelectedIndex = i;
+        if (e && e.shiftKey) {
+          toggleActorAutoCast(actor, abId);
+          renderPlayerMenu();
+          return;
+        }
+        triggerAbilityFromEntry({ actor, ability });
+      }
+    });
+    if (i === abilitiesMenuSelectedIndex) card.classList.add('selected');
+    wrap.appendChild(card);
+  }
+
+  if (list.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'playerMenuMuted';
+    empty.textContent = 'No abilities available.';
+    wrap.appendChild(empty);
+  }
+
+  return wrap;
+}
+
+function __screenToRenderX(sx) {
+  const cx = WIDTH * 0.5;
+  return (Number(sx) - cx) / Math.max(0.0001, cameraZoom) + cx;
+}
+
+function __screenToRenderY(sy) {
+  const cy = HEIGHT * 0.5;
+  return (Number(sy) - cy) / Math.max(0.0001, cameraZoom) + cy;
+}
+
+function __actorRenderCenter(actor) {
+  if (!actor) return null;
+  const isObj = (actor.kind === 'object' || actor._targetKind === 'object');
+  const parallax = isObj ? Number(actor._parallax || PARALLAX.ground) : null;
+  const baseX = Number(actor.worldX) || 0;
+  const sx = isObj
+    ? (worldToScreenX(baseX, parallax) + (Number(actor.w) || 0) * 0.5)
+    : (baseX - cameraX + (Number(actor.w) || 0) * 0.5);
+  const sy = (Number(actor.y) || 0) + (Number(actor.h) || 0) * 0.45;
+  return { x: sx, y: sy };
+}
+
+function __getTargetKindsFromDef(tdef, priorityOnly = false) {
+  if (!tdef) return [];
+  // Default: no targets unless priority/allowed are defined
+  const list = priorityOnly
+    ? (tdef.priority || [])
+    : [...(tdef.priority || []), ...(tdef.allowed || [])];
+  return Array.from(new Set(list));
+}
+
+const COVER_LAYER_ORDER = {
+  back: 0,
+  gback: 1,
+  actor: 2,
+  gfore: 3,
+  fore: 4
+};
+
+function _coverLayerOrder(layer) {
+  const k = lc(layer);
+  return (k && Object.prototype.hasOwnProperty.call(COVER_LAYER_ORDER, k))
+    ? COVER_LAYER_ORDER[k]
+    : -1;
+}
+
+function _getObjectDrawMetrics(obj, bucket, nowMs) {
+  if (!obj || !bucket) return null;
+
+  const base = objectBaseFromKey(obj.key || obj.name || obj.filename);
+  if (!base) return null;
+
+  const resolved = resolvePlacedObjectRender(obj, base, nowMs);
+  let entry = resolved.entry;
+  if (!entry || !entry.ready || entry.failed) {
+    const fallback = loadObjectImage(base);
+    if (fallback && fallback.ready && !fallback.failed) entry = fallback;
+    else return null;
+  }
+
+  const targetH = Math.floor(
+    (obj.heightPx || (TILE_DRAW_HEIGHT() * bucket.defaultHMult)) * SCALE.objects
+  );
+
+  let targetW = Math.floor(player.w);
+  const def = getObjectDef(base) || null;
+  const fw = Number(def?.animFramePx?.w);
+  const fh = Number(def?.animFramePx?.h);
+  if (isFinite(fw) && isFinite(fh) && fh > 0) {
+    targetW = Math.floor(targetH * (fw / fh));
+  } else if (entry && entry.ready) {
+    const srcW = (entry.frames && entry.frames > 1) ? Math.max(1, entry.frameW) : Math.max(1, entry.w);
+    const srcH = (entry.frames && entry.frames > 1) ? Math.max(1, entry.frameH) : Math.max(1, entry.h);
+    if (srcH > 0) targetW = Math.floor(targetH * (srcW / srcH));
+  }
+
+  let baseW = null;
+  let baseH = null;
+  if (isFinite(fw) && isFinite(fh) && fw > 0 && fh > 0) {
+    baseW = fw; baseH = fh;
+  } else if (entry && entry.ready) {
+    const srcW = (entry.frames && entry.frames > 1) ? Math.max(1, entry.frameW) : Math.max(1, entry.w);
+    const srcH = (entry.frames && entry.frames > 1) ? Math.max(1, entry.frameH) : Math.max(1, entry.h);
+    if (srcW > 0 && srcH > 0) { baseW = srcW; baseH = srcH; }
+  }
+
+  const sx = worldToScreenX(obj.worldX, bucket.parallax);
+  const dy = Math.floor(bucket.dyFn(obj, targetH));
+
+  return { base, entry, targetW, targetH, sx, dy, baseW, baseH };
+}
+
+function __getCoverRectsForCurrentArea() {
+  if (!currentArea) return [];
+  const nowMs = getGameNowMs();
+  const out = [];
+
+  const buckets = [
+    {
+      layer: 'back',
+      list: currentArea.backObjects,
+      parallax: PARALLAX.backObjects,
+      defaultHMult: 0.55,
+      dyFn: (obj, targetH) => {
+        const baseY = HEIGHT - TILE_DRAW_HEIGHT();
+        return baseY - targetH + (obj.yJitter || 0) - (obj.baseBelowTop || 0);
+      }
+    },
+    {
+      layer: 'gback',
+      list: currentArea.groundBackObjects,
+      parallax: PARALLAX.ground,
+      defaultHMult: 0.70,
+      dyFn: (_obj, targetH) => (HEIGHT - targetH - 250)
+    },
+    {
+      layer: 'gfore',
+      list: currentArea.groundForeObjects,
+      parallax: PARALLAX.ground,
+      defaultHMult: 0.70,
+      dyFn: (_obj, targetH) => (HEIGHT - targetH)
+    },
+    {
+      layer: 'fore',
+      list: currentArea.foreObjects,
+      parallax: PARALLAX.foreground,
+      defaultHMult: 0.70,
+      dyFn: (_obj, targetH) => (HEIGHT - targetH)
+    }
+  ];
+
+  for (const bucket of buckets) {
+    const list = bucket.list;
+    if (!Array.isArray(list) || list.length === 0) continue;
+
+    for (let i = 0; i < list.length; i++) {
+      const obj = list[i];
+      if (!obj) continue;
+      if (obj._spawned === false) continue;
+
+      const m = _getObjectDrawMetrics(obj, bucket, nowMs);
+      if (!m || !m.baseW || !m.baseH) continue;
+
+      const def = getObjectDef(m.base) || null;
+      const coverDef = def?.cover || null;
+      if (!coverDef) continue;
+
+      if (def?.blocker && shouldPlayerSeeBlockerAsOpen(def.blocker)) continue;
+
+      const rect = coverDef.rect || coverDef;
+      if (!rect || typeof rect !== 'object') continue;
+
+      const rw = Number(rect.w);
+      const rh = Number(rect.h);
+      if (!(isFinite(rw) && rw > 0)) continue;
+      if (!(isFinite(rh) && rh > 0)) continue;
+
+      const scaleX = m.targetW / m.baseW;
+      const scaleY = m.targetH / m.baseH;
+
+      const rx = m.sx + (Number(rect.x) || 0) * scaleX;
+      const ry = m.dy + (Number(rect.y) || 0) * scaleY;
+
+      const instanceId = _objectInstanceIdForBucket(obj, bucket.layer, m.base, i);
+      const instanceKey = `object:${instanceId}`;
+
+      out.push({
+        x: rx,
+        y: ry,
+        w: rw * scaleX,
+        h: rh * scaleY,
+        layer: bucket.layer,
+        layerOrder: _coverLayerOrder(bucket.layer),
+        drawIndex: i,
+        instanceKey
+      });
+    }
+  }
+
+  return out;
+}
+
+function _targetScreenRect(target) {
+  if (!target) return null;
+  if (target._targetKind === 'object') {
+    if (!isFinite(target._screenX) || !isFinite(target._screenY)) return null;
+    return { x: target._screenX, y: target._screenY, w: target._screenW, h: target._screenH };
+  }
+
+  if (!isFinite(target.worldX) || !isFinite(target.y)) return null;
+  const x = Number(target.worldX) - Number(cameraX || 0);
+  const y = Number(target.y);
+  const w = Number(target.w || 0);
+  const h = Number(target.h || 0);
+  return { x, y, w, h };
+}
+
+function _isTargetBehindCover(targetLayerOrder, targetDrawIndex, coverLayerOrder, coverDrawIndex) {
+  if (coverLayerOrder < 0 || targetLayerOrder < 0) return false;
+  if (coverLayerOrder > targetLayerOrder) return true;
+  if (coverLayerOrder < targetLayerOrder) return false;
+  return (coverDrawIndex > targetDrawIndex);
+}
+
+function isTargetCovered(target, coverList) {
+  if (!target || !Array.isArray(coverList) || coverList.length === 0) return false;
+
+  const tRect = _targetScreenRect(target);
+  if (!tRect) return false;
+
+  const tLayerOrder = (target._targetKind === 'object')
+    ? _coverLayerOrder(target._layer)
+    : COVER_LAYER_ORDER.actor;
+  const tDrawIndex = (target._targetKind === 'object') ? (target._drawIndex ?? 0) : 0;
+  const tKey = (target._targetKind === 'object') ? String(target.instanceId || '') : '';
+
+  for (const c of coverList) {
+    if (!c) continue;
+    if (tKey && c.instanceKey && String(c.instanceKey) === `object:${tKey}`) continue;
+
+    if (!_isTargetBehindCover(tLayerOrder, tDrawIndex, c.layerOrder, c.drawIndex)) continue;
+
+    if (aabbOverlap(tRect.x, tRect.y, tRect.w, tRect.h, c.x, c.y, c.w, c.h)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function _getPlacedObjectByInstanceKeyWithLayer(instanceKey) {
+  const raw = String(instanceKey || '');
+  if (!raw.startsWith('object:')) return null;
+
+  const rest = raw.slice('object:'.length);
+  const parts = raw.split(':');
+
+  if (parts.length === 4) {
+    const layer = parts[1];
+    const base = lc(parts[2]);
+    const idx = Math.floor(Number(parts[3]));
+    const list = _getObjectBucketListByLayerToken(layer);
+    if (!Array.isArray(list)) return null;
+    if (!isFinite(idx) || idx < 0 || idx >= list.length) return null;
+    const obj = list[idx];
+    if (!obj) return null;
+    const gotBase = objectBaseFromKey(obj.key || obj.name || obj.filename);
+    if (lc(gotBase) !== base) return null;
+    return { obj, layer, index: idx };
+  }
+
+  const wantId = String(rest || '').trim();
+  if (!wantId || !currentArea) return null;
+
+  const buckets = [
+    { layer: 'back',  list: currentArea.backObjects },
+    { layer: 'fore',  list: currentArea.foreObjects },
+    { layer: 'gback', list: currentArea.groundBackObjects },
+    { layer: 'gfore', list: currentArea.groundForeObjects }
+  ];
+
+  for (const b of buckets) {
+    if (!Array.isArray(b.list)) continue;
+    for (let i = 0; i < b.list.length; i++) {
+      const o = b.list[i];
+      if (!o) continue;
+      if (String(o.instanceId || '').trim() === wantId) return { obj: o, layer: b.layer, index: i };
+    }
+  }
+
+  return null;
+}
+
+function _buildObjectTargetForInstance(instanceKey) {
+  const info = _getPlacedObjectByInstanceKeyWithLayer(instanceKey);
+  if (!info || !info.obj) return null;
+
+  const bucketMap = {
+    back: { parallax: PARALLAX.backObjects, defaultHMult: 0.55, dyFn: (obj, targetH) => {
+      const baseY = HEIGHT - TILE_DRAW_HEIGHT();
+      return baseY - targetH + (obj.yJitter || 0) - (obj.baseBelowTop || 0);
+    }},
+    fore: { parallax: PARALLAX.foreground, defaultHMult: 0.70, dyFn: (_obj, targetH) => (HEIGHT - targetH) },
+    gback: { parallax: PARALLAX.ground, defaultHMult: 0.70, dyFn: (_obj, targetH) => (HEIGHT - targetH - 250) },
+    gfore: { parallax: PARALLAX.ground, defaultHMult: 0.70, dyFn: (_obj, targetH) => (HEIGHT - targetH) }
+  };
+
+  const bucket = bucketMap[info.layer];
+  if (!bucket) return null;
+
+  const m = _getObjectDrawMetrics(info.obj, bucket, getGameNowMs());
+  if (!m) return null;
+
+  const instanceId = String(info.obj.instanceId || `${info.layer}:${m.base}:${info.index}`).trim();
+
+  return {
+    kind: 'object',
+    id: m.base,
+    instanceId,
+    worldX: info.obj.worldX,
+    w: m.targetW,
+    h: m.targetH,
+    y: m.dy,
+    _parallax: bucket.parallax,
+    _layer: info.layer,
+    _drawIndex: info.index,
+    _screenX: m.sx,
+    _screenY: m.dy,
+    _screenW: m.targetW,
+    _screenH: m.targetH,
+    _targetKind: 'object'
+  };
+}
+
+function isObjectInstanceCovered(instanceKey) {
+  const coverList = __getCoverRectsForCurrentArea();
+  if (!coverList.length) return false;
+
+  const target = _buildObjectTargetForInstance(instanceKey);
+  if (!target) return false;
+  return isTargetCovered(target, coverList);
+}
+
+function isObjectInstanceCoveredWithCoverList(instanceKey, coverList) {
+  if (!instanceKey || !Array.isArray(coverList) || coverList.length === 0) return false;
+  const target = _buildObjectTargetForInstance(instanceKey);
+  if (!target) return false;
+  return isTargetCovered(target, coverList);
+}
+
+function getWorldItemByInstanceKey(instanceKey) {
+  if (!instanceKey || !currentArea || !currentArea.worldItemByKey) return null;
+  if (currentArea.worldItemByKey instanceof Map) {
+    return currentArea.worldItemByKey.get(instanceKey) || null;
+  }
+  return currentArea.worldItemByKey[instanceKey] || null;
+}
+
+function isWorldItemAvailable(item) {
+  if (!item || item._picked) return false;
+  const flagKey = worldItemPickedFlagKey(item.instanceKey);
+  if (flagKey && getFlag('global', flagKey)) return false;
+  return true;
+}
+
+function isWorldItemInteractable(instanceKey) {
+  const item = getWorldItemByInstanceKey(instanceKey);
+  return isWorldItemAvailable(item);
+}
+
+function getWorldItemDrawMetrics(item) {
+  if (!item) return null;
+  const def = getItemDef(item.itemId);
+  const icon = __getItemIcon(item.itemId, def);
+
+  const baseH = Number(def?.worldSizePx ?? 80);
+  const targetH = Math.max(12, Math.floor(baseH * SCALE.objects));
+
+  let targetW = targetH;
+  if (icon && icon.ready && icon.img) {
+    const srcW = Math.max(1, icon.img.width || 1);
+    const srcH = Math.max(1, icon.img.height || 1);
+    if (srcH > 0) targetW = Math.max(8, Math.floor(targetH * (srcW / srcH)));
+  }
+
+  const leftWorldX = (Number(item.worldX) || 0) - (targetW * 0.5);
+  const sx = worldToScreenX(leftWorldX, PARALLAX.ground);
+  const sy = Math.floor(HEIGHT - targetH);
+
+  return { icon, targetW, targetH, sx, sy };
+}
+
+function _buildWorldItemTarget(item) {
+  if (!item) return null;
+  const m = getWorldItemDrawMetrics(item);
+  if (!m) return null;
+
+  return {
+    _targetKind: 'object',
+    _layer: 'gback',
+    _drawIndex: Number(item._drawIndex || 0),
+    _screenX: Math.floor(m.sx),
+    _screenY: Math.floor(m.sy),
+    _screenW: Math.floor(m.targetW),
+    _screenH: Math.floor(m.targetH),
+    instanceId: String(item.instanceKey || ''),
+    worldX: Number(item.worldX) || 0,
+    w: m.targetW,
+    h: m.targetH,
+    y: m.sy
+  };
+}
+
+function isWorldItemCoveredWithCoverList(instanceKey, coverList) {
+  if (!instanceKey || !Array.isArray(coverList) || coverList.length === 0) return false;
+  const item = getWorldItemByInstanceKey(instanceKey);
+  if (!item) return false;
+  const target = _buildWorldItemTarget(item);
+  if (!target) return false;
+  return isTargetCovered(target, coverList);
+}
+
+function __getObjectTargetPoolForCurrentArea() {
+  if (!currentArea) return [];
+  const nowMs = getGameNowMs();
+  const out = [];
+
+  const buckets = [
+    {
+      layer: 'back',
+      list: currentArea.backObjects,
+      parallax: PARALLAX.backObjects,
+      defaultHMult: 0.55,
+      dyFn: (obj, targetH) => {
+        const baseY = HEIGHT - TILE_DRAW_HEIGHT();
+        return baseY - targetH + (obj.yJitter || 0) - (obj.baseBelowTop || 0);
+      }
+    },
+    {
+      layer: 'fore',
+      list: currentArea.foreObjects,
+      parallax: PARALLAX.foreground,
+      defaultHMult: 0.70,
+      dyFn: (_obj, targetH) => (HEIGHT - targetH)
+    },
+    {
+      layer: 'gback',
+      list: currentArea.groundBackObjects,
+      parallax: PARALLAX.ground,
+      defaultHMult: 0.70,
+      dyFn: (_obj, targetH) => (HEIGHT - targetH - 250)
+    },
+    {
+      layer: 'gfore',
+      list: currentArea.groundForeObjects,
+      parallax: PARALLAX.ground,
+      defaultHMult: 0.70,
+      dyFn: (_obj, targetH) => (HEIGHT - targetH)
+    }
+  ];
+
+  for (const bucket of buckets) {
+    const list = bucket.list;
+    if (!Array.isArray(list) || list.length === 0) continue;
+
+    for (let i = 0; i < list.length; i++) {
+      const obj = list[i];
+      if (!obj) continue;
+      if (obj._spawned === false) continue;
+
+      const m = _getObjectDrawMetrics(obj, bucket, nowMs);
+      if (!m) continue;
+
+      const instanceId = String(obj.instanceId || `${bucket.layer}:${m.base}:${i}`).trim();
+      const sx = m.sx;
+      const dy = m.dy;
+      const targetW = m.targetW;
+      const targetH = m.targetH;
+
+      out.push({
+        kind: 'object',
+        id: m.base,
+        instanceId,
+        worldX: obj.worldX,
+        w: targetW,
+        h: targetH,
+        y: dy,
+        _parallax: bucket.parallax,
+        _layer: bucket.layer,
+        _drawIndex: i,
+        _screenX: sx,
+        _screenY: dy,
+        _screenW: targetW,
+        _screenH: targetH,
+        _targetKind: 'object'
+      });
+    }
+  }
+
+  return out;
+}
+
+function __buildTargetPoolFromKinds(kinds, caster) {
+  const pool = [];
+  const relationMap = new Map();
+  const wantSelf = kinds.includes('self');
+  const wantPlayer = kinds.includes('player');
+  const wantParty = kinds.includes('party');
+  const wantNpc = kinds.includes('npc');
+  const wantMob = kinds.includes('mob');
+  const wantObject = kinds.includes('object');
+  const wantAlly = kinds.includes('ally');
+  const wantEnemy = kinds.includes('enemy');
+  const wantNeutral = kinds.includes('neutral');
+
+  if (wantSelf && caster) pool.push(caster);
+  if (wantPlayer) pool.push(player);
+  if (wantParty) {
+    for (const p of party) pool.push(p);
+  }
+  if (wantNpc) {
+    for (const n of npcs) pool.push(n);
+  }
+  if (wantMob) {
+    for (const m of mobs) {
+      if (!m) continue;
+      if (m === caster) continue;
+      pool.push(m);
+    }
+  }
+  if (wantObject) {
+    const objs = __getObjectTargetPoolForCurrentArea();
+    for (const o of objs) pool.push(o);
+  }
+
+  if (wantAlly || wantEnemy || wantNeutral) {
+    const added = new Set();
+    for (const a of pool) {
+      if (!a) continue;
+      const k = targetKeyFromDescriptor(targetActorDescriptorFromActor(a));
+      if (k) added.add(k);
+    }
+
+    const allActors = [player, ...(Array.isArray(party) ? party : []), ...(Array.isArray(npcs) ? npcs : []), ...(Array.isArray(mobs) ? mobs : [])];
+    for (const a of allActors) {
+      if (!a) continue;
+      if (a === caster) continue;
+      const relation = getRelation(caster, a);
+      if (relation === 'ally' && !wantAlly) continue;
+      if (relation === 'enemy' && !wantEnemy) continue;
+      if (relation === 'neutral' && !wantNeutral) continue;
+      const k = targetKeyFromDescriptor(targetActorDescriptorFromActor(a));
+      if (k && added.has(k)) continue;
+      relationMap.set(a, relation);
+      pool.push(a);
+      if (k) added.add(k);
+    }
+  }
+
+  return { pool, relationMap };
+}
+
+function __getTargetCandidates(caster, tdef, opts = {}) {
+  if (!caster || !tdef) return [];
+
+  const remove = tdef.remove || Object.create(null);
+  const kinds = __getTargetKindsFromDef(tdef, !!opts.priorityOnly);
+  if (!kinds.length) return [];
+
+  const built = __buildTargetPoolFromKinds(kinds, caster);
+  const pool = built.pool;
+  const relationMap = built.relationMap;
+  const out = [];
+  const rangePx = opts.rangePx;
+  const rangeFallbackFn = (typeof opts.rangeFallbackFn === 'function') ? opts.rangeFallbackFn : null;
+  const extraFilter = (typeof opts.extraFilter === 'function') ? opts.extraFilter : null;
+  const coverList = __getCoverRectsForCurrentArea();
+
+  const casterIsParty = (caster === player) || (party && party.includes(caster));
+  const getKind = (a) => {
+    if (!a) return '';
+    if (a === caster) return 'self';
+    if (relationMap && relationMap.has(a)) return relationMap.get(a);
+    return targetKindForActor(a);
+  };
+
+  for (const a of pool) {
+    if (!a) continue;
+    if (extraFilter && !extraFilter(a)) continue;
+
+    if (a === caster) {
+      const casterKind = targetKindForActor(caster);
+      if (tdef?.excluded && tdef.excluded.includes('self')) continue;
+      if (!kinds.includes(casterKind) && !kinds.includes('self')) continue;
+      out.push(a);
+      continue;
+    }
+
+    if (tdef?.excluded && tdef.excluded.length) {
+      const k = getKind(a);
+      if (tdef.excluded.includes(k)) continue;
+    }
+    if (isTargetCovered(a, coverList)) continue;
+    if (!passesTargetingFilters(caster, a, tdef)) continue;
+    if (shouldRemoveTarget(caster, a, remove, tdef)) continue;
+
+    const targetIsParty = (a === player) || (party && party.includes(a));
+    const ignoreRangeForParty = casterIsParty && targetIsParty &&
+      (kinds.includes('player') || kinds.includes('party'));
+
+    if (!ignoreRangeForParty) {
+      if (isFinite(rangePx) && rangePx > 0) {
+        const dx = Math.abs(actorCenterX(a) - actorCenterX(caster));
+        if (dx > rangePx) continue;
+      } else if (rangeFallbackFn) {
+        const dx = Math.abs(actorCenterX(a) - actorCenterX(caster));
+        const r = Number(rangeFallbackFn(a));
+        if (isFinite(r) && dx > r) continue;
+      }
+    }
+
+    out.push(a);
+  }
+
+  return sortTargetsByKindPriority(out, tdef, caster, getKind);
+}
+
+function __getAbilityTargetCandidates(caster, ability, opts = {}) {
+  if (!caster || !ability) return [];
+  const tdef = getAbilityTargetingDef(ability);
+  if (!tdef) return [];
+  const rangePx = getAbilityRangePx(ability, tdef);
+  return __getTargetCandidates(caster, tdef, {
+    priorityOnly: !!opts.priorityOnly,
+    rangePx
+  });
+}
+
+function __getManualTargetingCandidates(caster, ability) {
+  return __getAbilityTargetCandidates(caster, ability);
+}
+
+let __manualTargetingHeadBarRestore = null;
+
+function __forceHeadBarsVisibleForTargets(targets) {
+  return;
+}
+
+function __restoreHeadBarsVisibility() {
+  __manualTargetingHeadBarRestore = null;
+}
+
+function ensureManualTargetingItemPreview() {
+  if (!viewportEl) return null;
+  if (manualTargetingItemPreview && manualTargetingItemPreview.parentNode) return manualTargetingItemPreview;
+
+  const el = document.createElement('div');
+  el.className = 'manualTargetingItemPreview';
+  el.style.position = 'absolute';
+  el.style.left = '16px';
+  el.style.bottom = '16px';
+  el.style.zIndex = '35';
+  el.style.pointerEvents = 'none';
+  el.style.display = 'none';
+  viewportEl.appendChild(el);
+  manualTargetingItemPreview = el;
+  return el;
+}
+
+function showManualTargetingItemPreview(st) {
+  const el = ensureManualTargetingItemPreview();
+  if (!el) return;
+  if (!st || st.kind !== 'item') {
+    el.style.display = 'none';
+    el.innerHTML = '';
+    return;
+  }
+
+  const actor = st.actorName ? findActorByName(st.actorName) : player;
+  const bucket = getActorInvBucket(actor || player, st.itemId);
+  const inst = bucket?.instances?.find(x => String(x?.uid) === String(st.itemUid || '')) || null;
+  const tile = buildItemTile({
+    id: st.itemId,
+    uid: st.itemUid,
+    inst,
+    showName: true,
+    showUses: true,
+    showDesc: true,
+    keyText: null,
+    showGiveButton: false,
+    ownerActor: actor || player
+  });
+
+  el.innerHTML = '';
+  const grid = document.createElement('div');
+  grid.className = 'playerMenuItemsGrid';
+  grid.style.gridTemplateColumns = 'repeat(1, minmax(0, 1fr))';
+  // Let content size the card for ability preview (no forced width).
+  tile.style.pointerEvents = 'none';
+  grid.appendChild(tile);
+  el.appendChild(grid);
+  el.style.display = 'block';
+}
+
+function hideManualTargetingItemPreview() {
+  if (!manualTargetingItemPreview) return;
+  manualTargetingItemPreview.style.display = 'none';
+  manualTargetingItemPreview.innerHTML = '';
+}
+
+function showManualTargetingDragTile(itemId, itemUid, actor, sourceTileEl = null) {
+  if (!viewportEl) return;
+  if (!manualTargetingDragTile) {
+    const el = document.createElement('div');
+    el.className = 'manualTargetingDragTile';
+    el.style.position = 'absolute';
+    el.style.zIndex = '40';
+    el.style.pointerEvents = 'none';
+    viewportEl.appendChild(el);
+    manualTargetingDragTile = el;
+  }
+
+  const rect = sourceTileEl?.getBoundingClientRect?.();
+  const img = document.createElement('img');
+  img.alt = String(itemId || '');
+  img.src = `assets/items/${lc(itemId)}.png`;
+  img.style.display = 'block';
+  img.style.imageRendering = 'pixelated';
+  img.style.pointerEvents = 'none';
+
+  let w = rect?.width || 48;
+  let h = rect?.height || 48;
+  const box = sourceTileEl?.querySelector?.('.playerMenuItemImgBox');
+  if (box) {
+    const b = box.getBoundingClientRect?.();
+    if (b && b.width && b.height) { w = b.width; h = b.height; }
+  }
+  img.style.width = `${Math.max(1, w)}px`;
+  img.style.height = `${Math.max(1, h)}px`;
+
+  manualTargetingDragTile.innerHTML = '';
+  manualTargetingDragTile.appendChild(img);
+}
+
+function hideManualTargetingDragTile() {
+  if (!manualTargetingDragTile) return;
+  manualTargetingDragTile.innerHTML = '';
+  if (manualTargetingDragTile.parentNode) {
+    manualTargetingDragTile.parentNode.removeChild(manualTargetingDragTile);
+  }
+  manualTargetingDragTile = null;
+}
+
+function ensureManualTargetingAbilityPreview() {
+  if (!viewportEl) return null;
+  if (manualTargetingAbilityPreview && manualTargetingAbilityPreview.parentNode) return manualTargetingAbilityPreview;
+
+  const el = document.createElement('div');
+  el.className = 'manualTargetingAbilityPreview';
+  el.style.position = 'absolute';
+  el.style.left = '16px';
+  el.style.bottom = '16px';
+  el.style.zIndex = '35';
+  el.style.pointerEvents = 'none';
+  el.style.display = 'none';
+  viewportEl.appendChild(el);
+  manualTargetingAbilityPreview = el;
+  return el;
+}
+
+function showManualTargetingAbilityPreview(st) {
+  const el = ensureManualTargetingAbilityPreview();
+  if (!el) return;
+  if (!st || st.kind !== 'ability') {
+    el.style.display = 'none';
+    el.innerHTML = '';
+    return;
+  }
+
+  const caster =
+    (lc(st.npcName) === 'player' || lc(st.npcName) === lc(player?.name || '')) ? player
+    : party.find(n => n && lc(n.name) === lc(st.npcName));
+  if (!caster) return;
+
+  const ability = (Array.isArray(caster.abilities) ? caster.abilities : []).find(a => a && lc(a.id) === lc(st.abilityId));
+  if (!ability) return;
+
+  const card = buildAbilityCard(caster, ability, {
+    hotKey: null,
+    includeToggle: false
+  });
+
+  const grid = document.createElement('div');
+  grid.className = 'abilitiesCardGrid';
+  grid.style.gridTemplateColumns = 'repeat(1, minmax(0, 1fr))';
+  grid.style.display = 'inline-grid';
+  grid.style.width = 'fit-content';
+
+  card.style.pointerEvents = 'none';
+  grid.appendChild(card);
+
+  el.innerHTML = '';
+  el.appendChild(grid);
+  el.style.display = 'block';
+}
+
+function hideManualTargetingAbilityPreview() {
+  if (!manualTargetingAbilityPreview) return;
+  manualTargetingAbilityPreview.style.display = 'none';
+  manualTargetingAbilityPreview.innerHTML = '';
+}
+
+function __getTargetBoundsX(candidates) {
+  if (!Array.isArray(candidates) || candidates.length === 0) return null;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  for (const a of candidates) {
+    if (!a) continue;
+    const cx = actorCenterX(a);
+    if (!isFinite(cx)) continue;
+    const half = Math.max(0, Number(a.w) || 0) * 0.5;
+    minX = Math.min(minX, cx - half);
+    maxX = Math.max(maxX, cx + half);
+  }
+  if (!isFinite(minX) || !isFinite(maxX)) return null;
+  return { minX, maxX };
+}
+
+function applyManualTargetingCamera(st) {
+  if (!st || !Array.isArray(st.candidates) || st.candidates.length === 0) return;
+  if (!currentArea) return;
+
+  const bounds = __getTargetBoundsX(st.candidates);
+  if (!bounds) return;
+
+  const span = Math.max(1, bounds.maxX - bounds.minX);
+  const pad = Math.max(80, span * 0.08);
+  const targetSpan = span + pad * 2;
+  const needZoom = WIDTH / targetSpan;
+
+  // Only zoom out if needed; never zoom in here.
+  const endZoom = Math.min(cameraZoom, Math.max(0.35, Math.min(1, needZoom)));
+
+  const centerX = (bounds.minX + bounds.maxX) * 0.5;
+  const vwAtZoom = WIDTH / Math.max(0.0001, endZoom);
+  const curLeft = cameraX;
+  const curRight = cameraX + cameraViewportW();
+  const alreadyFits = (bounds.minX >= curLeft) && (bounds.maxX <= curRight);
+
+  if (alreadyFits && endZoom >= cameraZoom) return;
+
+  // Snapshot current camera so we can restore after targeting
+  if (!manualTargetingCameraRestore) {
+    manualTargetingCameraRestore = {
+      mode: cameraMode,
+      targetSpec: cameraTargetSpec ? { ...cameraTargetSpec } : null,
+      manualCenterX: cameraManualCenterX,
+      zoom: cameraZoom
+    };
+  }
+
+  const clampedCenter = clampCameraX(centerX - vwAtZoom * 0.5) + vwAtZoom * 0.5;
+  if (shouldFreezeWorldTime()) {
+    cameraZoom = endZoom;
+    cameraMode = 'manual';
+    cameraManualCenterX = clampedCenter;
+    cameraTargetSpec = { type: 'player' };
+    cameraX = clampCameraX(clampedCenter - cameraViewportW() * 0.5);
+  } else {
+    startCameraTween({
+      endMode: 'manual',
+      endManualCenterX: clampedCenter,
+      endZoom,
+      durationMs: 200
+    });
+  }
+}
+
+function restoreManualTargetingCamera() {
+  if (!manualTargetingCameraRestore) return;
+  const prev = manualTargetingCameraRestore;
+  manualTargetingCameraRestore = null;
+
+  const endMode = prev.mode || 'follow';
+  const endTargetSpec = prev.targetSpec || { type: 'player' };
+  const endManualCenterX = prev.manualCenterX;
+  const endZoom = (isFinite(prev.zoom) && prev.zoom > 0) ? prev.zoom : 1;
+
+  if (shouldFreezeWorldTime()) {
+    cameraZoom = endZoom;
+    cameraMode = endMode;
+    cameraTargetSpec = endTargetSpec;
+    cameraManualCenterX = (endMode === 'manual') ? endManualCenterX : null;
+    const endCenter = (endMode === 'manual')
+      ? endManualCenterX
+      : getTargetCenterXFromSpec(endTargetSpec);
+    if (isFinite(endCenter)) {
+      cameraX = clampCameraX(endCenter - cameraViewportW() * 0.5);
+    } else {
+      cameraX = clampCameraX(cameraX);
+    }
+  } else {
+    startCameraTween({
+      endMode,
+      endTargetSpec,
+      endManualCenterX,
+      endZoom,
+      durationMs: 200
+    });
+  }
+}
+
+function getItemTargetingDef(itemDef) {
+  if (!itemDef || typeof itemDef !== 'object') return null;
+  return normalizeTargetingDef(itemDef.targeting || null);
+}
+
+function getItemRangePx(itemDef, tdef) {
+  const raw =
+    (tdef && tdef.withinPx != null && isFinite(tdef.withinPx)) ? tdef.withinPx
+    : (tdef && (tdef.rangePx ?? tdef.range) != null) ? (tdef.rangePx ?? tdef.range)
+    : (itemDef?.rangePx ?? itemDef?.range);
+  const v = Number(raw);
+  return (isFinite(v) && v > 0) ? v : null;
+}
+
+function __getItemTargetCandidates(caster, itemDef, itemId = null) {
+  if (!caster || !itemDef) return [];
+  const tdef = getItemTargetingDef(itemDef);
+  if (!tdef) return [];
+  const rangePx = getItemRangePx(itemDef, tdef);
+  const resolvedItemId = lc(itemId || itemDef.id || itemDef._id || '');
+  return __getTargetCandidates(caster, tdef, {
+    rangePx,
+    extraFilter: (a) => {
+    const k = targetKindForActor(a);
+    if (k !== 'object') return true;
+      const objId = String(a.id || a.filename || '').trim();
+      return !!(resolvedItemId && objId && canUseItemOnObject(resolvedItemId, objId));
+    },
+    rangeFallbackFn: (a) => {
+      const k = targetKindForActor(a);
+      if (k === 'object') return interactionRadius('object', Number(a.w) || 0);
+      return interactionRadius('npc', Number(a.w) || 0);
+    }
+  });
+}
+
+function canActorReceiveItem(actor) {
+  const cap = getActorInventorySize(actor);
+  if (!isFinite(cap)) return true;
+  return cap > 0;
+}
+
+function hasActorInventorySpace(actor) {
+  const cap = getActorInventorySize(actor);
+  if (!isFinite(cap)) return true;
+  return getActorInventoryCount(actor) < cap;
+}
+
+function getItemGiveTargetingDef(itemDef) {
+  if (!itemDef || typeof itemDef !== 'object') return null;
+  if (itemDef.giveTargeting) return normalizeTargetingDef(itemDef.giveTargeting);
+  // Default: party + world NPCs (only those with inventory capacity)
+  return normalizeTargetingDef({ priority: ['party'], allowed: ['npc'] });
+}
+
+function __getItemGiveTargetCandidates(caster, itemDef) {
+  if (!caster || !itemDef) return [];
+  const tdefRaw = getItemGiveTargetingDef(itemDef);
+  const pri = Array.isArray(tdefRaw?.priority) ? tdefRaw.priority.slice() : [];
+  const allowed = Array.isArray(tdefRaw?.allowed) ? tdefRaw.allowed.slice() : [];
+  if (!pri.map(lc).includes('player')) pri.push('player');
+  if (allowed.length > 0 && !allowed.map(lc).includes('player')) allowed.push('player');
+  const tdef = { ...tdefRaw, priority: pri, allowed };
+  if (!tdef) return [];
+  return __getTargetCandidates(caster, tdef, {
+    rangeFallbackFn: (a) => interactionRadius('npc', Number(a.w) || 0),
+    extraFilter: (a) => canActorReceiveItem(a) && a !== caster
+  });
+}
+
+function __forceTargetToFront(actor, targetActor, holdAbilityId = null) {
+  if (!actor || !targetActor) return false;
+  if (!Array.isArray(actor.attackTargetQueue)) actor.attackTargetQueue = [];
+
+  const td = targetActorDescriptorFromActor(targetActor);
+  const key = targetKeyFromDescriptor(td);
+  if (!key) return false;
+
+  // Remove existing entry
+  for (let i = actor.attackTargetQueue.length - 1; i >= 0; i--) {
+    if (targetKeyFromDescriptor(actor.attackTargetQueue[i]) === key) {
+      actor.attackTargetQueue.splice(i, 1);
+    }
+  }
+
+  actor.attackTargetQueue.unshift(td);
+  actor.attackTargetCurrentKey = key;
+  actor.__attackTargetActor = targetActor;
+
+  if (holdAbilityId) {
+    actor.__forcedTargetKey = key;
+    actor.__forcedTargetAbilityId = lc(holdAbilityId);
+  }
+
+  return true;
+}
+
+function resolveAbilityFixedTargets(caster, ability) {
+  if (!caster || !ability) return null;
+  const ft = lc(ability.fixedTarget || ability?.targeting?.fixedTarget || '');
+  if (!ft) return null;
+
+  if (ft === 'self') return [caster];
+
+  if (ft === 'party') {
+    const out = [];
+    if (player) out.push(player);
+    for (const p of party) {
+      if (p) out.push(p);
+    }
+    return out;
+  }
+
+  if (ft === 'allmobs' || ft === 'all_mobs') {
+    const rangePx = Number(ability.rangePx ?? ability.range ?? 0);
+    const out = [];
+    for (const m of mobs) {
+      if (!m || m === caster) continue;
+      if (isFinite(rangePx) && rangePx > 0) {
+        const dx = Math.abs(actorCenterX(m) - actorCenterX(caster));
+        if (dx > rangePx) continue;
+      }
+      out.push(m);
+    }
+    return out;
+  }
+
+  return null;
+}
+
+function beginManualTargeting(npcName, abilityId) {
+  const wantNpc = lc(npcName);
+  const wantAb = lc(abilityId);
+  if (!wantNpc || !wantAb) return false;
+
+  const caster =
+    (wantNpc === 'player' || wantNpc === lc(player?.name || '')) ? player
+    : party.find(n => n && lc(n.name) === wantNpc);
+  if (!caster) return false;
+
+  const ability = (Array.isArray(caster.abilities) ? caster.abilities : []).find(a => a && lc(a.id) === wantAb);
+  if (!ability) return false;
+
+  const fixedTargets = resolveAbilityFixedTargets(caster, ability);
+  if (fixedTargets) {
+    const ok = (caster === player)
+      ? tryCastPlayerAbility(ability.id, null)
+      : tryCastPartyAbility(caster.name, ability.id, null);
+    return ok ? 'casted' : false;
+  }
+
+  const tdefRaw = getActorTargetingRaw(caster);
+  const tdef = normalizeTargetingDef(tdefRaw);
+  const candidates = __getManualTargetingCandidates(caster, ability);
+  if (!candidates.length) {
+    // If there's no targeting config, this ability is likely self/area-only: cast immediately.
+    if (!tdef) {
+      const ok = (caster === player)
+        ? tryCastPlayerAbility(ability.id, null)
+        : tryCastPartyAbility(caster.name, ability.id, null);
+      return ok ? 'casted' : false;
+    }
+    showPlayerMenuError('No valid targets.');
+    return false;
+  }
+
+  let selectedIndex = 0;
+  const cur = caster.__attackTargetActor || null;
+  if (cur) {
+    const idx = candidates.indexOf(cur);
+    if (idx >= 0) selectedIndex = idx;
+  }
+
+  inManualTargeting = true;
+  manualTargetingState = {
+    kind: 'ability',
+    npcName: caster.name,
+    abilityId: ability.id,
+    candidates,
+    selectedIndex,
+    returnPageId: activeMenuPageId,
+    previewTilePx: (() => {
+      const tile = playerMenuContent?.querySelector('.abilityCard');
+      const w = tile?.getBoundingClientRect?.().width;
+      return (isFinite(w) && w > 0) ? w : 0;
+    })()
+  };
+
+  __forceHeadBarsVisibleForTargets(candidates);
+    // no debug logging
+
+  // Hide menu overlay but keep menu state (so game stays paused)
+  if (playerMenuOverlay) playerMenuOverlay.style.display = 'none';
+  showManualTargetingAbilityPreview(manualTargetingState);
+  applyManualTargetingCamera(manualTargetingState);
+  inMenu = true;
+
+  return 'started';
+}
+
+function resolveItemFixedTargets(caster, itemDef) {
+  if (!caster || !itemDef) return null;
+  const ft = lc(itemDef.fixedTarget || itemDef?.targeting?.fixedTarget || '');
+  if (!ft) return null;
+
+  if (ft === 'self') return [caster];
+
+  if (ft === 'party') {
+    const out = [];
+    if (player) out.push(player);
+    for (const p of party) {
+      if (p) out.push(p);
+    }
+    return out;
+  }
+
+  if (ft === 'allmobs' || ft === 'all_mobs') {
+    const out = [];
+    const tdef = getItemTargetingDef(itemDef);
+    const rangePx = getItemRangePx(itemDef, tdef);
+    const casterCx = actorCenterX(caster);
+    for (const m of mobs) {
+      if (!m || m === caster) continue;
+      const dx = Math.abs(actorCenterX(m) - casterCx);
+      if (isFinite(rangePx) && rangePx > 0) {
+        if (dx > rangePx) continue;
+      } else {
+        const r = interactionRadius('npc', Number(m.w) || 0);
+        if (dx > r) continue;
+      }
+      out.push(m);
+    }
+    return out;
+  }
+
+  return null;
+}
+
+function beginManualItemTargeting(itemId, itemUid = null, preferredTarget = null) {
+  const id = lc(itemId);
+  if (!id) return false;
+
+  const def = getItemDef(id);
+  if (!def) return false;
+
+  const caster = player;
+  const fixedTargets = resolveItemFixedTargets(caster, def);
+  if (fixedTargets) {
+    const ok = useItemOnceOnTargets(id, itemUid, fixedTargets);
+    if (ok && inMenu) hideMenuOverlayForHeadBars();
+    return ok ? 'casted' : false;
+  }
+
+  const candidates = __getItemTargetCandidates(caster, def, id);
+  if (!candidates.length) {
+    showPlayerMenuError('No valid targets.');
+    return false;
+  }
+
+  let selectedIndex = 0;
+  if (preferredTarget) {
+    const idx = candidates.indexOf(preferredTarget);
+    if (idx >= 0) selectedIndex = idx;
+  }
+
+  inManualTargeting = true;
+  manualTargetingState = {
+    kind: 'item',
+    itemId: id,
+    itemUid: itemUid != null ? String(itemUid) : null,
+    candidates,
+    selectedIndex,
+    returnPageId: activeMenuPageId,
+    previewTilePx: (() => {
+      const tile = playerMenuContent?.querySelector('.playerMenuItemTile');
+      const w = tile?.getBoundingClientRect?.().width;
+      return (isFinite(w) && w > 0) ? w : 0;
+    })()
+  };
+
+  __forceHeadBarsVisibleForTargets(candidates);
+  // no debug logging
+
+  if (playerMenuOverlay) playerMenuOverlay.style.display = 'none';
+  showManualTargetingItemPreview(manualTargetingState);
+  applyManualTargetingCamera(manualTargetingState);
+  inMenu = true;
+  return 'started';
+}
+
+function beginManualItemTargetingForActor(actor, itemId, itemUid = null, preferredTarget = null) {
+  if (!actor) return false;
+  if (actor === player) return beginManualItemTargeting(itemId, itemUid, preferredTarget);
+
+  const id = lc(itemId);
+  if (!id) return false;
+
+  const def = getItemDef(id);
+  if (!def) return false;
+
+  const caster = actor;
+  const fixedTargets = resolveItemFixedTargets(caster, def);
+  if (fixedTargets) {
+    const ok = useItemOnceOnTargets(id, itemUid, fixedTargets);
+    if (ok && inMenu) hideMenuOverlayForHeadBars();
+    return ok ? 'casted' : false;
+  }
+
+  const candidates = __getItemTargetCandidates(caster, def, id);
+  if (!candidates.length) {
+    showPlayerMenuError('No valid targets.');
+    return false;
+  }
+
+  let selectedIndex = 0;
+  if (preferredTarget) {
+    const idx = candidates.indexOf(preferredTarget);
+    if (idx >= 0) selectedIndex = idx;
+  }
+
+  inManualTargeting = true;
+  manualTargetingState = {
+    kind: 'item',
+    itemId: id,
+    itemUid: itemUid != null ? String(itemUid) : null,
+    candidates,
+    selectedIndex,
+    returnPageId: activeMenuPageId,
+    previewTilePx: (() => {
+      const tile = playerMenuContent?.querySelector('.playerMenuItemTile');
+      const w = tile?.getBoundingClientRect?.().width;
+      return (isFinite(w) && w > 0) ? w : 0;
+    })(),
+    actorName: actor?.name || null
+  };
+
+  __forceHeadBarsVisibleForTargets(candidates);
+  if (playerMenuOverlay) playerMenuOverlay.style.display = 'none';
+  showManualTargetingItemPreview(manualTargetingState);
+  applyManualTargetingCamera(manualTargetingState);
+  inMenu = true;
+  return 'started';
+}
+
+function beginManualItemGiveTargeting(itemId, itemUid = null) {
+  const id = lc(itemId);
+  if (!id) return false;
+
+  const def = getItemDef(id);
+  if (!def) return false;
+
+  const caster = player;
+  const candidates = __getItemGiveTargetCandidates(caster, def);
+  if (!candidates.length) {
+    showPlayerMenuError('No valid targets to give to.');
+    return false;
+  }
+
+  inManualTargeting = true;
+  manualTargetingState = {
+    kind: 'give',
+    itemId: id,
+    itemUid: itemUid != null ? String(itemUid) : null,
+    candidates,
+    selectedIndex: 0,
+    returnPageId: activeMenuPageId
+  };
+
+  __forceHeadBarsVisibleForTargets(candidates);
+
+  if (playerMenuOverlay) playerMenuOverlay.style.display = 'none';
+  inMenu = true;
+  return 'started';
+}
+
+function beginManualItemGiveTargetingForActor(actor, itemId, itemUid = null) {
+  if (!actor) return false;
+  if (actor === player) return beginManualItemGiveTargeting(itemId, itemUid);
+
+  const id = lc(itemId);
+  if (!id) return false;
+
+  const def = getItemDef(id);
+  if (!def) return false;
+
+  const caster = actor;
+  const candidates = __getItemGiveTargetCandidates(caster, def);
+  if (!candidates.length) {
+    showPlayerMenuError('No valid targets to give to.');
+    return false;
+  }
+
+  inManualTargeting = true;
+  manualTargetingState = {
+    kind: 'give',
+    itemId: id,
+    itemUid: itemUid != null ? String(itemUid) : null,
+    candidates,
+    selectedIndex: 0,
+    returnPageId: activeMenuPageId,
+    actorName: actor?.name || null
+  };
+
+  __forceHeadBarsVisibleForTargets(candidates);
+  if (playerMenuOverlay) playerMenuOverlay.style.display = 'none';
+  inMenu = true;
+  return 'started';
+}
+
+function endManualTargeting({ openMenuPageId = null, closeAll = false } = {}) {
+  __restoreHeadBarsVisibility();
+  inManualTargeting = false;
+  manualTargetingState = null;
+  hideManualTargetingItemPreview();
+  hideManualTargetingAbilityPreview();
+  hideManualTargetingDragTile();
+  restoreManualTargetingCamera();
+
+  if (closeAll) {
+    closePlayerMenu();
+    return;
+  }
+
+  if (openMenuPageId) {
+    openPlayerMenu(openMenuPageId);
+  } else {
+    // Return to prior menu page (or reopen menu if it was hidden)
+    openPlayerMenu(activeMenuPageId);
+  }
+}
+
+function confirmManualTargetingSelection() {
+  if (!inManualTargeting || !manualTargetingState) return false;
+
+  const st = manualTargetingState;
+  if (st.kind === 'give') {
+    const target = st.candidates[st.selectedIndex] || null;
+    if (!target) return false;
+
+    const giver = st.actorName ? findActorByName(st.actorName) : player;
+
+    if (!hasActorInventorySpace(target)) {
+      showPartyInventoryOverlay(target, { flashBad: true, autoCloseMs: 450 });
+      showPlayerMenuError('Target inventory is full.');
+      return false;
+    }
+
+    const addedUid = giver && giver !== player
+      ? giveItemToTargetFromActor(giver, st.itemId, st.itemUid, target)
+      : giveItemToTarget(st.itemId, st.itemUid, target);
+    if (!addedUid) return false;
+
+    __restoreHeadBarsVisibility();
+    inManualTargeting = false;
+    manualTargetingState = null;
+    inMenu = false;
+    if (playerMenuOverlay) playerMenuOverlay.style.display = 'none';
+
+    const returnPage = st.returnPageId || 'items';
+    if (party && party.includes(target)) {
+      showPartyInventoryOverlay(target, {
+        highlightUid: addedUid,
+        autoCloseMs: 2000,
+        afterClose: () => openPlayerMenu(returnPage)
+      });
+    } else {
+      openPlayerMenu(returnPage);
+    }
+    return true;
+  }
+
+  if (st.kind === 'item') {
+    const target = st.candidates[st.selectedIndex] || null;
+    if (!target) return false;
+
+    const def = getItemDef(st.itemId);
+    const effects = def?.effects || null;
+    if (!wouldEffectsChangeAnything(effects, target)) {
+      const badNow = Date.now();
+      st.flashBadAtMs = badNow;
+      st.flashBadPulseMs = 55;
+      st.flashBadUntilMs = badNow + 650;
+      st.errorMsg = 'No effect on target';
+      st.errorUntilMs = badNow + 1200;
+      // no debug logging
+      showPlayerMenuError(__lastItemUseError || 'No effect on that target.');
+      // Menu is hidden during targeting; show a small toast so the error is visible.
+      showItemFoundToast(__lastItemUseError || 'No effect on that target.');
+      return false;
+    }
+
+    const actor = st.actorName ? findActorByName(st.actorName) : player;
+    const ok = (actor && actor !== player)
+      ? useActorItemOnce(actor, st.itemId, st.itemUid, target)
+      : useItemOnce(st.itemId, st.itemUid, target);
+    if (ok) {
+      const canUseAgain = (actor && actor !== player)
+        ? canUseActorItem(actor, st.itemId, st.itemUid)
+        : canUseItem(st.itemId, st.itemUid);
+      if (canUseAgain) {
+        const res = beginManualItemTargetingForActor(actor || player, st.itemId, st.itemUid, target);
+        if (res) return true;
+      }
+      endManualTargeting({ openMenuPageId: st.returnPageId || activeMenuPageId });
+      hideMenuOverlayForHeadBars();
+    }
+    return !!ok;
+  }
+
+  const caster =
+    (lc(st.npcName) === 'player' || lc(st.npcName) === lc(player?.name || '')) ? player
+    : party.find(n => n && lc(n.name) === lc(st.npcName));
+  if (!caster) return false;
+
+  const ability = (Array.isArray(caster.abilities) ? caster.abilities : []).find(a => a && lc(a.id) === lc(st.abilityId));
+  if (!ability) return false;
+
+  const target = st.candidates[st.selectedIndex] || null;
+  if (!target) return false;
+
+  // Always push the chosen target to the front for immediate use
+  __forceTargetToFront(caster, target, (lc(caster.autoCastAbilityId || '') === lc(ability.id)) ? ability.id : null);
+
+  // Cast immediately if not on cooldown
+  const now = getGameNowMs();
+  const nextAt = Number(caster.abilityNextAtMs?.[lc(ability.id)] || 0);
+  if (nextAt <= now) {
+    if (caster === player) {
+      tryCastPlayerAbility(ability.id, target);
+    } else {
+      tryCastPartyAbility(caster.name, ability.id, target);
+    }
+  }
+
+  endManualTargeting({ closeAll: true });
+  return true;
+}
+
+function updateManualTargetingHover() {
+  if (!inManualTargeting || !manualTargetingState || !manualTargetingMouse.has) return;
+  const st = manualTargetingState;
+  const mx = __screenToRenderX(manualTargetingMouse.x);
+  const my = __screenToRenderY(manualTargetingMouse.y);
+
+  let bestIdx = -1;
+  let bestD = Infinity;
+
+  for (let i = 0; i < st.candidates.length; i++) {
+    const a = st.candidates[i];
+    const pos = __actorRenderCenter(a);
+    if (!pos) continue;
+
+    const r = Math.max(36, Math.min(120, (Number(a.w) || 0) * 0.6));
+    const dx = mx - pos.x;
+    const dy = my - pos.y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d <= r && d < bestD) {
+      bestD = d;
+      bestIdx = i;
+    }
+  }
+
+  if (bestIdx >= 0) {
+    st.selectedIndex = bestIdx;
+  }
+  st.hoverIndex = bestIdx;
 }
 
 
@@ -529,76 +4548,34 @@ function renderMenuPage_Items() {
   }
 
   for (let idx = 0; idx < cards.length; idx++) {
-    const { id, uid, inst } = cards[idx];
-
-    const def = getItemDef(id) || {};
-    const usesPerItem = Math.max(1, Math.floor(Number(def.usesPerItem ?? 1)));
-
-    const tile = document.createElement('div');
-    tile.className = 'playerMenuItemTile';
-    tile.dataset.itemId = lc(id);
-    tile.dataset.itemUid = String(uid);
-
-    tile.addEventListener('click', () => {
-      if (canUseItem(id, uid)) {
-        tryUseItemWithFeedback(id, uid, tile);
-      }
+    const c = cards[idx];
+    const tile = buildItemTile({
+      id: c.id,
+      uid: c.uid,
+      inst: c.inst,
+      showName: true,
+      showUses: true,
+      showDesc: true,
+      keyText: (idx < 9 ? String(idx + 1) : null),
+      onClick: (id, uid, tileEl) => {
+        if (canUseItem(id, uid)) {
+          tryUseItemWithFeedback(id, uid, tileEl);
+        }
+      },
+      onHoldStart: (id, uid, tileEl, e) => {
+        const res = beginManualItemGiveTargeting(id, uid);
+        if (res === 'started') {
+          showManualTargetingDragTile(id, uid, player, tileEl);
+          const vrect = viewportEl?.getBoundingClientRect?.();
+          if (manualTargetingDragTile && vrect && e) {
+            manualTargetingDragTile.style.left = `${e.clientX - vrect.left + 8}px`;
+            manualTargetingDragTile.style.top = `${e.clientY - vrect.top + 8}px`;
+          }
+        }
+      },
+      showGiveButton: true,
+      onGive: (id, uid) => beginManualItemGiveTargeting(id, uid)
     });
-
-    // Name
-    const nameLine = document.createElement('div');
-    nameLine.className = 'playerMenuItemName';
-    nameLine.textContent = def.name ? String(def.name) : id;
-    tile.appendChild(nameLine);
-
-    // Image box (always present; if image missing we keep the square)
-    const imgBox = document.createElement('div');
-    imgBox.className = 'playerMenuItemImgBox';
-
-    const img = document.createElement('img');
-    img.className = 'playerMenuItemImg';
-    img.alt = def.name ? String(def.name) : id;
-    img.src = `assets/items/${lc(id)}.png`;
-
-    img.onerror = () => {
-      // Keep the box, just hide the broken image.
-      img.style.display = 'none';
-      imgBox.classList.add('playerMenuItemImgBoxMissing');
-    };
-
-    imgBox.appendChild(img);
-    tile.appendChild(imgBox);
-
-    // Uses line (only for items that define uses)
-    if (usesPerItem > 1) {
-      const countLine = document.createElement('div');
-      countLine.className = 'playerMenuItemCount';
-
-      const usesLeft =
-        (inst?.usesLeft == null || !isFinite(inst.usesLeft))
-          ? usesPerItem
-          : Math.max(0, Math.floor(inst.usesLeft));
-
-      countLine.textContent = `uses: ${usesLeft}/${usesPerItem}`;
-      tile.appendChild(countLine);
-    }
-
-    // Hotkey label
-    if (idx < 9) {
-      const keyHint = document.createElement('div');
-      keyHint.className = 'playerMenuItemKey';
-      keyHint.textContent = String(idx + 1);
-      tile.appendChild(keyHint);
-    }
-
-    // Description overlay
-    if (def.description) {
-      const desc = document.createElement('div');
-      desc.className = 'playerMenuItemDesc playerMenuMuted';
-      desc.textContent = String(def.description);
-      tile.appendChild(desc);
-    }
-
     wrap.appendChild(tile);
   }
 
@@ -607,17 +4584,92 @@ function renderMenuPage_Items() {
 
 
 // Register default pages (modular: add new ones by adding a new registerMenuPage call)
-registerMenuPage('pc', 'PC', renderMenuPage_PC);
-registerMenuPage('party', 'Party', renderMenuPage_Party);
-registerMenuPage('items', 'Items', renderMenuPage_Items);
-registerMenuPage('abilities', 'Abilities', renderMenuPage_Abilities);
-registerMenuPage('npcs', 'NPCs', renderMenuPage_NPCs);
-registerMenuPage('journal', 'Journal', renderMenuPage_Journal);
+registerMenuPage('party', 'Party', 'P', renderMenuPage_PartyCards);
+registerMenuPage('items', 'Items', 'I', renderMenuPage_Items);
+registerMenuPage('abilities', 'Abilities', 'A', renderMenuPage_Abilities);
+registerMenuPage('npcs', 'Characters', 'C', renderMenuPage_NPCs_Cards);
+registerMenuPage('journal', 'Journal', 'J', renderMenuPage_Journal);
+renderMenuTabs(menuTopTabs, true, true);
 
 // Click outside frame closes
 if (playerMenuOverlay) {
   playerMenuOverlay.addEventListener('click', (e) => {
-    if (e.target === playerMenuOverlay) closePlayerMenu();
+    if (!inMenu) return;
+    const t = e.target;
+    if (menuTopTabs && menuTopTabs.contains(t)) return;
+    if (t && t.closest && t.closest('#menuTopTabs')) return;
+    if (t && t.closest && t.closest('.playerMenuTabBtn')) return;
+    if (playerMenuContent && playerMenuContent.contains(t)) return;
+    closePlayerMenu();
+  });
+}
+
+// Tabs live outside the overlay; stop them from triggering overlay close
+if (menuTopTabs) {
+  menuTopTabs.addEventListener('click', (e) => e.stopPropagation());
+  menuTopTabs.addEventListener('mousedown', (e) => e.stopPropagation());
+}
+
+// Conversation click handling
+if (conversationOverlay) {
+  conversationOverlay.addEventListener('click', (e) => {
+    if (!inConversation) return;
+    const t = e.target;
+    if (optionsBox && optionsBox.contains(t)) {
+      const optEl = t && t.closest ? t.closest('[data-option-index]') : null;
+      if (optEl && optEl.dataset && optEl.dataset.optionIndex) {
+        const idx = parseInt(optEl.dataset.optionIndex, 10);
+        if (Number.isFinite(idx)) selectDialogOptionByIndex(idx);
+      }
+      return;
+    }
+
+    if (dialogOptionsMap && Object.keys(dialogOptionsMap).length > 0) {
+      return;
+    }
+
+    if (isTypingDialog) {
+      cancelDialogTyping = true;
+      return;
+    }
+
+    const evt = new KeyboardEvent('keydown', {
+      code: 'Space',
+      key: ' ',
+      shiftKey: false,
+      ctrlKey: false,
+      altKey: false,
+      metaKey: false,
+      bubbles: true,
+      cancelable: true
+    });
+    window.dispatchEvent(evt);
+  });
+}
+
+if (optionsBox) {
+  optionsBox.addEventListener('mousedown', (e) => {
+    if (!inConversation) return;
+    const optEl = e.target && e.target.closest ? e.target.closest('[data-option-index]') : null;
+    if (!optEl || !optEl.dataset) return;
+    if (optEl.dataset.optionKey) {
+      selectDialogOptionByKey(optEl.dataset.optionKey);
+    } else if (optEl.dataset.optionIndex) {
+      const idx = parseInt(optEl.dataset.optionIndex, 10);
+      if (Number.isFinite(idx)) selectDialogOptionByIndex(idx);
+    }
+    e.stopPropagation();
+  });
+  optionsBox.addEventListener('click', (e) => {
+    if (!inConversation) return;
+    const optEl = e.target && e.target.closest ? e.target.closest('[data-option-index]') : null;
+    if (!optEl || !optEl.dataset) return;
+    if (optEl.dataset.optionKey) {
+      selectDialogOptionByKey(optEl.dataset.optionKey);
+    } else if (optEl.dataset.optionIndex) {
+      const idx = parseInt(optEl.dataset.optionIndex, 10);
+      if (Number.isFinite(idx)) selectDialogOptionByIndex(idx);
+    }
   });
 }
 
@@ -785,6 +4837,970 @@ function drawSkyTimeOverlay() {
   ctx.restore();
 }
 
+// ===== Map rendering =====
+function isVisitedSection(areaName, sectionName) {
+  if (!areaName || !sectionName) return false;
+  return !!getFlag('global', `visited:${areaName}:${sectionName}`);
+}
+
+function isVisitedSectionIndex(areaName, sectionIndex) {
+  if (!areaName && areaName !== '') return false;
+  const idx = Number(sectionIndex);
+  if (!isFinite(idx) || idx < 0) return false;
+  const byIndex = getFlag('global', `visitedIdx:${areaName}:${idx}`);
+  if (byIndex) return true;
+  const sections = getAreaSectionsByName(areaName);
+  const name = sections && sections[idx] ? sections[idx].name : null;
+  if (name) return isVisitedSection(areaName, name);
+  return false;
+}
+
+function getSectionKeyForIndex(areaName, sectionIndex) {
+  const idx = Number(sectionIndex);
+  if (!areaName || !isFinite(idx) || idx < 0) return null;
+  const sections = getAreaSectionsByName(areaName);
+  const name = sections && sections[idx] ? sections[idx].name : null;
+  return name ? String(name) : `idx:${idx}`;
+}
+
+function getAreaDisplayName(areaName) {
+  const def = areasData && areasData[areaName];
+  return String(def?.name || areaName || '').trim();
+}
+
+function getAreaSectionsByName(areaName) {
+  const area = buildAreaFromDefinition(areaName);
+  if (!area || !Array.isArray(area.sections)) return null;
+  return area.sections;
+}
+
+function getSectionIndexForWorldX(areaName, worldX) {
+  const area = buildAreaFromDefinition(areaName);
+  if (!area || !area.sectionTileWidth || !Array.isArray(area.sections)) return -1;
+  const idx = Math.floor(Number(worldX || 0) / area.sectionTileWidth);
+  if (!isFinite(idx) || idx < 0 || idx >= area.sections.length) return -1;
+  return idx;
+}
+
+function getAreaPortals(areaName, opts = null) {
+  const area = buildAreaFromDefinition(areaName);
+  if (!area) return [];
+
+  const includeDespawned = !!(opts && opts.includeDespawned);
+  const out = [];
+  const buckets = [
+    { list: area.backObjects, layer: 'back' },
+    { list: area.foreObjects, layer: 'fore' },
+    { list: area.groundBackObjects, layer: 'gback' },
+    { list: area.groundForeObjects, layer: 'gfore' }
+  ];
+
+  for (const bucket of buckets) {
+    const list = bucket.list;
+    if (!Array.isArray(list)) continue;
+    for (let i = 0; i < list.length; i++) {
+      const o = list[i];
+      if (!o) continue;
+      if (!includeDespawned && o._spawned === false) continue;
+      if (!o.portal) continue;
+
+      const instId = _objectInstanceIdForBucket(o, bucket.layer, objectBaseFromKey(o.key || o.name || o.filename), i);
+      const instanceKey = `object:${instId}`;
+      const worldX = Number(o.worldX || 0);
+      const secIndex = (typeof o.sectionIndex === 'number')
+        ? o.sectionIndex
+        : getSectionIndexForWorldX(areaName, worldX);
+
+      if (secIndex < 0) continue;
+
+      out.push({
+        areaName,
+        sectionIndex: secIndex,
+        worldX,
+        objectId: (o.objectId != null && o.objectId !== '') ? String(o.objectId) : ((o.id != null && o.id !== '') ? String(o.id) : null),
+        instanceKey,
+        portalDef: o.portal,
+        isSpawned: (o._spawned !== false)
+      });
+    }
+  }
+
+  return out;
+}
+
+function getAreaSectionTileWidth(areaName) {
+  const area = buildAreaFromDefinition(areaName);
+  const w = Number(area?.sectionTileWidth || 0);
+  return (isFinite(w) && w > 0) ? w : 0;
+}
+
+function getExitPosLocal(areaName, sectionName, exitId) {
+  if (!areasData || !areaName || !sectionName || !exitId) return null;
+  const def = areasData[areaName];
+  if (!def || !def.sections || !def.sections[sectionName]) return null;
+  const exits = normalizeExits(def.sections[sectionName].exits);
+  const ex = exits.find(e => String(e.id) === String(exitId));
+  if (!ex) return null;
+  return Number(ex.posLocal || 0);
+}
+
+function mapLocalXToRect(localX, tileW, rectX, rectW) {
+  const w = Math.max(1, Number(tileW) || 1);
+  const t = Math.max(0, Math.min(1, Number(localX) / w));
+  return rectX + Math.round(t * rectW);
+}
+
+function drawMapArrow(ctx, x1, y1, x2, y2, color = '#d44') {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = Math.hypot(dx, dy);
+  if (!isFinite(len) || len < 1) return;
+
+  const ux = dx / len;
+  const uy = dy / len;
+  const headLen = Math.min(10, Math.max(5, len * 0.25));
+  const headW = headLen * 0.6;
+
+  const hx = x2 - ux * headLen;
+  const hy = y2 - uy * headLen;
+
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 2;
+
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(hx + (-uy * headW), hy + (ux * headW));
+  ctx.lineTo(hx + (uy * headW), hy + (-ux * headW));
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawMapArrowCurved(ctx, x1, y1, x2, y2, color = '#d44', offset = 0) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = Math.hypot(dx, dy);
+  if (!isFinite(len) || len < 1) return;
+
+  const ux = dx / len;
+  const uy = dy / len;
+  const px = -uy;
+  const py = ux;
+
+  const mx = (x1 + x2) * 0.5 + (px * offset);
+  const my = (y1 + y2) * 0.5 + (py * offset);
+
+  const tx = x2 - mx;
+  const ty = y2 - my;
+  const tLen = Math.hypot(tx, ty);
+  const tux = (tLen > 0) ? (tx / tLen) : ux;
+  const tuy = (tLen > 0) ? (ty / tLen) : uy;
+
+  const headLen = Math.min(10, Math.max(5, len * 0.25));
+  const headW = headLen * 0.6;
+
+  const hx = x2 - tux * headLen;
+  const hy = y2 - tuy * headLen;
+
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 2;
+
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.quadraticCurveTo(mx, my, x2, y2);
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(hx + (-tuy * headW), hy + (tux * headW));
+  ctx.lineTo(hx + (tuy * headW), hy + (-tux * headW));
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function _pointSegmentDistance(px, py, ax, ay, bx, by) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  if (!isFinite(len2) || len2 <= 0) return Math.hypot(px - ax, py - ay);
+  let t = ((px - ax) * dx + (py - ay) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  const cx = ax + t * dx;
+  const cy = ay + t * dy;
+  return Math.hypot(px - cx, py - cy);
+}
+
+function _segmentDistance(a, b) {
+  const d1 = _pointSegmentDistance(a.x1, a.y1, b.x1, b.y1, b.x2, b.y2);
+  const d2 = _pointSegmentDistance(a.x2, a.y2, b.x1, b.y1, b.x2, b.y2);
+  const d3 = _pointSegmentDistance(b.x1, b.y1, a.x1, a.y1, a.x2, a.y2);
+  const d4 = _pointSegmentDistance(b.x2, b.y2, a.x1, a.y1, a.x2, a.y2);
+  return Math.min(d1, d2, d3, d4);
+}
+
+function _segmentsOverlapAlong(a, b, pad = 0) {
+  const dx = a.x2 - a.x1;
+  const dy = a.y2 - a.y1;
+  const len = Math.hypot(dx, dy);
+  if (!isFinite(len) || len <= 0) return false;
+  const ux = dx / len;
+  const uy = dy / len;
+  const projA0 = 0;
+  const projA1 = len;
+  const projB0 = ((b.x1 - a.x1) * ux + (b.y1 - a.y1) * uy);
+  const projB1 = ((b.x2 - a.x1) * ux + (b.y2 - a.y1) * uy);
+  const minB = Math.min(projB0, projB1);
+  const maxB = Math.max(projB0, projB1);
+  return (maxB >= (projA0 - pad)) && (minB <= (projA1 + pad));
+}
+
+function drawMapArrowsNonOverlapping(ctx, arrows, opts = {}) {
+  if (!ctx || !Array.isArray(arrows) || arrows.length === 0) return;
+
+  const parallelDeg = Number(opts.parallelAngleDeg ?? 8);
+  const parallelCos = Math.cos((parallelDeg * Math.PI) / 180);
+  const distanceThreshold = Number(opts.distanceThreshold ?? 8);
+  const overlapPad = Number(opts.overlapPad ?? 6);
+  const offsetStep = Number(opts.offsetStep ?? 40);
+  const portalDots = Array.isArray(opts.portalDots) ? opts.portalDots : [];
+
+  const n = arrows.length;
+  const conflicts = Array.from({ length: n }, () => new Set());
+  const needsOffset = Array(n).fill(false);
+
+  if (portalDots.length) {
+    for (let i = 0; i < n; i++) {
+      const a = arrows[i];
+      for (const d of portalDots) {
+        if (!d) continue;
+        if (!isFinite(d.x) || !isFinite(d.y) || !isFinite(d.r)) continue;
+        // Ignore if the dot is near the arrow endpoints (same portal)
+        if (Math.hypot(d.x - a.x1, d.y - a.y1) <= d.r * 1.4) continue;
+        if (Math.hypot(d.x - a.x2, d.y - a.y2) <= d.r * 1.4) continue;
+        const dist = _pointSegmentDistance(d.x, d.y, a.x1, a.y1, a.x2, a.y2);
+        if (dist <= d.r) {
+          needsOffset[i] = true;
+          break;
+        }
+      }
+    }
+  }
+
+  for (let i = 0; i < n; i++) {
+    const a = arrows[i];
+    const dx1 = a.x2 - a.x1;
+    const dy1 = a.y2 - a.y1;
+    const len1 = Math.hypot(dx1, dy1);
+    if (!isFinite(len1) || len1 <= 0) continue;
+    const ux1 = dx1 / len1;
+    const uy1 = dy1 / len1;
+
+    for (let j = i + 1; j < n; j++) {
+      const b = arrows[j];
+      const dx2 = b.x2 - b.x1;
+      const dy2 = b.y2 - b.y1;
+      const len2 = Math.hypot(dx2, dy2);
+      if (!isFinite(len2) || len2 <= 0) continue;
+      const ux2 = dx2 / len2;
+      const uy2 = dy2 / len2;
+
+      const dot = (ux1 * ux2 + uy1 * uy2);
+      if (Math.abs(dot) < parallelCos) continue;
+      if (!_segmentsOverlapAlong(a, b, overlapPad)) continue;
+
+      const dist = _segmentDistance(a, b);
+      if (dist <= distanceThreshold) {
+        conflicts[i].add(j);
+        conflicts[j].add(i);
+      }
+    }
+  }
+
+  const offsets = Array(n).fill(0);
+  const candidates = [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5];
+  const nonZeroCandidates = [1, -1, 2, -2, 3, -3, 4, -4, 5, -5];
+
+  for (let i = 0; i < n; i++) {
+    if (!conflicts[i].size && !needsOffset[i]) continue;
+    const used = new Set();
+    for (const j of conflicts[i]) {
+      if (offsets[j] != null) used.add(offsets[j]);
+    }
+    let picked = 0;
+    const pool = needsOffset[i] ? nonZeroCandidates : candidates;
+    for (const c of pool) {
+      if (!used.has(c)) {
+        picked = c;
+        break;
+      }
+    }
+    offsets[i] = picked;
+  }
+
+  for (let i = 0; i < n; i++) {
+    const a = arrows[i];
+    const offset = offsets[i] * offsetStep;
+    drawMapArrowCurved(ctx, a.x1, a.y1, a.x2, a.y2, a.color || '#d44', offset);
+  }
+}
+
+function buildAreaLabelPositions(nodes) {
+  const byArea = new Map();
+  for (const n of nodes.values()) {
+    if (!byArea.has(n.area)) {
+      byArea.set(n.area, { minX: n.x, minY: n.y });
+    } else {
+      const rec = byArea.get(n.area);
+      rec.minX = Math.min(rec.minX, n.x);
+      rec.minY = Math.min(rec.minY, n.y);
+    }
+  }
+
+  const labels = [];
+  const labelH = 28;
+  for (const [area, rec] of byArea.entries()) {
+    labels.push({
+      area,
+      label: getAreaDisplayName(area),
+      x: rec.minX,
+      y: Math.max(2, rec.minY - labelH)
+    });
+  }
+  return labels;
+}
+
+function renderMapCommon(ctx, nodes, opts = {}) {
+  if (!ctx || !nodes || nodes.size === 0) return;
+  const currentKey = opts.currentKey || null;
+  const showAll = !!opts.showAll;
+
+  // Left/right area links (edge connectors)
+  ctx.save();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+  for (const areaName of new Set(Array.from(nodes.values()).map(n => n.area))) {
+    const raw = areasData && areasData[areaName] ? areasData[areaName] : null;
+    if (!raw) continue;
+    const sections = getAreaSectionsByName(areaName);
+    if (!sections || sections.length === 0) continue;
+
+    if (raw.leftarea) {
+      const leftSections = getAreaSectionsByName(raw.leftarea);
+      if (leftSections && leftSections.length > 0) {
+        const aNode = nodes.get(`${areaName}::0`);
+        const bNode = nodes.get(`${raw.leftarea}::${leftSections.length - 1}`);
+        if (aNode && bNode) {
+          ctx.beginPath();
+          ctx.moveTo(aNode.x + aNode.w / 2, aNode.y + aNode.h / 2);
+          ctx.lineTo(bNode.x + bNode.w / 2, bNode.y + bNode.h / 2);
+          ctx.stroke();
+        }
+      }
+    }
+    if (raw.rightarea) {
+      const rightSections = getAreaSectionsByName(raw.rightarea);
+      if (rightSections && rightSections.length > 0) {
+        const aNode = nodes.get(`${areaName}::${sections.length - 1}`);
+        const bNode = nodes.get(`${raw.rightarea}::0`);
+        if (aNode && bNode) {
+          ctx.beginPath();
+          ctx.moveTo(aNode.x + aNode.w / 2, aNode.y + aNode.h / 2);
+          ctx.lineTo(bNode.x + bNode.w / 2, bNode.y + bNode.h / 2);
+          ctx.stroke();
+        }
+      }
+    }
+  }
+  ctx.restore();
+
+  // Nodes
+  for (const n of nodes.values()) {
+    const isCurrent = (currentKey && `${n.area}::${n.idx}` === currentKey);
+    ctx.fillStyle = isCurrent ? '#ffd27d' : '#e6e6e6';
+    ctx.strokeStyle = '#111';
+    ctx.beginPath();
+    ctx.rect(n.x, n.y, n.w, n.h);
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  const portalsByArea = new Map();
+  const getPortalsForArea = (areaName) => {
+    if (portalsByArea.has(areaName)) return portalsByArea.get(areaName);
+    const list = getAreaPortals(areaName, { includeDespawned: true });
+    portalsByArea.set(areaName, list);
+    return list;
+  };
+
+  // Portals (red dots + optional arrows)
+  const portalArrows = [];
+  const portalDots = [];
+  for (const n of nodes.values()) {
+    const portals = getPortalsForArea(n.area).filter(p => p.sectionIndex === n.idx);
+    if (!portals.length) continue;
+    const tileW = getAreaSectionTileWidth(n.area) || 1;
+
+    for (const p of portals) {
+      const localX = p.worldX - (p.sectionIndex * tileW);
+      const rx = n.x + Math.max(2, Math.min(n.w - 2, Math.round((localX / tileW) * n.w)));
+      const ry = n.y + Math.round(n.h * 0.5);
+
+      const portalAlpha = (p.isSpawned === false) ? 0.3 : 1;
+      ctx.save();
+      ctx.globalAlpha = portalAlpha;
+      ctx.fillStyle = '#d44';
+      ctx.beginPath();
+      ctx.arc(rx, ry, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      portalDots.push({ x: rx, y: ry, r: 6 });
+
+      const sectionKey = getSectionKeyForIndex(n.area, p.sectionIndex);
+      const portalObjectId = p.objectId || p.instanceId || p.typeId || null;
+      const usedKey = (sectionKey && portalObjectId)
+        ? `portalUsed:${n.area}:${sectionKey}:${portalObjectId}`
+        : null;
+      if (showAll || (usedKey && getFlag('global', usedKey))) {
+        const dest = resolvePortalTarget(p.portalDef?.target);
+        if (dest && dest.areaName) {
+          const tIdx = getSectionIndexForWorldX(dest.areaName, dest.worldX);
+          const tKey = `${dest.areaName}::${tIdx}`;
+          const tNode = nodes.get(tKey);
+          if (tNode) {
+            const tTileW = getAreaSectionTileWidth(dest.areaName) || 1;
+            const localX = dest.worldX - (tIdx * tTileW);
+            const tx = mapLocalXToRect(localX, tTileW, tNode.x, tNode.w);
+            const ty = tNode.y + Math.round(tNode.h * 0.5);
+            const arrowColor = (portalAlpha < 1) ? 'rgba(212, 68, 68, 0.3)' : '#d44';
+            portalArrows.push({ x1: rx, y1: ry, x2: tx, y2: ty, color: arrowColor });
+          }
+        }
+      }
+    }
+  }
+  if (portalArrows.length) {
+    drawMapArrowsNonOverlapping(ctx, portalArrows, { portalDots });
+  }
+
+  // Exits (unused = stub, used + target displayed = connector)
+  for (const n of nodes.values()) {
+    const area = buildAreaFromDefinition(n.area);
+    if (!area || !Array.isArray(area.sections)) continue;
+    const sec = area.sections[n.idx];
+    if (!sec) continue;
+    const exits = Array.isArray(sec.exits) ? sec.exits : [];
+    if (!exits.length) continue;
+
+    const tileW = getAreaSectionTileWidth(n.area) || 1;
+    for (const ex of exits) {
+      const dir = lc(ex?.direction || '');
+      if (dir !== 'up' && dir !== 'down') continue;
+      const exitId = String(ex.id || '');
+      if (!exitId) continue;
+
+      const used = showAll ? true : !!getFlag('global', `exitUsed:${n.area}:${n.idx}:${exitId}`);
+      const srcX = mapLocalXToRect(ex.posLocal || 0, tileW, n.x, n.w);
+      const srcY = (dir === 'up') ? n.y : (n.y + n.h);
+
+      if (used) {
+        const target = parseTargetExitString(ex.target);
+        if (target && target.area && target.section) {
+          const tIdx = __getSectionIndexByName(target.area, target.section);
+          const tKey = `${target.area}::${tIdx}`;
+          const tNode = nodes.get(tKey);
+          if (tNode) {
+            const tPosLocal = target.exitId
+              ? getExitPosLocal(target.area, target.section, target.exitId)
+              : null;
+            const tTileW = getAreaSectionTileWidth(target.area) || 1;
+            const tgtX = (tPosLocal != null)
+              ? mapLocalXToRect(tPosLocal, tTileW, tNode.x, tNode.w)
+              : (tNode.x + Math.round(tNode.w / 2));
+            const tgtY = (dir === 'up') ? (tNode.y + tNode.h) : tNode.y;
+            ctx.save();
+            ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(srcX, srcY);
+            ctx.lineTo(tgtX, tgtY);
+            ctx.stroke();
+            ctx.restore();
+            continue;
+          }
+        }
+      }
+
+      if (!used) {
+        const stub = Math.max(4, Math.round(n.h * 0.35));
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(srcX, srcY);
+        ctx.lineTo(srcX, srcY + (dir === 'up' ? -stub : stub));
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+  }
+
+  // Safeplaces (orange upward triangles)
+  for (const n of nodes.values()) {
+    const area = buildAreaFromDefinition(n.area);
+    if (!area || !Array.isArray(area.sections)) continue;
+    const sec = area.sections[n.idx];
+    if (!sec) continue;
+    if (!showAll && !isVisitedSectionIndex(n.area, n.idx)) continue;
+
+    const safePlaces = Array.isArray(sec.safePlaces) ? sec.safePlaces : [];
+    if (!safePlaces.length) continue;
+
+    const tileW = getAreaSectionTileWidth(n.area) || 1;
+    for (const sp of safePlaces) {
+      const sx = mapLocalXToRect(sp.posLocal || 0, tileW, n.x, n.w);
+      const centerY = n.y + Math.round(n.h * 0.5);
+      const size = Math.max(8, Math.round(Math.min(n.w, n.h) * 0.36));
+      const baseY = centerY + size;
+
+      ctx.save();
+      ctx.fillStyle = '#e8892a';
+      ctx.beginPath();
+      ctx.moveTo(sx, baseY - (size * 2));
+      ctx.lineTo(sx - size, baseY);
+      ctx.lineTo(sx + size, baseY);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // NPC last-known positions (icons)
+  for (const [name, rec] of Object.entries(npcRegistry || {})) {
+    if (!showAll && !(rec?.met || rec?.hasBeenInParty)) continue;
+    const inPartyNow = Array.isArray(party) && party.some(p => lc(p?.name || '') === lc(name));
+    const partyActor = inPartyNow
+      ? party.find(p => lc(p?.name || '') === lc(name))
+      : null;
+
+    const areaName = inPartyNow ? currentAreaName : (rec?.lastSeenArea ?? rec?.area ?? null);
+    const worldX = inPartyNow ? (partyActor?.worldX ?? null) : (rec?.lastSeenWorldX ?? rec?.worldX ?? null);
+    if (!areaName || !isFinite(worldX)) continue;
+    const secIdx = getSectionIndexForWorldX(areaName, worldX);
+    const key = `${areaName}::${secIdx}`;
+    const node = nodes.get(key);
+    if (!node) continue;
+
+    const icon = getPromptIconEntry(name);
+    if (!icon || !icon.ready || icon.failed || !icon.img) continue;
+    const size = Math.max(8, Math.min(16, Math.min(node.w, node.h)));
+    const x = Math.round(node.x + (node.w - size) / 2);
+    const y = Math.round(node.y + 2);
+    ctx.drawImage(icon.img, x, y, size, size);
+  }
+
+  // Area labels
+  if (opts.areaLabels && opts.areaLabels.length) {
+    ctx.save();
+    ctx.font = uiFont(16, 'bold');
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    for (const l of opts.areaLabels) {
+      ctx.fillText(l.label, l.x, l.y);
+    }
+    ctx.restore();
+  }
+}
+
+function getVisitedSectionIndices(areaName) {
+  const sections = getAreaSectionsByName(areaName);
+  if (!sections) return [];
+  const out = [];
+  for (let i = 0; i < sections.length; i++) {
+    if (isVisitedSectionIndex(areaName, i)) out.push(i);
+  }
+  return out;
+}
+
+function getSectionRectSize(areaName, baseH) {
+  const area = buildAreaFromDefinition(areaName);
+  const tileW = Number(area?.sectionTileWidth || 128);
+  const aspect = tileW / WORLD_HEIGHT;
+  const h = Math.max(6, Math.round(baseH));
+  const w = Math.max(4, Math.round(h * aspect));
+  return { w, h };
+}
+
+function buildNodesFromLayout(layout, opts = {}) {
+  if (!layout) return { nodes: new Map(), bounds: null };
+  const { areas, node, labelH, pad } = layout;
+  const GAP = node.gap;
+  const showAll = !!opts.showAll;
+  const offsetX = Number(opts.offsetX || 0);
+  const offsetY = Number(opts.offsetY || 0);
+  const panX = Number(opts.panX || 0);
+  const panY = Number(opts.panY || 0);
+
+  const nodes = new Map();
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+  for (const a of areas) {
+    for (let i = 0; i < a.sections.length; i++) {
+      if (!showAll && !a.visited.has(i)) continue;
+      const x = offsetX + panX + a.originX + (i * (a.nodeW + GAP));
+      const y = offsetY + panY + a.originY + labelH + pad;
+      const key = `${a.name}::${i}`;
+      nodes.set(key, { area: a.name, idx: i, x, y, w: a.nodeW, h: a.nodeH });
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x + a.nodeW);
+      maxY = Math.max(maxY, y + a.nodeH);
+    }
+  }
+
+  const bounds = (isFinite(minX) && isFinite(minY))
+    ? { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY }
+    : null;
+
+  return { nodes, bounds };
+}
+
+function drawMiniMap() {
+  if (!miniMapEl || !miniMapCanvas || !miniMapCtx) return;
+  if (!currentAreaName || !currentArea) return;
+  if (loading) return;
+
+  ensureMapCanvasSize(miniMapCanvas, miniMapCtx);
+  const ctx = miniMapCtx;
+  const w = miniMapCanvas.width;
+  const h = miniMapCanvas.height;
+
+  ctx.clearRect(0, 0, w, h);
+
+  const areaSections = getAreaSectionsByName(currentAreaName);
+  if (!areaSections || areaSections.length === 0) return;
+
+  const curIdx = Math.floor(player.worldX / currentArea.sectionTileWidth);
+  if (!isFinite(curIdx) || curIdx < 0 || curIdx >= areaSections.length) return;
+
+  const baseH = 12;
+  const curSize = getSectionRectSize(currentAreaName, baseH);
+  const centerX = Math.floor(w / 2);
+  const centerY = Math.floor(h / 2) + 4;
+
+  const layout = buildFullMapLayout(false, { maxDegrees: 2 });
+  if (!layout) return;
+
+  const curNodeW = curSize.w;
+  const curNodeH = curSize.h;
+  const curKey = `${currentAreaName}::${curIdx}`;
+  const tempNodes = buildNodesFromLayout(layout, { showAll: false }).nodes;
+  const curNode = tempNodes.get(curKey);
+  if (!curNode) return;
+
+  const offsetX = Math.floor(centerX - (curNode.x + curNodeW / 2));
+  const offsetY = Math.floor(centerY - (curNode.y + curNodeH / 2));
+
+  const { nodes } = buildNodesFromLayout(layout, { showAll: false, offsetX, offsetY });
+
+  // Circular mask
+  const radius = Math.min(w, h) / 2;
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+  ctx.clip();
+
+  const areaLabels = buildAreaLabelPositions(nodes);
+  renderMapCommon(ctx, nodes, {
+    currentKey: `${currentAreaName}::${curIdx}`,
+    areaLabels
+  });
+
+  ctx.restore();
+}
+
+function buildFullMapLayout(showAll = false, opts = null) {
+  if (!currentAreaName || !areasData) return null;
+
+  const BASE_H = 18;
+  const GAP = 0;
+  const AREA_GAP_X = 28;
+  const AREA_GAP_Y = 30;
+  const LABEL_H = 14;
+  const PAD = 10;
+  const maxDegrees = (opts && Number.isFinite(opts.maxDegrees)) ? Number(opts.maxDegrees) : 1;
+
+  const areaDefs = {};
+  const ensureArea = (name) => {
+    if (!name) return null;
+    if (areaDefs[name]) return areaDefs[name];
+    const sections = getAreaSectionsByName(name);
+    if (!sections) return null;
+    const visited = new Set(getVisitedSectionIndices(name));
+    if (!showAll && visited.size === 0) return null;
+    if (showAll) {
+      visited.clear();
+      for (let i = 0; i < sections.length; i++) visited.add(i);
+    }
+    const nodeSize = getSectionRectSize(name, BASE_H);
+    const width = sections.length * (nodeSize.w + GAP) - GAP;
+    const height = LABEL_H + PAD + nodeSize.h + PAD;
+    const def = {
+      name,
+      label: getAreaDisplayName(name),
+      sections,
+      visited,
+      nodeW: nodeSize.w,
+      nodeH: nodeSize.h,
+      width,
+      height,
+      originX: 0,
+      originY: 0
+    };
+    areaDefs[name] = def;
+    return def;
+  };
+
+  const current = ensureArea(currentAreaName);
+  if (!current) return null;
+
+  // Place current area at (0,0)
+  current.originX = 0;
+  current.originY = 0;
+
+  const placed = [current];
+  const placedNames = new Set([current.name]);
+
+  const queue = [{ area: current, depth: 0 }];
+  const seen = new Set([current.name]);
+
+  const placeAdjacentArea = (fromArea, targetArea, originX, originY) => {
+    if (!targetArea) return;
+    if (placedNames.has(targetArea.name)) return;
+    targetArea.originX = originX;
+    targetArea.originY = originY;
+    placed.push(targetArea);
+    placedNames.add(targetArea.name);
+  };
+
+  while (queue.length) {
+    const entry = queue.shift();
+    if (!entry) continue;
+    const base = entry.area;
+    if (entry.depth >= maxDegrees) continue;
+
+    const baseRaw = areasData[base.name] || {};
+
+    // Left/right area links
+    if (baseRaw.leftarea) {
+      const leftArea = ensureArea(baseRaw.leftarea);
+      if (leftArea && !seen.has(leftArea.name)) {
+        placeAdjacentArea(base, leftArea, base.originX - (leftArea.width + AREA_GAP_X), base.originY);
+        seen.add(leftArea.name);
+        queue.push({ area: leftArea, depth: entry.depth + 1 });
+      }
+    }
+    if (baseRaw.rightarea) {
+      const rightArea = ensureArea(baseRaw.rightarea);
+      if (rightArea && !seen.has(rightArea.name)) {
+        placeAdjacentArea(base, rightArea, base.originX + base.width + AREA_GAP_X, base.originY);
+        seen.add(rightArea.name);
+        queue.push({ area: rightArea, depth: entry.depth + 1 });
+      }
+    }
+
+    // Exit-connected areas (up/down) from this area's sections
+    const baseSections = base.sections;
+    for (let i = 0; i < baseSections.length; i++) {
+      const sec = baseSections[i];
+      const exits = Array.isArray(sec?.exits) ? sec.exits : [];
+      for (const ex of exits) {
+        const dir = lc(ex?.direction || '');
+        if (dir !== 'up' && dir !== 'down') continue;
+        const target = parseTargetExitString(ex?.target);
+        if (!target || !target.area) continue;
+
+        const targetArea = ensureArea(target.area);
+        if (!targetArea) continue;
+
+        if (placedNames.has(targetArea.name)) continue;
+
+        const targetIdx = target.section
+          ? __getSectionIndexByName(target.area, target.section)
+          : 0;
+
+        const srcCenterX = (i * (base.nodeW + GAP)) + (base.nodeW / 2);
+        const tgtCenterX = (targetIdx * (targetArea.nodeW + GAP)) + (targetArea.nodeW / 2);
+        let originX = base.originX + srcCenterX - tgtCenterX;
+        let originY = base.originY + ((dir === 'up') ? -(targetArea.height + AREA_GAP_Y) : (base.height + AREA_GAP_Y));
+
+        // Avoid overlaps with existing areas on same row
+        let safe = false;
+        let guard = 0;
+        while (!safe && guard < 40) {
+          safe = true;
+          for (const a of placed) {
+            if (a.originY !== originY) continue;
+            const aMin = a.originX;
+            const aMax = a.originX + a.width;
+            const bMin = originX;
+            const bMax = originX + targetArea.width;
+            const overlap = !(bMax <= aMin || bMin >= aMax);
+            if (overlap) {
+              originX += (targetArea.width + AREA_GAP_X);
+              safe = false;
+              break;
+            }
+          }
+          guard++;
+        }
+
+        placeAdjacentArea(base, targetArea, originX, originY);
+        seen.add(targetArea.name);
+        queue.push({ area: targetArea, depth: entry.depth + 1 });
+      }
+    }
+  }
+
+  return {
+    node: { gap: GAP },
+    labelH: LABEL_H,
+    pad: PAD,
+    areas: placed
+  };
+}
+
+function drawFullMapOverlay() {
+  if (!mapOverlayOpen || !mapCanvas || !mapCtx) return;
+  if (!currentAreaName || !currentArea) return;
+  if (loading) return;
+
+  ensureMapCanvasSize(mapCanvas, mapCtx);
+  const ctx = mapCtx;
+  const w = mapCanvas.width;
+  const h = mapCanvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  const layout = buildFullMapLayout(mapOverlayDebug, { maxDegrees: 1 });
+  if (!layout) return;
+
+  const { node, areas, labelH, pad } = layout;
+  const GAP = node.gap;
+
+  const baseNodes = buildNodesFromLayout(layout, { showAll: mapOverlayDebug });
+  if (!baseNodes.bounds) return;
+  const { bounds } = baseNodes;
+  const layoutW = bounds.w;
+  const layoutH = bounds.h;
+
+  const margin = 16;
+  const viewW = Math.max(1, w - margin * 2);
+  const viewH = Math.max(1, h - margin * 2);
+
+  const baseOffsetX = margin - bounds.minX;
+  const baseOffsetY = margin - bounds.minY;
+
+  const centerPanX = Math.floor((viewW - layoutW) / 2);
+  const centerPanY = Math.floor((viewH - layoutH) / 2);
+
+  const minPanX = (layoutW > viewW) ? (viewW - layoutW) : centerPanX;
+  const maxPanX = (layoutW > viewW) ? 0 : centerPanX;
+  const minPanY = (layoutH > viewH) ? (viewH - layoutH) : centerPanY;
+  const maxPanY = (layoutH > viewH) ? 0 : centerPanY;
+
+  let panX = mapPanX;
+  let panY = mapPanY;
+
+  const getNodePosWithPan = (area, idx, panDX, panDY) => {
+    const x = baseOffsetX + panDX + area.originX + (idx * (area.nodeW + GAP));
+    const y = baseOffsetY + panDY + area.originY + labelH + pad;
+    return {
+      x,
+      y,
+      w: area.nodeW,
+      h: area.nodeH,
+      cx: x + area.nodeW / 2,
+      cy: y + area.nodeH / 2
+    };
+  };
+
+  if (mapPanNeedsInit) {
+    let initPanX = Math.floor((viewW - layoutW) / 2);
+    let initPanY = Math.floor((viewH - layoutH) / 2);
+
+    const curIdx = (currentArea && currentArea.sectionTileWidth)
+      ? Math.floor(player.worldX / currentArea.sectionTileWidth)
+      : -1;
+    const curArea = areas.find(a => a.name === currentAreaName) || null;
+    if (curArea && curIdx >= 0 && curIdx < curArea.sections.length) {
+      const rect = getNodePosWithPan(curArea, curIdx, initPanX, initPanY);
+      const rectL = rect.x;
+      const rectR = rect.x + rect.w;
+      const rectT = rect.y;
+      const rectB = rect.y + rect.h;
+      const viewL = margin;
+      const viewR = w - margin;
+      const viewT = margin;
+      const viewB = h - margin;
+
+      if (rectL < viewL) initPanX += (viewL - rectL);
+      if (rectR > viewR) initPanX -= (rectR - viewR);
+      if (rectT < viewT) initPanY += (viewT - rectT);
+      if (rectB > viewB) initPanY -= (rectB - viewB);
+    }
+
+    panX = initPanX;
+    panY = initPanY;
+    mapPanNeedsInit = false;
+  }
+
+  panX = Math.max(minPanX, Math.min(maxPanX, panX));
+  panY = Math.max(minPanY, Math.min(maxPanY, panY));
+  mapPanX = panX;
+  mapPanY = panY;
+
+  const { nodes } = buildNodesFromLayout(layout, {
+    showAll: mapOverlayDebug,
+    offsetX: baseOffsetX + panX,
+    offsetY: baseOffsetY + panY
+  });
+
+  const curIdx = (currentArea && currentArea.sectionTileWidth)
+    ? Math.floor(player.worldX / currentArea.sectionTileWidth)
+    : -1;
+
+  const areaLabels = buildAreaLabelPositions(nodes);
+  renderMapCommon(ctx, nodes, {
+    currentKey: `${currentAreaName}::${curIdx}`,
+    areaLabels,
+    showAll: mapOverlayDebug
+  });
+}
+
+function getCurrentSkyColor() {
+  const info = __getTimeInfoForVisuals();
+  const phase = lc(info.phase);
+  const t = __clamp01(info.phaseT);
+
+  const day = TIME_VISUAL_CFG.sky.day;
+  const night = TIME_VISUAL_CFG.sky.night;
+
+  if (phase === 'night') return night.color;
+  if (phase === 'morning') return __lerpHex(night.color, day.color, t);
+  if (phase === 'evening') return __lerpHex(day.color, night.color, t);
+  return day.color;
+}
+
 function drawTimeDarkenOverlay(groupKey) {
   const cfg = getEffectiveTimeOfDayVisualCfg();
   if (cfg.disableAll) return;
@@ -853,32 +5869,46 @@ function drawTimeOfDayWidget() {
   // Require at least the night base icon to place/layout the widget.
   if (!timeNightIcon?.ready || !timeNightIcon.img) return;
 
-  const ICON_W = 500;
-  const ICON_H = 250;
+  const BASE_W = 500;
+  const BASE_H = 500;
+  const DAY_W = 500;
+  const DAY_H = 250;
 
-  const x = WIDTH - ICON_W;
-  const y = HEIGHT - ICON_H;
+  const baseX = WIDTH - BASE_W;
+  const dayX = WIDTH - DAY_W;
+  const dayY = HEIGHT - DAY_H; // keep day icon in original position
+  const baseY = dayY;          // night icon top aligned to day (half off-screen)
 
-  // 1) Draw night base (always)
+  // 1) Draw night base (always), rotated around its center
   ctx.save();
   ctx.globalAlpha = 1;
-  ctx.drawImage(timeNightIcon.img, x, y, ICON_W, ICON_H);
+  {
+    const info = __getTimeInfoForVisuals();
+    const dayT = __clamp01(info.dayT);
+    const angle = dayT * Math.PI * 2;
+    const cx = baseX + (BASE_W / 2);
+    const cy = baseY + (BASE_H / 2);
+    ctx.translate(cx, cy);
+    ctx.rotate(angle);
+    ctx.drawImage(timeNightIcon.img, -BASE_W / 2, -BASE_H / 2, BASE_W, BASE_H);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
 
   // 2) Draw day overlay with phase-based opacity
   const dayA = __clamp01(__getTimeDayOverlayOpacity());
   if (dayA > 0 && timeDayIcon?.ready && timeDayIcon.img) {
     ctx.globalAlpha = dayA;
-    ctx.drawImage(timeDayIcon.img, x, y, ICON_W, ICON_H);
+    ctx.drawImage(timeDayIcon.img, dayX, dayY, DAY_W, DAY_H);
   }
 
   // 3) Draw the sun in front of both icons
   const angDeg = __getSunAngleDegForPhase();
   if (angDeg != null) {
     const SUN_R = 21.75;        // sun radius (tuned to match the timing/visibility constraints)
-    const ORBIT_R = ICON_W / 3;
+    const ORBIT_R = DAY_W / 3;
 
-    const cx = x + (ICON_W / 2);  // horizontal center of time icon
-    const cy = y + ICON_H;        // vertical bottom of time icon (== screen bottom)
+    const cx = dayX + (DAY_W / 2);  // horizontal center of time icon
+    const cy = dayY + DAY_H;        // vertical bottom of time icon
 
     const a = (angDeg * Math.PI) / 180;
 
@@ -892,6 +5922,56 @@ function drawTimeOfDayWidget() {
     ctx.arc(sx, sy, SUN_R, 0, Math.PI * 2);
     ctx.fillStyle = 'yellow';
     ctx.fill();
+  }
+
+  // 4) Draw current time phase (centered within widget)
+  const timeInfo = __getTimeInfoForVisuals();
+  const phaseRaw = String(timeInfo.phase || '').trim();
+  if (phaseRaw) {
+    const padY = 8; // padding from bottom of icon to text
+    ctx.globalAlpha = 1;
+    const phase = lc(phaseRaw);
+    const t = __clamp01(timeInfo.phaseT);
+    const lerpRgb = (a, b, tt) => ([
+      Math.round(__lerp(a[0], b[0], tt)),
+      Math.round(__lerp(a[1], b[1], tt)),
+      Math.round(__lerp(a[2], b[2], tt))
+    ]);
+    const toHex = (c) => `#${c.map(v => v.toString(16).padStart(2, '0')).join('')}`;
+    const WHITE = [255, 255, 255];
+    const BLACK = [0, 0, 0];
+    const ORANGE = [170, 60, 25]; // dark red/orange
+
+    let textColor = '#ffffff';
+    if (phase === 'night') {
+      textColor = '#ffffff';
+    } else if (phase === 'day') {
+      textColor = '#000000';
+    } else if (phase === 'morning') {
+      const tt = (t < 0.5) ? (t * 2) : ((t - 0.5) * 2);
+      const c = (t < 0.5)
+        ? lerpRgb(WHITE, ORANGE, tt)
+        : lerpRgb(ORANGE, BLACK, tt);
+      textColor = toHex(c);
+    } else if (phase === 'evening') {
+      const tt = (t < 0.5) ? (t * 2) : ((t - 0.5) * 2);
+      const c = (t < 0.5)
+        ? lerpRgb(BLACK, ORANGE, tt)
+        : lerpRgb(ORANGE, WHITE, tt);
+      textColor = toHex(c);
+    }
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillStyle = textColor;
+    const tx = dayX + (DAY_W / 2);
+    const areaY = dayY + DAY_H - padY;
+
+    // Use the region label font styling
+    ctx.font = uiFont(42, 'bold', 'italic');
+    const phaseLabel = phaseRaw.charAt(0).toUpperCase() + phaseRaw.slice(1);
+    ctx.fillText(phaseLabel, tx, areaY);
+
   }
 
   ctx.restore();
@@ -919,16 +5999,16 @@ const WORLD_TIME_CFG = {
 
   // Phase durations (in in-game minutes)
   // phases: {
-  //   morning: 120, // fade night -> day
-  //   day:     480,
-  //   evening: 120, // fade day -> night
-  //   night:   480
-  // }
+  //   morning: 300, // fade night -> day
+  //   day:     3300,
+  //   evening: 300, // fade day -> night
+  //   night:   3300
+  //}
 
-    phases: {
+  phases: {
     morning: 300, // fade night -> day
     day:     3300,
-    evening: 30, // fade day -> night
+    evening: 300, // fade day -> night
     night:   3300
   }
 };
@@ -991,16 +6071,19 @@ function getWorldTimeInfo(tMin = WORLD_TIME_MIN) {
 }
 
 // Time advances using dt, and pauses are deterministic.
-function shouldAdvanceWorldTime() {
+function shouldFreezeWorldTime() {
   // No time progression while menus are open
-  if (inMenu) return false;
+  if (inMenu || mapOverlayOpen) return true;
 
   // No time progression during dialog/conversations,
-  // BUT action phrases run while inConversation and should still advance time.
-  if (inConversation && !inActionPhrase) return false;
+  // unless we're in an action phrase that explicitly allows time.
+  if (inConversation && (!inActionPhrase || activeAction?.timeFrozen)) return true;
 
-  // Otherwise, time advances (including action scenes even if player is locked)
-  return true;
+  return false;
+}
+
+function shouldAdvanceWorldTime() {
+  return !shouldFreezeWorldTime();
 }
 
 function advanceWorldTime(dt) {
@@ -1274,6 +6357,21 @@ const timeDayIcon = {
   img.src = 'assets/icons/time_day.png';
 })();
 
+// Prompt tag icons (npcName_prompt.png)
+const promptIconByNpc = new Map(); // name -> {img, ready, failed}
+function getPromptIconEntry(npcName) {
+  const key = lc(String(npcName || '').trim());
+  if (!key) return null;
+  if (promptIconByNpc.has(key)) return promptIconByNpc.get(key);
+  const entry = { img: null, ready: false, failed: false };
+  const img = new Image();
+  img.onload = () => { entry.img = img; entry.ready = true; };
+  img.onerror = () => { entry.failed = true; };
+  img.src = `assets/icons/${key}_prompt.png`;
+  promptIconByNpc.set(key, entry);
+  return entry;
+}
+
 
 
 //SCALING HANDLING
@@ -1313,6 +6411,7 @@ let groundY = groundLineY;
 function resizeCanvas() {
   resizeCanvasResolution();
   resizeWorldAfterResize();
+  resizeMapCanvases();
 
   // IMPORTANT: area geometry depends on SCALE.world (tile draw width), so rebuild it.
   if (currentArea) recalcCurrentAreaGeometry();
@@ -1379,8 +6478,8 @@ function maxMovementSpeed() {
 
 //PARTY FOLLOWING CONTROLS
 const FOLLOW = {
-  baseStart: 1.8, // multiples of character width
-  baseStop:  1.5  // MUST be smaller than baseStart
+  baseStart: 1.4, // multiples of character width
+  baseStop:  1.3  // MUST be smaller than baseStart
 };
 
 //Distance beyond which a party member should start chasing the previous party member
@@ -1483,6 +6582,81 @@ function currentCameraCenterX() {
   return cameraX + cameraViewportW() * 0.5;
 }
 
+function __resolveActionTargetSpec(act) {
+  if (!act || typeof act !== 'object') return null;
+
+  if (act.target && typeof act.target === 'object') return act.target;
+  if (act.targetSpec && typeof act.targetSpec === 'object') return act.targetSpec;
+
+  if (act.objectId || act.object || act.objectBase) {
+    return { type: 'object', id: act.objectId || act.object || act.objectBase };
+  }
+  if (act.objectInstanceKey || act.objectInstanceId || act.instanceKey) {
+    return { type: 'objectInstance', instanceKey: act.objectInstanceKey || act.objectInstanceId || act.instanceKey };
+  }
+  if (act.mobId || act.mob) {
+    return { type: 'mob', id: act.mobId || act.mob };
+  }
+  if (act.mobInstanceId || act.mobInstance || act.mobInstanceKey) {
+    return { type: 'mobInstance', instanceId: act.mobInstanceId || act.mobInstance || act.mobInstanceKey };
+  }
+  if (act.toChar || act.actorTo || act.toNpc) {
+    return { type: 'npc', npc: act.toChar || act.actorTo || act.toNpc };
+  }
+  if (act.toActiveObject === true) {
+    return { type: 'activeObject' };
+  }
+  if (act.section || act.sectionX != null) {
+    return {
+      type: 'sectionPos',
+      area: act.area || act.areaName || null,
+      section: act.section || null,
+      x: act.sectionX ?? act.x ?? 0
+    };
+  }
+  if (act.worldX != null || act.x != null) {
+    return { type: 'worldX', x: act.worldX ?? act.x };
+  }
+  return null;
+}
+
+function __getTargetCenterXFromSpecNearActor(spec, actor) {
+  if (!spec) return null;
+  const t = lc(spec?.type);
+  const nearX = isFinite(actor?.worldX) ? Number(actor.worldX) : currentCameraCenterX();
+
+  if (t === 'object') {
+    const baseId = String(spec.id || spec.baseId || spec.filename || '');
+    if (!baseId) return null;
+    const instKey = findAnyObjectInstanceByBaseIdNear(baseId, nearX);
+    const tgt = instKey ? proximityTargetByKey.get(instKey) : null;
+    return (tgt && isFinite(tgt.worldX)) ? Number(tgt.worldX) : null;
+  }
+
+  if (t === 'mob') {
+    const mobId = String(spec.id || spec.mobId || spec.mob || '');
+    if (!mobId) return null;
+    const instanceId = findAnyMobInstanceByIdNear(mobId, nearX);
+    if (!instanceId) return null;
+    const m = mobs.find(mm => mm && String(mm.instanceId) === String(instanceId));
+    if (!m) return null;
+    const hb = getMobHitboxWorldRect(m);
+    return (hb && isFinite(hb.x) && isFinite(hb.w)) ? (Number(hb.x) + Number(hb.w) * 0.5) : null;
+  }
+
+  if (t === 'sectionpos') {
+    const areaName = spec.area ? String(spec.area) : String(currentAreaName || '');
+    if (areaName && currentAreaName && areaName !== String(currentAreaName)) return null;
+    const startX = sectionStartWorldX(currentArea, spec.section);
+    if (!isFinite(startX)) return null;
+    const local = Number(spec.x);
+    if (!isFinite(local)) return null;
+    return startX + local;
+  }
+
+  return getTargetCenterXFromSpec(spec);
+}
+
 // Zoom transform around screen center for WORLD rendering
 function applyCameraZoomTransform() {
   ctx.translate(WIDTH * 0.5, HEIGHT * 0.5);
@@ -1578,7 +6752,7 @@ function getTargetCenterXFromSpec(spec) {
 function startCameraTween({ endMode, endTargetSpec, endManualCenterX, endZoom, durationMs }) {
   CAMERA_TWEEN.active = true;
   CAMERA_TWEEN.id++;
-  CAMERA_TWEEN.startedAtMs = performance.now();
+  CAMERA_TWEEN.startedAtMs = getGameNowMs();
   CAMERA_TWEEN.durationMs = Math.max(0, Number(durationMs) || 0);
 
   CAMERA_TWEEN.startCenterX = currentCameraCenterX();
@@ -1621,7 +6795,7 @@ function startCameraTween({ endMode, endTargetSpec, endManualCenterX, endZoom, d
 function updateCameraTween() {
   if (!CAMERA_TWEEN.active) return;
 
-  const now = performance.now();
+  const now = getGameNowMs();
   const t = (now - CAMERA_TWEEN.startedAtMs) / Math.max(1, CAMERA_TWEEN.durationMs);
   const a = Math.max(0, Math.min(1, t));
 
@@ -1671,9 +6845,9 @@ let lastTs = 0;
 
 // Section and ground assets
 const groundImages = new Map(); // key -> {img, ready, w, h}
-const BASE_TILE_DRAW_HEIGHT = 110;
+const BASE_TILE_DRAW_HEIGHT_PCT = 23.8333; // percent of window height (tuned to match old 110 * 3.9)
 function TILE_DRAW_HEIGHT() {
-  return Math.floor(BASE_TILE_DRAW_HEIGHT * SCALE.world);
+  return Math.floor(HEIGHT * (BASE_TILE_DRAW_HEIGHT_PCT / 100));
 }
 
 // Scenery (simple per-area)
@@ -1726,6 +6900,8 @@ const unconsciousNpcFalls = new Map();
 let __passoutPromptSeq = 0;
 
 let __pendingPassoutRescue = null; // { kind, candidates:[names], phraseId, triggerKey }
+let __passoutSafeplaceId = null;
+let __passoutSafeplaceArea = null;
 
 
 let lastProximityNpc = null;
@@ -1733,6 +6909,7 @@ let lastProximityNpc = null;
 // Track which proximity targets are currently within interaction radius (edge-trigger)
 // NOTE: for objects, this is INSTANCE-based because makeProxKey prefers instanceId.
 const proximityInside = new Set();
+const proximityInsideRaw = new Set(); // raw proximity for objects (ignores cover)
 
 // Track "rule-facing" proximity by TYPE (kind + base id), eg "object:letta_bush"
 const proximityInsideTypes = new Set();
@@ -1742,6 +6919,15 @@ const proximityInteractFocus = new Map();
 
 // Per-frame target lookup (instanceKey -> target)
 const proximityTargetByKey = new Map();
+const portalInside = new Set();         // contactKey -> inside portal rect
+const portalSuppressInside = new Set(); // contactKey -> suppress enter trigger until exit
+let portalArrivalPending = false;       // set when teleported via portal; suppress portals on arrival
+const PORTAL_ARRIVAL_SUPPRESS_MS = 250;
+let portalSuppressUntilMs = 0;
+const DEBUG_PORTALS = false;
+const DEBUG_PORTAL_MAP = true;
+const __portalMapLogged = new Set();
+const DEBUG_GATES = true;
 
 // ===== Mob contact tracking (AABB overlap) =====
 // Pair-level: mob instance + target actor (player or npc)
@@ -1783,6 +6969,12 @@ function contactPairKey(mobInstanceId, actor) {
 
 function targetActorDescriptorFromActor(actor) {
   if (!actor) return null;
+  if (actor.kind === 'object' || actor._targetKind === 'object') {
+    const id = String(actor.id || actor.filename || '').trim();
+    const inst = String(actor.instanceId || '').trim();
+    if (!id) return null;
+    return { kind: 'object', id, instanceId: (inst || undefined) };
+  }
   if (actor === player || lc(actor?.name) === 'player') return { kind: 'player' };
 
   // Mob instance
@@ -1902,12 +7094,85 @@ function gateFlagKeyForInstance(instanceIdRaw) {
   return `gateOpen:${id}`;
 }
 
+function gateFlagKeyFromObjectRef(refRaw) {
+  const ref = String(refRaw || '').trim();
+  if (!ref) return '';
+  const parts = ref.split('.').map(p => String(p || '').trim()).filter(Boolean);
+  if (parts.length >= 3) {
+    const area = parts[0];
+    const section = parts[1];
+    const objectId = parts.slice(2).join('.');
+    if (area && section && objectId) {
+      return `gateOpen:${area}:${section}:${objectId}`;
+    }
+  }
+  return gateFlagKeyForInstance(ref);
+}
+
+function getGateFlagKeyForObject(o, fallbackInstanceId) {
+  const area = String(currentAreaName || '').trim();
+  const objectId = (o?.objectId != null && o.objectId !== '') ? String(o.objectId)
+    : ((o?.id != null && o.id !== '') ? String(o.id) : null);
+  const idx = (typeof o?.sectionIndex === 'number')
+    ? o.sectionIndex
+    : (area ? getSectionIndexForWorldX(area, o?.worldX) : -1);
+  const sectionKey = (area && idx >= 0) ? getSectionKeyForIndex(area, idx) : null;
+  if (area && sectionKey && objectId) {
+    return `gateOpen:${area}:${sectionKey}:${objectId}`;
+  }
+  const instanceId = String(o?.instanceId || fallbackInstanceId || '').trim();
+  return gateFlagKeyForInstance(instanceId);
+}
+
+function resolveGateFlagKeyFromId(idRaw) {
+  const id = String(idRaw || '').trim();
+  if (!id) return '';
+
+  // If the id is already a full ref (area.section.objectId)
+  const byRef = gateFlagKeyFromObjectRef(id);
+  if (byRef !== gateFlagKeyForInstance(id)) return byRef;
+
+  // Try to resolve within the current area by objectId
+  if (currentArea && currentAreaName) {
+    const lists = []
+      .concat(currentArea.backObjects || [])
+      .concat(currentArea.foreObjects || [])
+      .concat(currentArea.groundBackObjects || [])
+      .concat(currentArea.groundForeObjects || []);
+
+    let hit = null;
+    for (const o of lists) {
+      if (!o) continue;
+      const objId = (o.objectId != null && o.objectId !== '') ? String(o.objectId)
+        : ((o.id != null && o.id !== '') ? String(o.id) : null);
+      if (!objId || objId !== id) continue;
+      if (hit) {
+        hit = null;
+        break; // ambiguous
+      }
+      hit = o;
+    }
+
+    if (hit) {
+      const idx = (typeof hit.sectionIndex === 'number')
+        ? hit.sectionIndex
+        : getSectionIndexForWorldX(currentAreaName, hit.worldX);
+      const sectionKey = getSectionKeyForIndex(currentAreaName, idx);
+      if (sectionKey) {
+        return `gateOpen:${currentAreaName}:${sectionKey}:${id}`;
+      }
+    }
+  }
+
+  return gateFlagKeyForInstance(id);
+}
+
 function getGateIsOpenForObjectInstance(o, def, fallbackInstanceId) {
   const gate = def?.gate || null;
   if (!gate) return false;
 
   const instanceId = String(o?.instanceId || fallbackInstanceId || '').trim();
-  const k = gateFlagKeyForInstance(instanceId);
+  const k = getGateFlagKeyForObject(o, instanceId);
   if (!k) return false;
 
   const v = getFlag('global', k);
@@ -1923,18 +7188,22 @@ function getGateIsOpenForObjectInstance(o, def, fallbackInstanceId) {
 }
 
 function setGateIsOpenByInstanceId(instanceId, open) {
-  const k = gateFlagKeyForInstance(instanceId);
+  const k = resolveGateFlagKeyFromId(instanceId);
   if (!k) return false;
   setFlag('global', k, !!open);
+  if (DEBUG_GATES) {
+  }
   return true;
 }
 
 function toggleGateByInstanceId(instanceId) {
-  const k = gateFlagKeyForInstance(instanceId);
+  const k = resolveGateFlagKeyFromId(instanceId);
   if (!k) return false;
   const cur = getFlag('global', k);
   const next = !(cur === true);
   setFlag('global', k, next);
+  if (DEBUG_GATES) {
+  }
   return true;
 }
 
@@ -2068,6 +7337,184 @@ function getActiveObjectBlockers() {
   return blockers;
 }
 
+function _objectInstanceIdForBucket(o, layer, base, index) {
+  return String(o?.instanceId || `${layer}:${base}:${index}`).trim();
+}
+
+function getActiveObjectPortals() {
+  if (!currentArea) return [];
+
+  const portals = [];
+
+  const objectBuckets = [
+    { layer: 'back',   list: currentArea.backObjects },
+    { layer: 'fore',   list: currentArea.foreObjects },
+    { layer: 'gback',  list: currentArea.groundBackObjects },
+    { layer: 'gfore',  list: currentArea.groundForeObjects }
+  ];
+
+  for (const bucket of objectBuckets) {
+    const list = bucket.list;
+    if (!Array.isArray(list)) continue;
+
+    for (let i = 0; i < list.length; i++) {
+      const o = list[i];
+      if (!o) continue;
+      if (o._spawned === false) continue;
+
+      const portalDef = o.portal || null;
+      if (!portalDef) continue;
+
+      const rect = portalDef.rect || portalDef;
+      if (!rect || typeof rect !== 'object') continue;
+
+      const raw = String(o.key || o.name || o.filename || '').trim();
+      if (!raw) continue;
+      const base = raw.replace(/\.[^/.]+$/, '').trim();
+      if (!base) continue;
+
+      const bw = (Number(rect.w) || 0);
+      const bh = (Number(rect.h) || 0);
+      if (!(isFinite(bw) && bw > 0)) continue;
+      if (!(isFinite(bh) && bh > 0)) continue;
+
+      const bx = (Number(o.worldX) || 0) + (Number(rect.x) || 0);
+      const groundBaseY = (Number(groundY) || 0) - 8;
+      const by = groundBaseY - bh + (Number(rect.y) || 0);
+
+      const instanceId = _objectInstanceIdForBucket(o, bucket.layer, base, i);
+      const instanceKey = `object:${instanceId}`;
+      let sectionName = null;
+      if (typeof o.sectionIndex === 'number' && currentArea?.sections?.[o.sectionIndex]) {
+        sectionName = currentArea.sections[o.sectionIndex]?.name || null;
+      } else {
+        sectionName = _sectionNameForWorldXInArea(currentArea, o.worldX);
+      }
+      const secKey = String(sectionName || 'unknown');
+      const idKey = String(o.instanceId || instanceId || `${base}:${i}`);
+      const contactKey = `portal:${currentAreaName}:${secKey}:${idKey}`;
+
+      portals.push({
+        x: bx,
+        y: by,
+        w: bw,
+        h: bh,
+        typeId: base,
+        objectId: (o.objectId != null && o.objectId !== '') ? String(o.objectId) : ((o.id != null && o.id !== '') ? String(o.id) : null),
+        instanceId,
+        instanceKey,
+        contactKey,
+        portalDef
+      });
+    }
+  }
+
+  return portals;
+}
+
+function handlePortalContacts() {
+  if (!currentArea) return false;
+  if (FADE.active) return false;
+
+  const portals = getActiveObjectPortals();
+  if (!portals.length) return false;
+
+  const ax = Number(player.worldX || 0);
+  const ay = Number(player.y || 0);
+  const aw = Number(player.w || 0);
+  const ah = Number(player.h || 0);
+  const nowMs = getGameNowMs();
+
+  if (nowMs < portalSuppressUntilMs) {
+    for (const p of portals) {
+      const key = p.contactKey;
+      if (!key) continue;
+      const inside = aabbOverlap(ax, ay, aw, ah, p.x, p.y, p.w, p.h);
+      const wasInside = portalInside.has(key);
+      if (inside) {
+        portalInside.add(key);
+        portalSuppressInside.add(key);
+      } else if (wasInside) {
+        portalInside.delete(key);
+        if (portalSuppressInside.has(key)) portalSuppressInside.delete(key);
+      }
+    }
+    portalArrivalPending = false;
+    return false;
+  }
+
+  if (portalArrivalPending) {
+    for (const p of portals) {
+      const key = p.contactKey;
+      if (!key) continue;
+      const inside = aabbOverlap(ax, ay, aw, ah, p.x, p.y, p.w, p.h);
+      if (inside) {
+        portalInside.add(key);
+        portalSuppressInside.add(key);
+      }
+    }
+    portalArrivalPending = false;
+  }
+
+  for (const p of portals) {
+    const key = p.contactKey;
+    if (!key) continue;
+
+    const inside = aabbOverlap(ax, ay, aw, ah, p.x, p.y, p.w, p.h);
+    const wasInside = portalInside.has(key);
+
+    if (inside && !wasInside) {
+      portalInside.add(key);
+
+      if (portalSuppressInside.has(key)) {
+        continue;
+      }
+
+      const req = p.portalDef?.requiredTag || null;
+      if (req && !partyHasTag(req)) continue;
+
+      const dest = resolvePortalTarget(p.portalDef?.target);
+      if (!dest || !dest.areaName) continue;
+
+      const prevX = player.worldX;
+
+      emitGameEvent('portal_use', {
+        area: currentAreaName,
+        section: getSectionNameForX(player.worldX),
+        sectionIndex: getSectionIndexForWorldX(currentAreaName, player.worldX),
+        target: p.portalDef?.target || null,
+        toArea: dest.areaName,
+        from: (playerCenterX() < (p.x + p.w * 0.5)) ? 'left' : 'right',
+        instanceKey: p.instanceKey,
+        objectId: p.objectId || p.instanceId || p.typeId || null,
+        requiredTag: req || null
+      });
+
+      startAreaTransfer({
+        areaName: dest.areaName,
+        worldX: dest.worldX,
+        spawnEdge: 'left',
+        prevX,
+        nudgeParty: false,
+        skipBuildIfSameArea: true,
+        carryParty: false,
+        snapPartyToPlayer: true
+      });
+
+      portalArrivalPending = true;
+      portalSuppressUntilMs = nowMs + PORTAL_ARRIVAL_SUPPRESS_MS;
+      return true;
+    }
+
+    if (!inside && wasInside) {
+      portalInside.delete(key);
+      if (portalSuppressInside.has(key)) portalSuppressInside.delete(key);
+    }
+  }
+
+  return false;
+}
+
 
 function resolveActorVsBlockers(actor, prevX, blockers) {
   if (!actor || !Array.isArray(blockers) || blockers.length === 0) return;
@@ -2153,6 +7600,352 @@ function getMobHitboxWorldRect(mob) {
 
 // Single focused interactable object for input
 let currentObjectInteract = null; // { typeId: string, instanceKey: string } | null
+let currentItemInteract = null; // { itemId: string, instanceKey: string } | null
+const activeObjectInteractions = new Map(); // instanceKey -> interaction state
+let pendingObjectInteraction = null; // { instanceKey, effects, payload, releaseLock, resetSpec }
+
+const OBJECT_INTERACT_COOLDOWN_MS = 200;
+let nextObjectInteractAtMs = 0;
+
+const OBJECT_INTERACT_MOVE_TIMEOUT_MS = 3500;
+const OBJECT_INTERACT_MOVE_SPEED_FACTOR = 4;
+
+const objectInteractStateByInstance = new Map(); // instanceKey -> { totalInteractions, interactionsSinceInactive, inactiveUntilMs, resetQueue }
+
+function getObjectInteractState(instanceKey) {
+  if (!instanceKey) return null;
+  let st = objectInteractStateByInstance.get(instanceKey);
+  if (!st) {
+    st = {
+      totalInteractions: 0,
+      interactionsSinceInactive: 0,
+      inactiveUntilMs: 0,
+      resetQueue: []
+    };
+    objectInteractStateByInstance.set(instanceKey, st);
+  }
+  return st;
+}
+
+function isObjectInstanceInactive(instanceKey, def, nowMs) {
+  if (!instanceKey || !def) return false;
+  const inactiveMs = Number(def.inactiveMs || 0);
+  if (!isFinite(inactiveMs) || inactiveMs <= 0) return false;
+  const st = getObjectInteractState(instanceKey);
+  if (!st) return false;
+  const until = Number(st.inactiveUntilMs || 0);
+  return isFinite(until) && until > nowMs;
+}
+
+function __enqueueObjectReset(instanceKey, actions, resetMs, objectId) {
+  if (!instanceKey || !Array.isArray(actions) || actions.length === 0) return false;
+  const ms = Number(resetMs || 0);
+  if (!isFinite(ms) || ms <= 0) return false;
+  const st = getObjectInteractState(instanceKey);
+  if (!st) return false;
+  const nowMs = getGameNowMs();
+  st.resetQueue.push({
+    atMs: nowMs + ms,
+    actions,
+    objectId: objectId ? String(objectId) : ''
+  });
+  return true;
+}
+
+function processObjectResetQueues(nowMs) {
+  if (!objectInteractStateByInstance.size) return;
+  const now = Number(nowMs);
+  if (!isFinite(now)) return;
+
+  for (const st of objectInteractStateByInstance.values()) {
+    if (!st || !Array.isArray(st.resetQueue) || st.resetQueue.length === 0) continue;
+
+    while (st.resetQueue.length && now >= Number(st.resetQueue[0]?.atMs || 0)) {
+      const entry = st.resetQueue.shift();
+      const actions = Array.isArray(entry?.actions) ? entry.actions : [];
+      if (actions.length) {
+        applyEffects(actions, {
+          source: 'object_reset',
+          objectId: entry?.objectId || null
+        });
+      }
+    }
+  }
+}
+
+function isActorDrivenByInteractionMove(actor) {
+  return !!(actor && actor.__interactionMoveActive);
+}
+
+function __getObjectApproachSpec(def) {
+  const rawMode = lc(def?.approach?.mode || 'none');
+  if (rawMode !== 'range' && rawMode !== 'distance') return { mode: 'none', distance: null };
+  const dist = Number(def?.approach?.distance);
+  const spd = Number(def?.approach?.speedFactor);
+  return {
+    mode: rawMode,
+    distance: (isFinite(dist) && dist >= 0) ? dist : null,
+    speedFactor: (isFinite(spd) && spd > 0) ? spd : null
+  };
+}
+
+function __clearInteractionMove(actor) {
+  if (!actor) return;
+  actor.__interactionMoveActive = false;
+  actor.__interactionMove = null;
+}
+
+function __releaseObjectInteractionLock(instanceKey) {
+  if (!instanceKey) return;
+  activeObjectInteractions.delete(instanceKey);
+}
+
+function __applyObjectInteractionEffects(effects, payload, resetSpec = null) {
+  if (!Array.isArray(effects) || effects.length === 0) return;
+
+  const resetMs = Number(resetSpec?.resetMs || 0);
+  const doReset = isFinite(resetMs) && resetMs > 0;
+
+  if (doReset) {
+    if (!payload || typeof payload !== 'object') payload = {};
+    payload.__resetSpec = {
+      resetMs,
+      objectId: resetSpec?.objectId || null,
+      instanceKey: resetSpec?.instanceKey || null
+    };
+    payload.__resetCapture = { actions: [] };
+  }
+
+  applyEffects(effects, payload);
+
+  if (doReset) {
+    const actions = Array.isArray(payload?.__resetCapture?.actions)
+      ? payload.__resetCapture.actions
+      : [];
+    if (actions.length) {
+      __enqueueObjectReset(
+        resetSpec?.instanceKey || payload?.instanceKey || null,
+        actions,
+        resetMs,
+        resetSpec?.objectId || payload?.objectId || null
+      );
+    }
+    if (payload && typeof payload === 'object') {
+      delete payload.__resetCapture;
+      delete payload.__resetSpec;
+    }
+  }
+}
+
+function __flushPendingObjectInteraction(reason = '') {
+  const ctx = pendingObjectInteraction;
+  if (!ctx) return false;
+
+  if (Array.isArray(ctx.effects) && ctx.effects.length) {
+    __applyObjectInteractionEffects(ctx.effects, ctx.payload, ctx.resetSpec);
+  }
+
+  if (ctx.releaseLock && ctx.instanceKey) {
+    __releaseObjectInteractionLock(ctx.instanceKey);
+  }
+
+  pendingObjectInteraction = null;
+  return true;
+}
+
+function __cancelObjectInteraction(entry) {
+  if (!entry || !entry.instanceKey) return;
+  const actor = findActorByName(entry.actorName);
+  if (actor) __clearInteractionMove(actor);
+  __releaseObjectInteractionLock(entry.instanceKey);
+}
+
+function __completeObjectInteraction(entry) {
+  if (!entry || !entry.instanceKey) return;
+  const actor = findActorByName(entry.actorName);
+  if (actor) __clearInteractionMove(actor);
+
+  setFlag('global', 'activeObjectType', entry.objectId);
+  setFlag('global', `objectTypeInteractedBefore:${entry.objectId}`, !!entry.wasTypeInteracted);
+
+  emitGameEvent('object_interact', {
+    kind: 'object',
+    id: entry.objectId,
+    instanceKey: entry.instanceKey,
+    objectSectionId: entry.objectSectionId || null,
+    area: currentAreaName || null,
+    section: getSectionNameForX(player.worldX),
+    wasTypeInteracted: !!entry.wasTypeInteracted,
+    wasInstanceInteracted: !!entry.wasInstanceInteracted,
+    interactor: targetActorDescriptorFromActor(actor || player),
+    sourceActor: targetActorDescriptorFromActor(actor || player)
+  });
+
+  entry.mode = 'none';
+  entry._emitted = true;
+}
+
+function __beginObjectInteraction(objectIdRaw, instanceKey) {
+  const objectId = lc(objectIdRaw);
+  if (!objectId || !instanceKey) return false;
+  if (activeObjectInteractions.has(instanceKey)) return false;
+
+  const def = getObjectDef(objectId);
+  if (!def) return false;
+  if (isObjectInstanceInactive(instanceKey, def, getGameNowMs())) return false;
+
+  const hasInteractTags =
+    (Array.isArray(def.interact) && def.interact.length) ||
+    (Array.isArray(def.interacts) && def.interacts.length) ||
+    (Array.isArray(def.interactTags) && def.interactTags.length);
+
+  if (hasInteractTags && !partyCanInteractWithObjectDef(def)) return false;
+
+  const interactor = getFirstInteractorForObjectDef(def);
+  if (!interactor) return false;
+
+  const t = proximityTargetByKey.get(instanceKey);
+  if (!t || !isFinite(t.worldX)) return false;
+
+  const areaKey = String(currentAreaName || '').trim();
+  const instFlagKey = areaKey
+    ? `objectInstanceInteracted:${areaKey}:${instanceKey}`
+    : `objectInstanceInteracted:${instanceKey}`;
+
+  const wasTypeInteracted = !!getFlag('global', `objectTypeInteracted:${objectId}`);
+  const wasInstanceInteracted = !!getFlag('global', instFlagKey);
+
+  const approach = __getObjectApproachSpec(def);
+  const stopDist = (approach.mode === 'range')
+    ? Number(t.radius || 0)
+    : (approach.mode === 'distance' ? Number(approach.distance || 0) : 0);
+
+  let objectSectionId = null;
+  if (t && t.objectSectionId) {
+    objectSectionId = t.objectSectionId;
+  } else {
+    const info = _getPlacedObjectByInstanceKeyWithLayer(instanceKey);
+    if (info && info.obj) {
+      objectSectionId = (info.obj.objectId != null && info.obj.objectId !== '')
+        ? String(info.obj.objectId)
+        : ((info.obj.id != null && info.obj.id !== '') ? String(info.obj.id) : null);
+    }
+  }
+
+  const entry = {
+    objectId,
+    instanceKey,
+    actorName: (interactor === player) ? 'player' : String(interactor.name || ''),
+    startedAtMs: getGameNowMs(),
+    mode: approach.mode,
+    targetX: Number(t.worldX),
+    stopDist: Math.max(0, Number(stopDist || 0)),
+    speedFactor: approach.speedFactor,
+    wasTypeInteracted,
+    wasInstanceInteracted,
+    objectSectionId
+  };
+
+  activeObjectInteractions.set(instanceKey, entry);
+
+  if (entry.mode === 'none') {
+    __completeObjectInteraction(entry);
+    return true;
+  }
+
+  const actor = findActorByName(entry.actorName);
+  if (!actor) {
+    __cancelObjectInteraction(entry);
+    return false;
+  }
+
+  actor.__interactionMoveActive = true;
+  actor.__interactionMove = {
+    targetX: entry.targetX,
+    stopDist: entry.stopDist,
+    startedAtMs: entry.startedAtMs,
+    timeoutMs: OBJECT_INTERACT_MOVE_TIMEOUT_MS,
+    instanceKey: entry.instanceKey
+  };
+
+  return true;
+}
+
+function updateInteractionMoves(dt, nowMs, activeObjectBlockers) {
+  if (!activeObjectInteractions.size) return;
+
+  for (const entry of activeObjectInteractions.values()) {
+    if (!entry || entry.mode === 'none') continue;
+
+    const actor = findActorByName(entry.actorName);
+    if (!actor) {
+      __cancelObjectInteraction(entry);
+      continue;
+    }
+
+    if (actor.__forcedMoveActive) {
+      continue;
+    }
+
+    {
+      const until = Number(actor.__stopMoveUntilMs || 0);
+      if (isFinite(until) && until > nowMs) {
+        actor.vx = 0;
+        actor.vy = 0;
+        actor.y = groundY - actor.h - (actor === player ? 0 : 8);
+        continue;
+      }
+    }
+
+    const move = actor.__interactionMove;
+    if (!move) {
+      __cancelObjectInteraction(entry);
+      continue;
+    }
+
+    const elapsed = nowMs - Number(move.startedAtMs || 0);
+    const timeoutMs = Number(move.timeoutMs || 0);
+    if (timeoutMs > 0 && isFinite(elapsed) && elapsed > timeoutMs) {
+      __cancelObjectInteraction(entry);
+      continue;
+    }
+
+    const targetWorldX = Number(move.targetX) - (Number(actor.w) * 0.5);
+    const dx = targetWorldX - actor.worldX;
+    const distToCenter = Math.abs((actor.worldX + actor.w * 0.5) - Number(move.targetX));
+
+    if (distToCenter <= Number(move.stopDist || 0)) {
+      __completeObjectInteraction(entry);
+      continue;
+    }
+
+    const baseSpeed = actor.maxMovementSpeed || 240;
+    const factor = Number(entry.speedFactor ?? OBJECT_INTERACT_MOVE_SPEED_FACTOR);
+    const spd = baseSpeed * (isFinite(factor) && factor > 0 ? factor : 1);
+    const step = Math.sign(dx) * spd * dt;
+    const prevX = actor.worldX;
+
+    if (Math.abs(step) >= Math.abs(dx)) {
+      actor.worldX = targetWorldX;
+      actor.vx = 0;
+    } else {
+      actor.worldX += step;
+      actor.vx = step / dt;
+    }
+
+    if (actor.vx !== 0) {
+      // Facing resolved centrally after movement updates.
+      actor.lastMoveTime = nowMs;
+      actor.hasEverMoved = true;
+    }
+
+    actor.y = groundY - actor.h - (actor === player ? 0 : 8);
+
+    if (activeObjectBlockers) {
+      resolveActorVsBlockers(actor, prevX, activeObjectBlockers);
+    }
+  }
+}
 
 
 function makeProxTypeKey(t) {
@@ -2195,27 +7988,253 @@ function inRadius(targetWorldX, radius) {
 const BASE_CHAR_W = 163;
 const BASE_CHAR_H = 300;
 
-// ===== Player stats =====
-// Flexible: add new stats by adding entries here.
-const PLAYER_STAT_DEFS = [
-  { key: 'stamina',    label: 'STA', base: 5, clampToBase: true  }, // physical HP-like
-  { key: 'composure',  label: 'COM', base: 5, clampToBase: true  }, // mental HP-like
-  { key: 'endurance',  label: 'END', base: 0, clampToBase: false }, // physical resistance-like (can exceed base via buffs)
-  { key: 'fortitude',  label: 'FOR', base: 1, clampToBase: false }  // mental resistance-like (can exceed base via buffs)
-];
+// ===== Centralized stat schema =====
+const STAT_DEFS = {
+  stamina:   { type: 'depletable', label: 'Stamina', shortLabel: 'STA', clampMin: 0, defaultMax: 5, defaultCurrent: 5, appliesTo: ['player', 'npc'] },
+  composure: { type: 'depletable', label: 'Composure', shortLabel: 'COM', clampMin: 0, defaultMax: 5, defaultCurrent: 5, appliesTo: ['player', 'npc'] },
+  hp:        { type: 'depletable', label: 'HP', shortLabel: 'HP', clampMin: 0, defaultMax: 5, defaultCurrent: 5, appliesTo: ['mob'] },
+  endurance: { type: 'scalar', label: 'Endurance', shortLabel: 'END', clampMin: 0, defaultBase: 0, appliesTo: ['player', 'npc', 'mob'] },
+  fortitude: { type: 'scalar', label: 'Fortitude', shortLabel: 'FOR', clampMin: 0, defaultBase: 0, appliesTo: ['player', 'npc', 'mob'] },
+  alignment: { type: 'variable', label: 'Alignment', shortLabel: 'ALN', clampMin: -10, clampMax: 10, defaultCurrent: 0, appliesTo: ['npc'] },
+  affection: { type: 'variable', label: 'Affection', shortLabel: 'AFF', clampMin: -10, clampMax: 10, defaultCurrent: 0, appliesTo: ['npc'] },
+  minalignment: { type: 'scalar', label: 'Min Alignment', shortLabel: 'MIN A', clampMin: -10, clampMax: 10, defaultBase: 0, appliesTo: ['npc'] },
+  minaffection: { type: 'scalar', label: 'Min Affection', shortLabel: 'MIN F', clampMin: -10, clampMax: 10, defaultBase: 0, appliesTo: ['npc'] }
+};
 
-const PLAYER_STAT_DEF_MAP = Object.create(null); // key -> def
-for (const d of PLAYER_STAT_DEFS) PLAYER_STAT_DEF_MAP[String(d.key).toLowerCase()] = d;
+const PLAYER_STAT_ORDER = ['stamina', 'composure', 'endurance', 'fortitude'];
+const NPC_STAT_ORDER = ['stamina', 'composure', 'endurance', 'fortitude', 'alignment', 'affection', 'minalignment', 'minaffection'];
 
-function createStatsFromDefs(defs) {
+function getStatDef(statKey) {
+  const k = lc(statKey || '');
+  return k ? (STAT_DEFS[k] || null) : null;
+}
+
+function getActorKindName(actor) {
+  if (!actor) return '';
+  if (actor === player) return 'player';
+  const kind = getActorKind(actor);
+  if (kind === 'mob') return 'mob';
+  return 'npc';
+}
+
+function statAppliesToActor(statKey, actor) {
+  const def = getStatDef(statKey);
+  if (!def) return false;
+  const kind = getActorKindName(actor);
+  return Array.isArray(def.appliesTo) && def.appliesTo.includes(kind);
+}
+
+function createStatsForKind(kind) {
   const out = Object.create(null);
-  for (const d of (defs || [])) {
-    if (!d || !d.key) continue;
-    const k = String(d.key).toLowerCase();
-    const base = Number(d.base ?? 0);
-    out[k] = { base, current: base };
+  for (const [key, def] of Object.entries(STAT_DEFS)) {
+    if (!def || !Array.isArray(def.appliesTo) || !def.appliesTo.includes(kind)) continue;
+    if (def.type === 'depletable') {
+      out[key] = {
+        current: Number(def.defaultCurrent ?? def.defaultMax ?? 0),
+        max: Number(def.defaultMax ?? def.defaultCurrent ?? 0),
+        mods: []
+      };
+    } else if (def.type === 'scalar') {
+      out[key] = { base: Number(def.defaultBase ?? 0), mods: [] };
+    } else if (def.type === 'variable') {
+      out[key] = { current: Number(def.defaultCurrent ?? 0), mods: [] };
+    }
   }
   return out;
+}
+
+function ensureStatsSchemaForKind(statsObj, kind, opts = null) {
+  if (!statsObj || typeof statsObj !== 'object') statsObj = Object.create(null);
+  const skip = new Set((opts && Array.isArray(opts.skip) ? opts.skip : []).map(k => lc(k)));
+  for (const [key, def] of Object.entries(STAT_DEFS)) {
+    if (!def || !Array.isArray(def.appliesTo) || !def.appliesTo.includes(kind)) continue;
+    if (skip.has(lc(key))) continue;
+    if (!statsObj[key] || typeof statsObj[key] !== 'object') {
+      if (def.type === 'depletable') {
+        statsObj[key] = {
+          current: Number(def.defaultCurrent ?? def.defaultMax ?? 0),
+          max: Number(def.defaultMax ?? def.defaultCurrent ?? 0),
+          mods: []
+        };
+      } else if (def.type === 'scalar') {
+        statsObj[key] = { base: Number(def.defaultBase ?? 0), mods: [] };
+      } else if (def.type === 'variable') {
+        statsObj[key] = { current: Number(def.defaultCurrent ?? 0), mods: [] };
+      }
+    } else {
+      if (!Array.isArray(statsObj[key].mods)) statsObj[key].mods = [];
+      if (def.type === 'depletable') {
+        if (statsObj[key].max == null && statsObj[key].base != null) {
+          statsObj[key].max = Number(statsObj[key].base ?? 0);
+          if (statsObj[key].current == null) statsObj[key].current = Number(statsObj[key].max ?? 0);
+          delete statsObj[key].base;
+        }
+      } else if (def.type === 'scalar') {
+        if (statsObj[key].base == null && statsObj[key].current != null) {
+          statsObj[key].base = Number(statsObj[key].current ?? 0);
+          delete statsObj[key].current;
+        }
+      }
+    }
+  }
+  return statsObj;
+}
+
+function ensureNpcStatsShared(nameOrActor) {
+  const name =
+    (nameOrActor && typeof nameOrActor === 'object')
+      ? String(nameOrActor.name || '')
+      : String(nameOrActor || '');
+  const rec = ensureNpcRecord(name);
+  if (!rec) return null;
+  ensureNpcRecordStats(name, rec);
+  const live = findActorByName(name);
+  if (live && live !== player) {
+    live.stats = rec.stats;
+  }
+  return rec.stats;
+}
+
+function ensureActorStatsSchema(actor) {
+  if (!actor) return;
+  const kind = getActorKindName(actor);
+  if (kind === 'npc') {
+    ensureNpcStatsShared(actor);
+    return;
+  }
+  actor.stats = ensureStatsSchemaForKind(actor.stats, kind);
+}
+
+function getStatModifiers(statRec) {
+  if (!statRec || typeof statRec !== 'object') return [];
+  if (!Array.isArray(statRec.mods)) statRec.mods = [];
+  return statRec.mods;
+}
+
+function sumStatModifiers(statRec) {
+  const mods = getStatModifiers(statRec);
+  let total = 0;
+  for (const m of mods) {
+    if (!m || typeof m !== 'object') continue;
+    const d = Number(m.delta ?? 0);
+    if (isFinite(d)) total += d;
+  }
+  return total;
+}
+
+function getStatEffectiveValue(actor, statKey) {
+  const def = getStatDef(statKey);
+  if (!def || !actor || !actor.stats) return null;
+  const rec = actor.stats[lc(statKey)];
+  if (!rec) return null;
+
+  if (def.type === 'depletable') {
+    const max = Number(rec.max ?? 0);
+    return max + sumStatModifiers(rec);
+  }
+  if (def.type === 'scalar') {
+    const base = Number(rec.base ?? 0);
+    return base + sumStatModifiers(rec);
+  }
+  if (def.type === 'variable') {
+    const cur = Number(rec.current ?? 0);
+    const min = Number(def.clampMin ?? -10);
+    const max = Number(def.clampMax ?? 10);
+    const clamped = Math.max(min, Math.min(max, cur));
+    return clamped + sumStatModifiers(rec);
+  }
+  return null;
+}
+
+function normalizeStatFieldForDef(def, fieldRaw) {
+  const f = normStatKey(fieldRaw) || 'current';
+  if (!def) return f;
+  if (def.type === 'depletable') {
+    if (f === 'base') return 'max';
+    if (f === 'max' || f === 'current') return f;
+    return 'current';
+  }
+  if (def.type === 'scalar') {
+    return 'base';
+  }
+  if (def.type === 'variable') {
+    return 'current';
+  }
+  return f;
+}
+
+function clampScalarValue(def, value) {
+  let v = Number(value);
+  if (!isFinite(v)) return 0;
+  if (def && def.clampMin != null) v = Math.max(Number(def.clampMin), v);
+  if (def && def.clampMax != null) v = Math.min(Number(def.clampMax), v);
+  return v;
+}
+
+function clampVariableValue(def, value) {
+  let v = Number(value);
+  if (!isFinite(v)) return 0;
+  if (def && def.clampMin != null) v = Math.max(Number(def.clampMin), v);
+  if (def && def.clampMax != null) v = Math.min(Number(def.clampMax), v);
+  return v;
+}
+
+function clampDepletableCurrent(def, rec) {
+  const min = Number(def?.clampMin ?? 0);
+  const maxEff = Number(rec?.max ?? 0) + sumStatModifiers(rec);
+  const max = isFinite(maxEff) ? maxEff : Number(rec?.max ?? 0);
+  const cur = Number(rec?.current ?? 0);
+  const clamped = Math.max(min, Math.min(max, cur));
+  rec.current = clamped;
+}
+
+function setStatRecField(def, rec, fieldRaw, valueRaw) {
+  if (!def || !rec) return null;
+  const field = normalizeStatFieldForDef(def, fieldRaw);
+  const v = Number(valueRaw);
+  if (!isFinite(v)) return null;
+
+  let prev = null;
+  if (def.type === 'depletable') {
+    prev = (field === 'max') ? Number(rec.max ?? 0) : Number(rec.current ?? 0);
+    if (field === 'max') {
+      rec.max = Math.max(Number(def.clampMin ?? 0), v);
+      clampDepletableCurrent(def, rec);
+    } else {
+      rec.current = v;
+      clampDepletableCurrent(def, rec);
+    }
+  } else if (def.type === 'scalar') {
+    prev = Number(rec.base ?? 0);
+    rec.base = clampScalarValue(def, v);
+  } else if (def.type === 'variable') {
+    prev = Number(rec.current ?? 0);
+    rec.current = clampVariableValue(def, v);
+  } else {
+    prev = Number(rec.current ?? 0);
+    rec.current = v;
+  }
+
+  const next = (def.type === 'depletable')
+    ? (field === 'max' ? Number(rec.max ?? 0) : Number(rec.current ?? 0))
+    : (def.type === 'scalar' ? Number(rec.base ?? 0) : Number(rec.current ?? 0));
+
+  return { field, prev, next };
+}
+
+function getStatRecFieldValue(def, rec, fieldRaw) {
+  if (!def || !rec) return null;
+  const field = normalizeStatFieldForDef(def, fieldRaw);
+  if (def.type === 'depletable') {
+    return (field === 'max') ? Number(rec.max ?? 0) : Number(rec.current ?? 0);
+  }
+  if (def.type === 'scalar') {
+    return Number(rec.base ?? 0);
+  }
+  if (def.type === 'variable') {
+    return Number(rec.current ?? 0);
+  }
+  return Number(rec.current ?? 0);
 }
 
 function normStatKey(k) {
@@ -2223,18 +8242,7 @@ function normStatKey(k) {
 }
 
 function ensurePlayerStats() {
-  if (!player.stats || typeof player.stats !== 'object') {
-    player.stats = createStatsFromDefs(PLAYER_STAT_DEFS);
-  } else {
-    // ensure any newly-added defs exist
-    for (const d of PLAYER_STAT_DEFS) {
-      const k = String(d.key).toLowerCase();
-      if (!player.stats[k]) {
-        const base = Number(d.base ?? 0);
-        player.stats[k] = { base, current: base };
-      }
-    }
-  }
+  player.stats = ensureStatsSchemaForKind(player.stats, 'player');
 }
 
 // ===== Items / Inventory =====
@@ -2257,21 +8265,28 @@ function getObjectDef(objectId) {
   return root && typeof root === 'object' ? (root[id] || root[objectId] || null) : null;
 }
 
-function getNpcInteractTags(npcName) {
-  const name = String(npcName || '');
-  const def = (npcDetails && npcDetails[name]) ? npcDetails[name] : null;
-  const raw = def?.interacts || def?.interactTags || def?.interact || null;
-  if (!Array.isArray(raw)) return [];
-  return raw.map(x => lc(x)).filter(Boolean);
+function canUseItemOnObject(itemId, objectId) {
+  const def = getObjectDef(objectId);
+  if (!def) return false;
+  const list = Array.isArray(def.itemUse) ? def.itemUse : [];
+  if (list.length === 0) return false;
+  const want = lc(itemId);
+  return list.some(x => lc(String(x || '')) === want);
 }
 
-function getPlayerInteractTags() {
-  // Prefer explicit Player record in characters.json; fall back to current player character name.
+function getActorInteractTags(actorOrName) {
+  let name =
+    (typeof actorOrName === 'string' ? actorOrName
+    : actorOrName?.name) || 'player';
+  const isPlayer =
+    actorOrName === player
+    || lc(String(name)) === 'player'
+    || lc(String(name)) === lc(player?.name || '');
+  if (isPlayer) name = 'Player';
+  const key = lc(name);
   const def =
-    (npcDetails && npcDetails['Player']) ? npcDetails['Player']
-    : (npcDetails && npcDetails[player?.name]) ? npcDetails[player?.name]
-    : null;
-
+    (npcDetailsByLc ? npcDetailsByLc[key] : null)
+    || (npcDetails ? npcDetails[name] : null);
   const raw = def?.interacts || def?.interactTags || def?.interact || null;
   if (!Array.isArray(raw)) return [];
   return raw.map(x => lc(x)).filter(Boolean);
@@ -2282,13 +8297,13 @@ function partyHasInteractTag(tag) {
   if (!want) return false;
 
   // Player alone should still be able to interact if Player has the tag.
-  const pTags = getPlayerInteractTags();
+  const pTags = getActorInteractTags(player);
   if (pTags.includes(want)) return true;
 
   for (const p of (party || [])) {
     const nm = p?.name;
     if (!nm) continue;
-    const tags = getNpcInteractTags(nm);
+    const tags = getActorInteractTags(nm);
     if (tags.includes(want)) return true;
   }
   return false;
@@ -2309,6 +8324,29 @@ function partyCanInteractWithObjectDef(objDef) {
   return false;
 }
 
+function getFirstInteractorForObjectDef(objDef) {
+  if (!objDef || typeof objDef !== 'object') return null;
+  const tags = Array.isArray(objDef.interact) ? objDef.interact
+             : Array.isArray(objDef.interacts) ? objDef.interacts
+             : Array.isArray(objDef.interactTags) ? objDef.interactTags
+             : null;
+  const needTags = Array.isArray(tags) ? tags.map(t => lc(t)).filter(Boolean) : [];
+
+  // If no tags are defined, default to player.
+  if (needTags.length === 0) return player || null;
+
+  const pTags = getActorInteractTags(player);
+  if (needTags.some(t => pTags.includes(t))) return player || null;
+
+  for (const p of (party || [])) {
+    const nm = p?.name;
+    if (!nm) continue;
+    const tagsHere = getActorInteractTags(nm);
+    if (needTags.some(t => tagsHere.includes(t))) return p;
+  }
+  return null;
+}
+
 function getItemDef(itemId) {
   const id = lc(itemId);
   if (!id || !itemsData) return null;
@@ -2316,6 +8354,345 @@ function getItemDef(itemId) {
   // Support either { items: { id: def } } OR { id: def }
   const root = itemsData.items && typeof itemsData.items === 'object' ? itemsData.items : itemsData;
   return root && typeof root === 'object' ? (root[id] || root[itemId] || null) : null;
+}
+
+function getItemUsesPerItem(def) {
+  const v = Number(def?.usesPerItem);
+  if (!isFinite(v) || v <= 0) return 0; // 0 => unlimited
+  return Math.floor(v);
+}
+
+function getItemGrants(def) {
+  if (!def || typeof def !== 'object') return [];
+  return Array.isArray(def.grants) ? def.grants.filter(g => g && typeof g === 'object') : [];
+}
+
+function getActorNameKey(actor) {
+  if (!actor) return '';
+  if (actor === player || lc(actor?.name) === 'player' || lc(actor?.name) === lc(player?.name || '')) return 'player';
+  return lc(actor?.name || '');
+}
+
+function actorHasFaction(actor, factionKey) {
+  const key = lc(factionKey || '');
+  if (!key) return false;
+  const factions = getActorFactions(actor);
+  return factions.includes(key);
+}
+
+function isActorEligibleForAbility(actor, abilityDef, eligibleOverride = null) {
+  if (!actor || !abilityDef) return false;
+  const eligible = (eligibleOverride && typeof eligibleOverride === 'object')
+    ? eligibleOverride
+    : (abilityDef.eligible && typeof abilityDef.eligible === 'object' ? abilityDef.eligible : null);
+  if (!eligible) return true;
+
+  if (Array.isArray(eligible.names) && eligible.names.length) {
+    const nameKey = getActorNameKey(actor);
+    const allow = eligible.names.map(x => lc(String(x || ''))).filter(Boolean);
+    if (!allow.includes(nameKey)) return false;
+  }
+
+  if (Array.isArray(eligible.tags) && eligible.tags.length) {
+    const hasTag = eligible.tags.some(t => actorHasTag(actor, t));
+    if (!hasTag) return false;
+  }
+
+  if (Array.isArray(eligible.factions) && eligible.factions.length) {
+    const hasFac = eligible.factions.some(f => actorHasFaction(actor, f));
+    if (!hasFac) return false;
+  }
+
+  return true;
+}
+
+function ensureActorLearnedAbilities(actor) {
+  if (!actor) return [];
+  if (actor === player) {
+    if (!Array.isArray(player.learnedAbilities)) player.learnedAbilities = [];
+    return player.learnedAbilities;
+  }
+  const rec = ensureNpcRecord(actor.name);
+  if (!Array.isArray(rec.learnedAbilities)) rec.learnedAbilities = [];
+  actor.learnedAbilities = rec.learnedAbilities;
+  return actor.learnedAbilities;
+}
+
+function ensureActorItemGrantProgress(actor) {
+  if (!actor) return null;
+  if (actor === player) {
+    if (!player.itemGrantProgress || typeof player.itemGrantProgress !== 'object') {
+      player.itemGrantProgress = Object.create(null);
+    }
+    return player.itemGrantProgress;
+  }
+  const rec = ensureNpcRecord(actor.name);
+  if (!rec.itemGrantProgress || typeof rec.itemGrantProgress !== 'object') {
+    rec.itemGrantProgress = Object.create(null);
+  }
+  actor.itemGrantProgress = rec.itemGrantProgress;
+  return actor.itemGrantProgress;
+}
+
+function learnAbilityForActor(actor, abilityId) {
+  const id = lc(abilityId || '');
+  if (!actor || !id) return false;
+  const learned = ensureActorLearnedAbilities(actor);
+  if (learned.some(a => lc(String(a || '')) === id)) return false;
+  learned.push(id);
+  rebuildActorAbilities(actor);
+  return true;
+}
+
+function rebuildActorAbilities(actor) {
+  if (!actor) return;
+  const innate = Array.isArray(actor.innateAbilities) ? actor.innateAbilities : [];
+  const learnedIds = Array.isArray(actor.learnedAbilities) ? actor.learnedAbilities : [];
+  const learned = resolveAbilityList(learnedIds);
+  const held = Array.isArray(actor.heldAbilities) ? actor.heldAbilities : [];
+
+  actor.abilities = mergeAbilityLists([innate, learned, held]);
+
+  const curAuto = lc(actor.autoCastAbilityId || '');
+  if (curAuto && !actor.abilities.some(a => lc(a?.id || '') === curAuto)) {
+    actor.autoCastAbilityId = null;
+  }
+}
+
+function actorHasItem(actor, itemId) {
+  const bucket = getActorInvBucket(actor, itemId);
+  return !!(bucket && Array.isArray(bucket.instances) && bucket.instances.length > 0);
+}
+
+function getItemGrantKey(itemId, abilityId) {
+  const i = lc(itemId || '');
+  const a = lc(abilityId || '');
+  return (i && a) ? `${i}|${a}` : '';
+}
+
+function clearActorItemStatMods(actor) {
+  if (!actor || !actor.stats || typeof actor.stats !== 'object') return;
+  for (const rec of Object.values(actor.stats)) {
+    if (!rec || !Array.isArray(rec.mods)) continue;
+    rec.mods = rec.mods.filter(m => !(m && m.source === 'item'));
+  }
+}
+
+function addActorItemStatMod(actor, statKey, delta, itemId, grantId) {
+  if (!actor) return;
+  const k = lc(statKey || '');
+  if (!k) return;
+  const def = getStatDef(k);
+  if (!def || !statAppliesToActor(k, actor)) return;
+  const rec = actor.stats?.[k];
+  if (!rec) return;
+  if (!Array.isArray(rec.mods)) rec.mods = [];
+  const d = Number(delta);
+  if (!isFinite(d) || d === 0) return;
+  rec.mods.push({
+    delta: d,
+    source: 'item',
+    itemId: lc(itemId || ''),
+    grant: grantId || null
+  });
+}
+
+let __timedStatModId = 0;
+
+function addTimedStatModForActor(actor, statKey, delta, durationMs) {
+  if (!actor) return false;
+  const k = lc(statKey || '');
+  if (!k) return false;
+  const def = getStatDef(k);
+  if (!def || !statAppliesToActor(k, actor)) return false;
+  const rec = actor.stats?.[k];
+  if (!rec) return false;
+  if (!Array.isArray(rec.mods)) rec.mods = [];
+  const d = Number(delta);
+  if (!isFinite(d) || d === 0) return false;
+  const id = `timed:${++__timedStatModId}`;
+  rec.mods.push({ id, delta: d, source: 'timed' });
+  if (durationMs > 0) {
+    const expiresAtMs = getGameNowMs() + durationMs;
+    scheduleTimedEffect(expiresAtMs, () => {
+      if (!actor || !actor.stats || !actor.stats[k] || !Array.isArray(actor.stats[k].mods)) return;
+      actor.stats[k].mods = actor.stats[k].mods.filter(m => m?.id !== id);
+    });
+  }
+  return true;
+}
+
+function rebuildActorItemGrants(actor) {
+  if (!actor) return;
+  if (isMobActor(actor)) return;
+  if (!itemsData) {
+    rebuildActorAbilities(actor);
+    return;
+  }
+
+  ensureActorStatsSchema(actor);
+  clearActorItemStatMods(actor);
+
+  const heldAbilities = [];
+  const heldGrantMap = new Map(); // abilityId -> [{ itemId, grant }]
+  const features = new Set();
+  const inv = ensureActorInventory(actor);
+  const grantProgress = ensureActorItemGrantProgress(actor);
+
+  for (const [itemId, bucket] of Object.entries(inv || {})) {
+    if (!bucket || !Array.isArray(bucket.instances) || bucket.instances.length === 0) continue;
+    const def = getItemDef(itemId);
+    if (!def) continue;
+
+    const grants = getItemGrants(def);
+    if (!grants.length) continue;
+
+    for (let i = 0; i < grants.length; i++) {
+      const g = grants[i];
+      const kind = lc(g.kind || 'ability');
+      const mode = lc(g.mode || 'hold_use');
+      const id = lc(g.id || g.ability || '');
+      if (!id && kind === 'ability') continue;
+
+      if (kind === 'feature') {
+        if (mode !== 'hold_use') continue;
+        const ok = isActorEligibleForAbility(actor, { eligible: g.eligible || null }, g.eligible || null);
+        if (ok) features.add(id);
+        continue;
+      }
+
+      if (kind === 'statmod' || kind === 'stat') {
+        if (mode && mode !== 'hold_use') continue;
+        const ok = isActorEligibleForAbility(actor, { eligible: g.eligible || null }, g.eligible || null);
+        if (!ok) continue;
+        addActorItemStatMod(actor, g.stat, g.delta, itemId, g.id || i);
+        continue;
+      }
+
+      if (kind !== 'ability') continue;
+
+      if (mode === 'hold_use' || mode === 'hold_then_retain') {
+        const base = getAbilityDefById(id);
+        if (!base) continue;
+        if (!isActorEligibleForAbility(actor, base, g.eligible || null)) continue;
+
+        const learned = Array.isArray(actor.learnedAbilities) ? actor.learnedAbilities : [];
+        if (mode === 'hold_then_retain' && learned.some(a => lc(String(a || '')) === id)) {
+          continue; // already retained
+        }
+
+        const entry = (g.abilityOverrides && typeof g.abilityOverrides === 'object')
+          ? { id, ...g.abilityOverrides }
+          : id;
+        const resolved = resolveAbilityEntry(entry);
+        if (resolved) heldAbilities.push(resolved);
+
+        if (!heldGrantMap.has(id)) heldGrantMap.set(id, []);
+        heldGrantMap.get(id).push({ itemId: lc(itemId), grant: g });
+
+        // ensure progress record exists when needed
+        if (mode === 'hold_then_retain') {
+          const key = getItemGrantKey(itemId, id);
+          if (key && !grantProgress[key]) grantProgress[key] = { uses: 0, timeHeldMs: 0 };
+        }
+      }
+    }
+  }
+
+  actor.heldAbilities = heldAbilities;
+  actor.itemGrantedFeatures = features;
+  actor.__heldAbilityGrants = heldGrantMap;
+
+  rebuildActorAbilities(actor);
+}
+
+function applyItemGrantsOnUse(sourceActor, targetActor, itemId, itemDef) {
+  const def = itemDef || getItemDef(itemId);
+  if (!def) return;
+  const grants = getItemGrants(def);
+  if (!grants.length) return;
+
+  for (const g of grants) {
+    const kind = lc(g.kind || 'ability');
+    const mode = lc(g.mode || '');
+    if (kind !== 'ability' || mode !== 'use_to_learn') continue;
+    const id = lc(g.id || g.ability || '');
+    if (!id) continue;
+    const base = getAbilityDefById(id);
+    if (!base) continue;
+    if (!isActorEligibleForAbility(targetActor, base, g.eligible || null)) continue;
+    learnAbilityForActor(targetActor, id);
+  }
+}
+
+function noteAbilityUseForActor(actor, abilityId) {
+  if (!actor || !abilityId) return;
+  const id = lc(abilityId);
+  if (!id || !actor.__heldAbilityGrants || !actor.__heldAbilityGrants.has(id)) return;
+  const grants = actor.__heldAbilityGrants.get(id) || [];
+  const progress = ensureActorItemGrantProgress(actor);
+  let learnedAny = false;
+
+  for (const info of grants) {
+    const g = info.grant || {};
+    const mode = lc(g.mode || '');
+    if (mode !== 'hold_then_retain') continue;
+    const retain = (g.retain && typeof g.retain === 'object') ? g.retain : Object.create(null);
+    const needUses = Number(retain.uses || 0);
+    if (!isFinite(needUses) || needUses <= 0) continue;
+    const key = getItemGrantKey(info.itemId, id);
+    if (!key) continue;
+    if (!progress[key]) progress[key] = { uses: 0, timeHeldMs: 0 };
+    progress[key].uses = Math.max(0, Number(progress[key].uses || 0) + 1);
+    if (progress[key].uses >= needUses) {
+      if (learnAbilityForActor(actor, id)) learnedAny = true;
+    }
+  }
+
+  if (learnedAny) rebuildActorItemGrants(actor);
+}
+
+function updateItemGrantHoldProgress(dtReal) {
+  const dtMs = Math.max(0, Number(dtReal || 0) * 1000);
+  if (!isFinite(dtMs) || dtMs <= 0) return;
+
+  const actors = [player, ...(Array.isArray(party) ? party : []), ...(Array.isArray(npcs) ? npcs : [])];
+  for (const actor of actors) {
+    if (!actor || !actor.__heldAbilityGrants) continue;
+    const progress = ensureActorItemGrantProgress(actor);
+    let learnedAny = false;
+
+    for (const [abilityId, grants] of actor.__heldAbilityGrants.entries()) {
+      for (const info of grants) {
+        const g = info.grant || {};
+        const mode = lc(g.mode || '');
+        if (mode !== 'hold_then_retain') continue;
+        const retain = (g.retain && typeof g.retain === 'object') ? g.retain : Object.create(null);
+        const key = getItemGrantKey(info.itemId, abilityId);
+        if (!key) continue;
+        if (!progress[key]) progress[key] = { uses: 0, timeHeldMs: 0 };
+
+        if (retain.timeHeldMs != null) {
+          const want = Math.max(0, Number(retain.timeHeldMs));
+          if (isFinite(want) && want > 0) {
+            progress[key].timeHeldMs = Math.max(0, Number(progress[key].timeHeldMs || 0) + dtMs);
+          }
+        }
+
+        const usesNeed = Number(retain.uses || 0);
+        const heldEnough = (retain.timeHeldMs != null)
+          ? (Number(progress[key].timeHeldMs || 0) >= Number(retain.timeHeldMs))
+          : false;
+        const usedEnough = (usesNeed > 0) ? (Number(progress[key].uses || 0) >= usesNeed) : false;
+
+        if ((usesNeed > 0 && usedEnough) || (retain.timeHeldMs != null && heldEnough)) {
+          if (learnAbilityForActor(actor, abilityId)) learnedAny = true;
+        }
+      }
+    }
+
+    if (learnedAny) rebuildActorItemGrants(actor);
+  }
 }
 
 function ensurePlayerInventory() {
@@ -2333,10 +8710,51 @@ function nextInventoryUid() {
   return String(uid);
 }
 
-function getInvBucket(itemId) {
-  const inv = ensurePlayerInventory();
+function getActorInventorySize(actor) {
+  if (!actor) return 0;
+  if (actor === player) {
+    const v = Number(player.inventorySize);
+    return isFinite(v) ? Math.max(0, Math.floor(v)) : Infinity;
+  }
+  const name = actor?.name;
+  const details =
+    (npcDetails && name && npcDetails[name]) ? npcDetails[name]
+    : (npcDetailsByLc && name && npcDetailsByLc[lc(name)]) ? npcDetailsByLc[lc(name)]
+    : null;
+  const raw = (details?.inventorySize != null) ? details.inventorySize : (actor.inventorySize ?? 0);
+  const n = Number(raw);
+  return isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+}
+
+function ensureActorInventory(actor) {
+  if (!actor) return null;
+  if (actor === player) return ensurePlayerInventory();
+
+  const rec = ensureNpcRecord(actor.name);
+  if (!rec.inventory || typeof rec.inventory !== 'object') {
+    rec.inventory = Object.create(null);
+  }
+  if (!isFinite(rec.inventoryUidCounter)) rec.inventoryUidCounter = 1;
+
+  actor.inventory = rec.inventory;
+  actor.inventoryUidCounter = rec.inventoryUidCounter;
+  return actor.inventory;
+}
+
+function nextActorInventoryUid(actor) {
+  if (actor === player) return nextInventoryUid();
+  const rec = ensureNpcRecord(actor?.name);
+  if (!isFinite(rec.inventoryUidCounter)) rec.inventoryUidCounter = 1;
+  const uid = Math.floor(rec.inventoryUidCounter);
+  rec.inventoryUidCounter = uid + 1;
+  if (actor) actor.inventoryUidCounter = rec.inventoryUidCounter;
+  return String(uid);
+}
+
+function getActorInvBucket(actor, itemId) {
+  const inv = ensureActorInventory(actor);
   const id = lc(itemId);
-  if (!id) return null;
+  if (!id || !inv) return null;
 
   // Bucket schema:
   //   inv[id] = { instances: [ { uid: '...', usesLeft: number|null } ] }
@@ -2348,7 +8766,7 @@ function getInvBucket(itemId) {
   // Migrate legacy format
   if (!Array.isArray(bucket.instances) && (bucket.count != null || bucket.usesLeft != null)) {
     const def = getItemDef(id);
-    const usesPerItem = Math.max(1, Math.floor(Number(def?.usesPerItem ?? 1)));
+    const usesPerItem = getItemUsesPerItem(def);
 
     const count = Math.max(0, Math.floor(Number(bucket.count ?? 0)));
     const legacyUsesLeft = Number(bucket.usesLeft);
@@ -2372,41 +8790,81 @@ function getInvBucket(itemId) {
   return bucket;
 }
 
+function getInvBucket(itemId) {
+  return getActorInvBucket(player, itemId);
+}
 
-function addItemToInventory(itemId, qtyRaw = 1) {
+function getActorInventoryCount(actor) {
+  const inv = ensureActorInventory(actor);
+  if (!inv) return 0;
+  let count = 0;
+  for (const bucket of Object.values(inv)) {
+    if (!bucket || !Array.isArray(bucket.instances)) continue;
+    count += bucket.instances.length;
+  }
+  return count;
+}
+
+function addItemToActorInventory(actor, itemId, qtyRaw = 1, outUids = null) {
   const id = lc(itemId);
   const qty = Math.max(0, Math.floor(Number(qtyRaw)));
-  if (!id || !isFinite(qty) || qty <= 0) return;
+  if (!id || !isFinite(qty) || qty <= 0) return false;
 
   const def = getItemDef(id);
-  const usesPerItem = Math.max(1, Math.floor(Number(def?.usesPerItem ?? 1)));
+  const usesPerItem = getItemUsesPerItem(def);
 
-  const bucket = getInvBucket(id);
-  if (!bucket) return;
+  const bucket = getActorInvBucket(actor, id);
+  if (!bucket) return false;
 
   const prevCount = bucket.instances.length;
 
   for (let i = 0; i < qty; i++) {
+    const uid = nextActorInventoryUid(actor);
     bucket.instances.push({
-      uid: nextInventoryUid(),
+      uid,
       usesLeft: usesPerItem > 1 ? usesPerItem : null
     });
+    if (outUids && Array.isArray(outUids)) outUids.push(String(uid));
   }
 
-  if (bucket.instances.length !== prevCount) {
-    emitGameEvent('inventory_change', { item: id });
-    spawnFoundItemFeedback(id, qty);
+  const changed = bucket.instances.length !== prevCount;
+  if (changed) {
+    const actorName = (actor === player) ? 'Player' : actor?.name;
+    if (actorName) emitGameEvent('inventory_change', { item: id, actor: actorName });
+    spawnFoundItemFeedback(id, qty, actor);
   }
+  return changed;
 }
 
-function removeItemFromInventory(itemId, qtyRaw = 1) {
+function addItemInstanceToActor(actor, itemId, inst) {
+  const id = lc(itemId);
+  if (!id || !actor) return false;
+
+  const def = getItemDef(id);
+  const usesPerItem = getItemUsesPerItem(def);
+  const bucket = getActorInvBucket(actor, id);
+  if (!bucket) return false;
+
+  const usesLeftRaw = inst?.usesLeft;
+  const usesLeft = (usesPerItem > 1)
+    ? (isFinite(usesLeftRaw) ? Math.max(0, Math.floor(usesLeftRaw)) : usesPerItem)
+    : null;
+
+  const uid = String(inst?.uid ?? nextActorInventoryUid(actor));
+  bucket.instances.push({ uid, usesLeft });
+  const actorName = (actor === player) ? 'Player' : actor?.name;
+  if (actorName) emitGameEvent('inventory_change', { item: id, actor: actorName });
+  return true;
+}
+
+function removeItemFromActorInventory(actor, itemId, qtyRaw = 1) {
   const id = lc(itemId);
   const qty = Math.max(0, Math.floor(Number(qtyRaw)));
-  if (!id || !isFinite(qty) || qty <= 0) return;
+  if (!id || !isFinite(qty) || qty <= 0) return false;
 
-  const inv = ensurePlayerInventory();
-  const bucket = getInvBucket(id);
-  if (!bucket) return;
+  const inv = ensureActorInventory(actor);
+  const bucket = getActorInvBucket(actor, id);
+  if (!bucket) return false;
 
   const prevCount = bucket.instances.length;
 
@@ -2419,15 +8877,57 @@ function removeItemFromInventory(itemId, qtyRaw = 1) {
     delete inv[id];
   }
 
-  if (bucket.instances.length !== prevCount) {
-    emitGameEvent('inventory_change', { item: id });
+  const changed = bucket.instances.length !== prevCount;
+  if (changed) {
+    const actorName = (actor === player) ? 'Player' : actor?.name;
+    if (actorName) emitGameEvent('inventory_change', { item: id, actor: actorName });
   }
+  return changed;
+}
+
+function removeItemInstanceFromActorInventory(actor, itemId, uid) {
+  const id = lc(itemId);
+  const wantUid = String(uid || '');
+  if (!id || !wantUid) return false;
+
+  const inv = ensureActorInventory(actor);
+  const bucket = getActorInvBucket(actor, id);
+  if (!bucket || !Array.isArray(bucket.instances)) return false;
+
+  const idx = bucket.instances.findIndex(inst => String(inst?.uid) === wantUid);
+  if (idx < 0) return false;
+
+  bucket.instances.splice(idx, 1);
+  if (bucket.instances.length <= 0) delete inv[id];
+
+  const actorName = (actor === player) ? 'Player' : actor?.name;
+  if (actorName) emitGameEvent('inventory_change', { item: id, actor: actorName });
+  return true;
+}
+
+
+function addItemToInventory(itemId, qtyRaw = 1, outUids = null) {
+  addItemToActorInventory(player, itemId, qtyRaw, outUids);
+}
+
+function removeItemFromInventory(itemId, qtyRaw = 1) {
+  removeItemFromActorInventory(player, itemId, qtyRaw);
 }
 
 
 let __lastItemUseError = '';
 
-function wouldEffectsChangeAnything(effects) {
+function __snapshotActorStats(actor) {
+  if (!actor || typeof actor !== 'object') return null;
+  return JSON.parse(JSON.stringify(actor.stats || {}));
+}
+
+function __restoreActorStats(actor, snapshot) {
+  if (!actor || snapshot == null) return;
+  actor.stats = snapshot;
+}
+
+function wouldEffectsChangeAnything(effects, targetActor = null) {
   __lastItemUseError = '';
 
   if (!Array.isArray(effects) || effects.length === 0) {
@@ -2435,26 +8935,44 @@ function wouldEffectsChangeAnything(effects) {
     return false;
   }
 
-  // Snapshot only what we need for item effects (currently: player stats + inventory)
-  ensurePlayerStats();
-  ensurePlayerInventory();
+  if (effects.some(eff => eff && lc(eff.type || '') === 'openmap')) {
+    return true;
+  }
 
-  const statsBefore = JSON.parse(JSON.stringify(player.stats || {}));
-  const invBefore = JSON.parse(JSON.stringify(player.inventory || {}));
+  const tgt = targetActor || player;
+
+  // Snapshot only what we need for item effects (stats; plus inventory if target is player)
+  if (tgt === player) {
+    ensurePlayerStats();
+    ensurePlayerInventory();
+  }
+
+  const statsBefore = __snapshotActorStats(tgt);
+  const invBefore = (tgt === player) ? JSON.parse(JSON.stringify(player.inventory || {})) : null;
 
   // Apply effects to real state, then compare, then revert.
-  applyEffects(effects);
+  if (tgt === player) {
+    applyPlayerEffects(effects, { source: 'item' }, tgt);
+  } else {
+    const payload = {
+      ...playerPayloadBase(tgt),
+      sourceActor: targetActorDescriptorFromActor(player),
+      targetActor: targetActorDescriptorFromActor(tgt),
+      source: 'item'
+    };
+    applyRuleEffects({ effects }, payload);
+  }
 
-  const statsAfter = JSON.parse(JSON.stringify(player.stats || {}));
-  const invAfter = JSON.parse(JSON.stringify(player.inventory || {}));
+  const statsAfter = __snapshotActorStats(tgt);
+  const invAfter = (tgt === player) ? JSON.parse(JSON.stringify(player.inventory || {})) : null;
 
   // Revert
-  player.stats = statsBefore;
-  player.inventory = invBefore;
+  __restoreActorStats(tgt, statsBefore);
+  if (tgt === player) player.inventory = invBefore;
 
   const changed =
     JSON.stringify(statsBefore) !== JSON.stringify(statsAfter) ||
-    JSON.stringify(invBefore) !== JSON.stringify(invAfter);
+    (tgt === player && JSON.stringify(invBefore) !== JSON.stringify(invAfter));
 
   if (!changed) {
     __lastItemUseError = 'No effect (already full / nothing to change).';
@@ -2475,28 +8993,25 @@ function canUseItem(itemId, itemUid = null) {
   return bucket.instances.some((inst) => String(inst?.uid) === uidStr);
 }
 
-function useItemOnce(itemId, itemUid = null) {
+function canUseActorItem(actor, itemId, itemUid = null) {
+  if (!actor) return false;
+  if (actor === player) return canUseItem(itemId, itemUid);
   const id = lc(itemId);
-  if (!canUseItem(id, itemUid)) {
-    __lastItemUseError = 'You do not have that item.';
-    return false;
-  }
+  if (!id) return false;
+  const bucket = getActorInvBucket(actor, id);
+  if (!bucket || !Array.isArray(bucket.instances) || bucket.instances.length <= 0) return false;
+  if (itemUid == null) return true;
+  const uidStr = String(itemUid);
+  return bucket.instances.some((inst) => String(inst?.uid) === uidStr);
+}
 
+function consumeItemInstance(itemId, itemUid = null) {
+  const id = lc(itemId);
   const def = getItemDef(id);
-  if (!def) {
-    __lastItemUseError = 'Unknown item.';
-    return false;
-  }
+  if (!def) return false;
 
-  const usesPerItem = Math.max(1, Math.floor(Number(def.usesPerItem ?? 1)));
-
-  if (!wouldEffectsChangeAnything(def.effects)) {
-    return false;
-  }
-
-  if (Array.isArray(def.effects)) {
-    applyEffects(def.effects);
-  }
+  const usesPerItem = getItemUsesPerItem(def);
+  if (usesPerItem === 0) return true;
 
   // IMPORTANT: wouldEffectsChangeAnything() swaps player.inventory during its snapshot/revert.
   // So we must re-grab the bucket AFTER that call (and after applying effects).
@@ -2547,76 +9062,331 @@ function useItemOnce(itemId, itemUid = null) {
   return true;
 }
 
+function consumeActorItemInstance(actor, itemId, itemUid = null) {
+  if (!actor) return false;
+  if (actor === player) return consumeItemInstance(itemId, itemUid);
+
+  const id = lc(itemId);
+  const def = getItemDef(id);
+  if (!def) return false;
+
+  const usesPerItem = getItemUsesPerItem(def);
+  if (usesPerItem === 0) return true;
+  const inv = ensureActorInventory(actor);
+  const bucket = getActorInvBucket(actor, id);
+  if (!bucket) return false;
+
+  const uidStr = itemUid != null ? String(itemUid) : null;
+  let idx = -1;
+  if (uidStr == null) {
+    idx = bucket.instances.length > 0 ? 0 : -1;
+  } else {
+    idx = bucket.instances.findIndex((inst) => String(inst?.uid) === uidStr);
+  }
+  if (idx < 0 || idx >= bucket.instances.length) {
+    __lastItemUseError = 'That item instance is no longer available.';
+    return false;
+  }
+
+  const inst = bucket.instances[idx];
+  const prevCount = bucket.instances.length;
+  const prevUses = inst?.usesLeft ?? null;
+
+  if (usesPerItem <= 1) {
+    bucket.instances.splice(idx, 1);
+    if (bucket.instances.length <= 0) delete inv[id];
+    return true;
+  }
+
+  const usesLeft = (prevUses == null) ? usesPerItem : Math.max(0, Math.floor(prevUses));
+  if (usesLeft <= 1) {
+    bucket.instances.splice(idx, 1);
+    if (bucket.instances.length <= 0) delete inv[id];
+    return true;
+  }
+
+  inst.usesLeft = usesLeft - 1;
+  return (bucket.instances.length !== prevCount) || (inst.usesLeft !== prevUses);
+}
+
+function useItemOnce(itemId, itemUid = null, targetActor = null) {
+  const id = lc(itemId);
+  if (!canUseItem(id, itemUid)) {
+    __lastItemUseError = 'You do not have that item.';
+    return false;
+  }
+
+  const def = getItemDef(id);
+  if (!def) {
+    __lastItemUseError = 'Unknown item.';
+    return false;
+  }
+
+  const tgt = targetActor || player;
+  if (!wouldEffectsChangeAnything(def.effects, tgt)) {
+    return false;
+  }
+
+  if (Array.isArray(def.effects)) {
+    if (tgt === player) {
+      applyPlayerEffects(def.effects, { source: 'item', item: id }, tgt);
+    } else {
+      const payload = {
+        ...playerPayloadBase(tgt),
+        sourceActor: targetActorDescriptorFromActor(player),
+        targetActor: targetActorDescriptorFromActor(tgt),
+        source: 'item',
+        item: id
+      };
+      applyRuleEffects({ effects: def.effects }, payload);
+    }
+  }
+
+  const consumed = consumeItemInstance(id, itemUid);
+  if (consumed) {
+    applyItemGrantsOnUse(player, tgt, id, def);
+    emitGameEvent('item_use', {
+      item: id,
+      sourceActor: targetActorDescriptorFromActor(player),
+      targetActor: targetActorDescriptorFromActor(tgt)
+    });
+  }
+  return consumed;
+}
+
+function useActorItemOnce(actor, itemId, itemUid = null, targetActor = null) {
+  if (!actor) return false;
+  if (actor === player) return useItemOnce(itemId, itemUid, targetActor);
+
+  const id = lc(itemId);
+  if (!canUseActorItem(actor, id, itemUid)) {
+    __lastItemUseError = 'You do not have that item.';
+    return false;
+  }
+
+  const def = getItemDef(id);
+  if (!def) {
+    __lastItemUseError = 'Unknown item.';
+    return false;
+  }
+
+  const tgt = targetActor || actor;
+  if (!wouldEffectsChangeAnything(def.effects, tgt)) {
+    return false;
+  }
+
+  if (Array.isArray(def.effects)) {
+    const payload = {
+      ...npcPayloadBase(actor, tgt),
+      sourceActor: targetActorDescriptorFromActor(actor),
+      targetActor: targetActorDescriptorFromActor(tgt),
+      source: 'item',
+      item: id
+    };
+    applyRuleEffects({ effects: def.effects }, payload);
+  }
+
+  const consumed = consumeActorItemInstance(actor, id, itemUid);
+  if (consumed) {
+    applyItemGrantsOnUse(actor, tgt, id, def);
+    emitGameEvent('item_use', {
+      item: id,
+      sourceActor: targetActorDescriptorFromActor(actor),
+      targetActor: targetActorDescriptorFromActor(tgt)
+    });
+  }
+  return consumed;
+}
+
+function useItemOnceOnTargets(itemId, itemUid, targets) {
+  const list = Array.isArray(targets) ? targets.filter(Boolean) : [];
+  if (!list.length) {
+    __lastItemUseError = 'No valid targets.';
+    return false;
+  }
+
+  // If nothing would change on any target, do not consume.
+  let anyChange = false;
+  const def = getItemDef(itemId);
+  const effects = def?.effects || null;
+  if (!Array.isArray(effects) || effects.length === 0) {
+    __lastItemUseError = 'That item has no effect.';
+    return false;
+  }
+  for (const t of list) {
+    if (wouldEffectsChangeAnything(effects, t)) { anyChange = true; break; }
+  }
+  if (!anyChange) return false;
+
+  // Apply to each target, then consume once.
+  for (const t of list) {
+    if (!t) continue;
+    if (t === player) {
+      applyPlayerEffects(effects, { source: 'item', item: lc(itemId) }, t);
+    } else {
+      const payload = {
+        ...playerPayloadBase(t),
+        sourceActor: targetActorDescriptorFromActor(player),
+        targetActor: targetActorDescriptorFromActor(t),
+        source: 'item',
+        item: lc(itemId)
+      };
+      applyRuleEffects({ effects }, payload);
+    }
+  }
+
+  const consumed = consumeItemInstance(itemId, itemUid);
+  if (consumed) {
+    for (const t of list) {
+      applyItemGrantsOnUse(player, t || player, lc(itemId), def);
+    }
+    for (const t of list) {
+      emitGameEvent('item_use', {
+        item: lc(itemId),
+        sourceActor: targetActorDescriptorFromActor(player),
+        targetActor: targetActorDescriptorFromActor(t || player)
+      });
+    }
+  }
+  return consumed;
+}
+
+function giveItemToTarget(itemId, itemUid, targetActor) {
+  const id = lc(itemId);
+  if (!id) return false;
+  if (!canUseItem(id, itemUid)) {
+    showPlayerMenuError('You do not have that item.');
+    return null;
+  }
+  if (!targetActor) return false;
+  if (!canActorReceiveItem(targetActor)) {
+    showPlayerMenuError('That target cannot carry items.');
+    return null;
+  }
+  if (!hasActorInventorySpace(targetActor)) {
+    showPlayerMenuError('Target inventory is full.');
+    return null;
+  }
+
+  const srcBucket = getInvBucket(id);
+  if (!srcBucket || !Array.isArray(srcBucket.instances)) return null;
+  const uidStr = itemUid != null ? String(itemUid) : null;
+  let idx = -1;
+  if (uidStr == null) idx = srcBucket.instances.length > 0 ? 0 : -1;
+  else idx = srcBucket.instances.findIndex((inst) => String(inst?.uid) === uidStr);
+  if (idx < 0 || idx >= srcBucket.instances.length) {
+    showPlayerMenuError('That item instance is no longer available.');
+    return null;
+  }
+
+  const inst = srcBucket.instances[idx];
+  srcBucket.instances.splice(idx, 1);
+  if (srcBucket.instances.length <= 0) {
+    const inv = ensurePlayerInventory();
+    delete inv[id];
+  }
+  emitGameEvent('inventory_change', { item: id });
+
+  addItemInstanceToActor(targetActor, id, inst);
+  const rec = ensureNpcRecord(targetActor?.name || '');
+  if (rec) {
+    rec.inventory = targetActor.inventory || rec.inventory;
+    rec.inventoryUidCounter = targetActor.inventoryUidCounter || rec.inventoryUidCounter;
+  }
+
+  emitGameEvent('item_give', {
+    item: id,
+    sourceActor: targetActorDescriptorFromActor(player),
+    targetActor: targetActorDescriptorFromActor(targetActor)
+  });
+
+  return inst?.uid ?? true;
+}
+
+function giveItemToTargetFromActor(actor, itemId, itemUid, targetActor) {
+  if (!actor) return false;
+  if (actor === player) return giveItemToTarget(itemId, itemUid, targetActor);
+
+  const id = lc(itemId);
+  if (!id) return false;
+  if (!canUseActorItem(actor, id, itemUid)) {
+    showPlayerMenuError('You do not have that item.');
+    return null;
+  }
+  if (!targetActor) return false;
+  if (!canActorReceiveItem(targetActor)) {
+    showPlayerMenuError('That target cannot carry items.');
+    return null;
+  }
+  if (!hasActorInventorySpace(targetActor)) {
+    showPlayerMenuError('Target inventory is full.');
+    return null;
+  }
+
+  const srcBucket = getActorInvBucket(actor, id);
+  if (!srcBucket || !Array.isArray(srcBucket.instances)) return null;
+  const uidStr = itemUid != null ? String(itemUid) : null;
+  let idx = -1;
+  if (uidStr == null) idx = srcBucket.instances.length > 0 ? 0 : -1;
+  else idx = srcBucket.instances.findIndex((inst) => String(inst?.uid) === uidStr);
+  if (idx < 0 || idx >= srcBucket.instances.length) {
+    showPlayerMenuError('That item instance is no longer available.');
+    return null;
+  }
+
+  const inst = srcBucket.instances[idx];
+  srcBucket.instances.splice(idx, 1);
+  if (srcBucket.instances.length <= 0) {
+    const inv = ensureActorInventory(actor);
+    delete inv[id];
+  }
+
+  addItemInstanceToActor(targetActor, id, inst);
+  const rec = ensureNpcRecord(targetActor?.name || '');
+  if (rec) {
+    rec.inventory = targetActor.inventory || rec.inventory;
+    rec.inventoryUidCounter = targetActor.inventoryUidCounter || rec.inventoryUidCounter;
+  }
+
+  emitGameEvent('item_give', {
+    item: id,
+    sourceActor: targetActorDescriptorFromActor(actor),
+    targetActor: targetActorDescriptorFromActor(targetActor)
+  });
+
+  return inst?.uid ?? true;
+}
+
 
 
 function getPlayerStatRec(statKeyRaw) {
   ensurePlayerStats();
   const k = normStatKey(statKeyRaw);
   if (!k) return null;
+  const def = getStatDef(k);
+  if (!def || !statAppliesToActor(k, player)) return null;
   if (!player.stats[k]) {
-    player.stats[k] = { base: 0, current: 0 };
+    ensureStatsSchemaForKind(player.stats, 'player');
   }
-  return player.stats[k];
+  return player.stats[k] || null;
 }
 
 function setPlayerStatField(statKeyRaw, fieldRaw, valueRaw) {
-  const rec = getPlayerStatRec(statKeyRaw);
-  if (!rec) return;
-
   const k = normStatKey(statKeyRaw);
-  const def = PLAYER_STAT_DEF_MAP[k];
+  const def = getStatDef(k);
+  const rec = getPlayerStatRec(k);
+  if (!def || !rec) return;
 
-  const field = normStatKey(fieldRaw) || 'current';
-  const v = Number(valueRaw);
-  if (!isFinite(v)) return;
+  const result = setStatRecField(def, rec, fieldRaw, valueRaw);
+  if (!result) return;
 
-  if (field === 'base') {
-    const prevBase = rec.base;
-    const prevCurrent = rec.current;
-
-    rec.base = v;
-
-    if (def?.clampToBase && rec.current > rec.base) {
-      rec.current = rec.base;
-    }
-
-    emitGameEvent('stat_change', {
-      actor: 'player',
-      stat: k,
-      field: 'base',
-      prev: prevBase,
-      next: rec.base
-    });
-
-    if (rec.current !== prevCurrent) {
-      emitGameEvent('stat_change', {
-        actor: 'player',
-        stat: k,
-        field: 'current',
-        prev: prevCurrent,
-        next: rec.current
-      });
-    }
-
-    return;
-  }
-
-  const prev = rec.current;
-  rec.current = v;
-
-  if (def?.clampToBase) {
-    rec.current = Math.max(0, Math.min(rec.current, rec.base));
-  }
-
-  if (rec.current !== prev) {
-    emitGameEvent('stat_change', {
-      actor: 'player',
-      stat: k,
-      field: 'current',
-      prev,
-      next: rec.current
-    });
-  }
+  emitGameEvent('stat_change', {
+    actor: 'player',
+    stat: k,
+    field: result.field,
+    prev: result.prev,
+    next: result.next
+  });
 }
 
 function handleNpcPassOutIfNeeded(npcActor, statKey, prevVal, nextVal) {
@@ -2652,10 +9422,7 @@ function handleNpcPassOutIfNeeded(npcActor, statKey, prevVal, nextVal) {
 
 function ensureMobStats(m) {
   if (!m) return null;
-  if (!m.stats || typeof m.stats !== 'object') throw new Error('[mob] missing stats object');
-  if (!m.stats.hp || typeof m.stats.hp !== 'object') throw new Error('[mob] missing stats.hp');
-  if (!m.stats.endurance || typeof m.stats.endurance !== 'object') throw new Error('[mob] missing stats.endurance');
-  if (!m.stats.fortitude || typeof m.stats.fortitude !== 'object') throw new Error('[mob] missing stats.fortitude');
+  m.stats = ensureStatsSchemaForKind(m.stats, 'mob');
   return m.stats;
 }
 
@@ -2673,23 +9440,11 @@ function setMobStatField(m, statKeyRaw, fieldRaw, valueRaw) {
   if (!rec) return false;
 
   const statKey = normStatKey(statKeyRaw);
-  const field = normStatKey(fieldRaw) || 'current';
-  const v = Number(valueRaw);
-  if (!isFinite(v)) return false;
+  const def = getStatDef(statKey);
+  if (!def) return false;
 
-  if (field === 'base') rec.base = v;
-  else rec.current = v;
-
-  // Clamp: base >= 0; current >= 0 and <= base when base is finite
-  if (field !== 'base') {
-    const b = Number(rec.base ?? 0);
-    if (isFinite(b)) rec.current = Math.max(0, Math.min(b, Number(rec.current ?? 0)));
-    else rec.current = Math.max(0, Number(rec.current ?? 0));
-  } else {
-    rec.base = Math.max(0, Number(rec.base ?? 0));
-    const b = Number(rec.base ?? 0);
-    rec.current = Math.max(0, Math.min(b, Number(rec.current ?? 0)));
-  }
+  const result = setStatRecField(def, rec, fieldRaw, valueRaw);
+  if (!result) return false;
 
   return true;
 }
@@ -2698,12 +9453,21 @@ function addMobStatField(m, statKeyRaw, fieldRaw, deltaRaw) {
   const rec = getMobStatRec(m, statKeyRaw);
   if (!rec) return false;
 
-  const field = normStatKey(fieldRaw) || 'current';
   const d = Number(deltaRaw);
   if (!isFinite(d) || d === 0) return false;
 
-  if (field === 'base') return setMobStatField(m, statKeyRaw, 'base', Number(rec.base ?? 0) + d);
-  return setMobStatField(m, statKeyRaw, 'current', Number(rec.current ?? 0) + d);
+  const statKey = normStatKey(statKeyRaw);
+  const def = getStatDef(statKey);
+  if (!def) return false;
+  const field = normalizeStatFieldForDef(def, fieldRaw);
+  if (def.type === 'depletable') {
+    const nextVal = (field === 'max') ? Number(rec.max ?? 0) + d : Number(rec.current ?? 0) + d;
+    return setMobStatField(m, statKey, field, nextVal);
+  }
+  if (def.type === 'scalar') {
+    return setMobStatField(m, statKey, 'base', Number(rec.base ?? 0) + d);
+  }
+  return setMobStatField(m, statKey, 'current', Number(rec.current ?? 0) + d);
 }
 
 
@@ -2716,7 +9480,9 @@ function applyStatChangeWithFeedback(target, statKeyRaw, op, payload = null) {
   if (!statKey) return false;
 
   const mode = lc(op?.mode || 'delta');
-  const field = normStatKey(op?.field) || 'current';
+  const def = getStatDef(statKey);
+  if (!def) return false;
+  const field = normalizeStatFieldForDef(def, op?.field);
 
   // --- PLAYER + NPC (shared path) ---
   if (kind === 'player' || kind === 'npc') {
@@ -2725,18 +9491,30 @@ function applyStatChangeWithFeedback(target, statKeyRaw, op, payload = null) {
 
     const getRec = (kind === 'player')
       ? (k) => getPlayerStatRec(k)
-      : (k) => getActorStatRec(who, k);
+      : (k) => {
+        ensureNpcStatsShared(who);
+        return getActorStatRec(who, k);
+      };
 
     const setField = (kind === 'player')
       ? (k, f, v) => setPlayerStatField(k, f, v)
-      : (k, f, v) => setActorStatField(who, k, f, v);
+      : (k, f, v) => {
+        ensureNpcStatsShared(who);
+        return setActorStatField(who, k, f, v);
+      };
 
     const addField = (kind === 'player')
       ? (k, f, d) => addPlayerStatField(k, f, d)
-      : (k, f, d) => addActorStatField(who, k, f, d);
+      : (k, f, d) => {
+        ensureNpcStatsShared(who);
+        return addActorStatField(who, k, f, d);
+      };
 
     const before = getRec(statKey);
-    const prev = (field === 'base') ? Number(before?.base) : Number(before?.current);
+    let prev = null;
+    if (def.type === 'depletable') prev = (field === 'max') ? Number(before?.max ?? 0) : Number(before?.current ?? 0);
+    else if (def.type === 'scalar') prev = Number(before?.base ?? 0);
+    else prev = Number(before?.current ?? 0);
 
     if (mode === 'set') {
       setField(statKey, field, op?.value);
@@ -2747,11 +9525,37 @@ function applyStatChangeWithFeedback(target, statKeyRaw, op, payload = null) {
     }
 
     const after = getRec(statKey);
-    const next = (field === 'base') ? Number(after?.base) : Number(after?.current);
+    let next = null;
+    if (def.type === 'depletable') next = (field === 'max') ? Number(after?.max ?? 0) : Number(after?.current ?? 0);
+    else if (def.type === 'scalar') next = Number(after?.base ?? 0);
+    else next = Number(after?.current ?? 0);
+
+    if (
+      kind === 'npc' &&
+      lc(who || '') === 'mira' &&
+      (statKey === 'alignment' || statKey === 'affection') &&
+      field === 'current'
+    ) {
+      const prevAlign = (statKey === 'alignment') ? prev : Number(getActorStatValue('Mira', 'alignment', 'current') ?? 0);
+      const prevAff = (statKey === 'affection') ? prev : Number(getActorStatValue('Mira', 'affection', 'current') ?? 0);
+      const nextAlign = Number(getActorStatValue('Mira', 'alignment', 'current') ?? 0);
+      const nextAff = Number(getActorStatValue('Mira', 'affection', 'current') ?? 0);
+
+      const prevSum = Number(prevAlign ?? 0) + Number(prevAff ?? 0);
+      const nextSum = Number(nextAlign ?? 0) + Number(nextAff ?? 0);
+      const prevRel = prevSum > 0 ? 'ally' : (prevSum < 0 ? 'enemy' : 'neutral');
+      const nextRel = nextSum > 0 ? 'ally' : (nextSum < 0 ? 'enemy' : 'neutral');
+      const flipped = prevRel !== nextRel ? 'FLIP' : 'same';
+      const src = payload?.source || payload?.ability || payload?.rule || payload?.dialog || null;
+
+      console.log(
+        `dbg/mira_alignment_change stat=${statKey} prev=${prev} next=${next} sum=${prevSum}->${nextSum} partyRelation=${prevRel}->${nextRel} (${flipped}) source=${src}`
+      );
+    }
 
     // Player-only composure fade pulse
     if (kind === 'player' && statKey === 'composure' && field === 'current' && isFinite(prev) && isFinite(next) && next < prev) {
-      const base = Number(after?.base) || 0;
+      const base = Number(getActorStatValue('player', 'composure', 'max') ?? 0);
 
       let alpha = 1;
       if (next > 0 && base > 0) {
@@ -2764,7 +9568,6 @@ function applyStatChangeWithFeedback(target, statKeyRaw, op, payload = null) {
 
     // NPC-only feedback (head bars + pass-out + icons)
     if (kind === 'npc') {
-      console.log('[NPC STAT]', who, statKey, field, prev, '->', next);
 
       const delta =
         (isFinite(prev) && isFinite(next)) ? (next - prev)
@@ -2853,11 +9656,11 @@ function applyStatChangeWithFeedback(target, statKeyRaw, op, payload = null) {
       let appliedDelta = deltaRaw;
 
       if (statKey === 'stamina' && appliedDelta < 0) {
-        const end = Number(m?.stats?.endurance?.current ?? 0);
+        const end = Number(getStatEffectiveValue(m, 'endurance') ?? 0);
         if (isFinite(end) && end > 0) appliedDelta = Math.min(0, appliedDelta + end);
         else appliedDelta = Math.min(0, appliedDelta);
       } else if (statKey === 'composure' && appliedDelta < 0) {
-        const fort = Number(m?.stats?.fortitude?.current ?? 0);
+        const fort = Number(getStatEffectiveValue(m, 'fortitude') ?? 0);
         if (isFinite(fort) && fort > 0) appliedDelta = Math.min(0, appliedDelta + fort);
         else appliedDelta = Math.min(0, appliedDelta);
       } else {
@@ -2884,32 +9687,27 @@ function addPlayerStatField(statKeyRaw, fieldRaw, deltaRaw) {
   const rec = getPlayerStatRec(statKeyRaw);
   if (!rec) return;
 
-  const field = normStatKey(fieldRaw) || 'current';
   const d = Number(deltaRaw);
   if (!isFinite(d)) return;
 
   const statKey = normStatKey(statKeyRaw);
+  const def = getStatDef(statKey);
+  if (!def) return;
+  const field = normalizeStatFieldForDef(def, fieldRaw);
 
-  if (field === 'base') {
-    const prev = rec.base;
-    setPlayerStatField(statKeyRaw, 'base', rec.base + d);
-    emitGameEvent('stat_change', {
-      actor: 'player',
-      stat: statKey,
-      field: 'base',
-      prev,
-      next: rec.base
-    });
+  if (def.type === 'depletable') {
+    const prev = (field === 'max') ? Number(rec.max ?? 0) : Number(rec.current ?? 0);
+    const nextVal = (field === 'max') ? Number(rec.max ?? 0) + d : Number(rec.current ?? 0) + d;
+    setPlayerStatField(statKeyRaw, field, nextVal);
+    emitGameEvent('stat_change', { actor: 'player', stat: statKey, field, prev, next: (field === 'max') ? Number(rec.max ?? 0) : Number(rec.current ?? 0) });
+  } else if (def.type === 'scalar') {
+    const prev = Number(rec.base ?? 0);
+    setPlayerStatField(statKeyRaw, field, prev + d);
+    emitGameEvent('stat_change', { actor: 'player', stat: statKey, field: 'base', prev, next: Number(rec.base ?? 0) });
   } else {
-    const prev = rec.current;
-    setPlayerStatField(statKeyRaw, 'current', rec.current + d);
-    emitGameEvent('stat_change', {
-      actor: 'player',
-      stat: statKey,
-      field: 'current',
-      prev,
-      next: rec.current
-    });
+    const prev = Number(rec.current ?? 0);
+    setPlayerStatField(statKeyRaw, field, prev + d);
+    emitGameEvent('stat_change', { actor: 'player', stat: statKey, field: 'current', prev, next: Number(rec.current ?? 0) });
   }
 }
 
@@ -2919,18 +9717,33 @@ function buildPlayerStatsLabelLine() {
 
   // Keep display order stable:
   const parts = [];
-  for (const d of PLAYER_STAT_DEFS) {
-    const k = String(d.key).toLowerCase();
-    const rec = player.stats[k] || { base: 0, current: 0 };
-    parts.push(`${d.label}: ${rec.current}/${rec.base}`);
+  for (const k of PLAYER_STAT_ORDER) {
+    const def = getStatDef(k);
+    const rec = player.stats?.[k];
+    if (!def || !rec) continue;
+    if (def.type === 'depletable') {
+      const cur = Number(rec.current ?? 0);
+      const max = Number(getStatEffectiveValue(player, k) ?? rec.max ?? 0);
+      parts.push(`${def.shortLabel || k}: ${cur}/${max}`);
+    } else if (def.type === 'scalar') {
+      const val = Number(getStatEffectiveValue(player, k) ?? rec.base ?? 0);
+      parts.push(`${def.shortLabel || k}: ${val}`);
+    } else if (def.type === 'variable') {
+      const val = Number(getStatEffectiveValue(player, k) ?? rec.current ?? 0);
+      parts.push(`${def.shortLabel || k}: ${val}`);
+    }
   }
   return parts.join('  ');
 }
 
+const HEAD_STAT_BAR_H = 26;
+const HEAD_STAT_BAR_GAP = 10;
+const HEAD_STAT_BAR_LABEL_Y_PAD = 2;
+
 function drawFixedStatBar(cx, yBottom, label, current, base, opts = {}) {
   const w = Math.floor(Number(opts.w ?? 220));
-  const h = Math.floor(Number(opts.h ?? 14));
-  const pad = Math.floor(Number(opts.pad ?? 4));
+  const h = Math.floor(Number(opts.h ?? HEAD_STAT_BAR_H));
+  const pad = Math.floor(Number(opts.pad ?? 5));
 
   const x = Math.floor(cx - w / 2);
   const y = Math.floor(yBottom - h);
@@ -2939,35 +9752,40 @@ function drawFixedStatBar(cx, yBottom, label, current, base, opts = {}) {
   const c = Math.max(0, Number(current) || 0);
   const frac = (b > 0) ? Math.max(0, Math.min(1, c / b)) : 0;
 
+  const radius = Math.min(Math.floor(h / 3), Math.floor(Number(opts.radius ?? (h / 2))));
+
   // background + border
   ctx.save();
   ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
-  ctx.fillRect(x, y, w, h);
+  drawRoundedRect(ctx, x, y, w, h, radius);
+  ctx.fill();
 
   ctx.strokeStyle = 'rgba(0, 0, 0, 1)';
   ctx.lineWidth = 2;
-  ctx.strokeRect(x, y, w, h);
+  drawRoundedRect(ctx, x, y, w, h, radius);
+  ctx.stroke();
 
   // fill (fixed width; only fill amount changes)
   const fillW = Math.floor(w * frac);
   ctx.fillStyle = String(opts.fill ?? 'rgba(120, 220, 120, 0.95)');
-  if (fillW > 0) ctx.fillRect(x, y, fillW, h);
+  if (fillW > 0) {
+    const fillRadius = Math.min(radius, Math.floor(fillW / 2));
+    drawRoundedRect(ctx, x, y, fillW, h, fillRadius);
+    ctx.fill();
+  }
 
   // label
-  ctx.font = '12px monospace';
+  ctx.font = uiFont(Math.max(12, Math.round(h * 0.9)));
   ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
+  ctx.textBaseline = 'top';
   ctx.fillStyle = '#fff';
-  ctx.strokeStyle = '#000';
-  ctx.lineWidth = 2;
 
-  const ty = Math.floor(y + h / 2);
-  ctx.strokeText(String(label), x + pad, ty);
+  const ty = Math.floor(y - 4);
   ctx.fillText(String(label), x + pad, ty);
 
   ctx.restore();
 
-  return h + 6; // vertical space used (for stacking)
+  return h + HEAD_STAT_BAR_GAP + HEAD_STAT_BAR_LABEL_Y_PAD; // vertical space used (for stacking)
 }
 
 // ===== Stat change floaters (icons) =====
@@ -2975,82 +9793,104 @@ function drawFixedStatBar(cx, yBottom, label, current, base, opts = {}) {
 const STAT_CHANGE_FLOATERS = [];
 const STAT_CHANGE_ICON_CACHE = Object.create(null);
 
-// ===== Item found feedback (toast + icon floater) =====
-const ITEM_FOUND_TOAST = {
-  active: false,
-  text: '',
-  start: 0,
+// ===== World toast (general purpose, queued) =====
+const WORLD_TOASTS = [];
+const WORLD_TOAST_DEFAULTS = {
   fadeIn: 140,
-  hold: 950,
-  fadeOut: 520
+  hold: 3700, // total ~4s including fades
+  fadeOut: 160
 };
 
-function showItemFoundToast(text) {
-  ITEM_FOUND_TOAST.active = true;
-  ITEM_FOUND_TOAST.text = String(text || '').trim();
-  ITEM_FOUND_TOAST.start = performance.now();
+function showWorldToast(text, opts = null) {
+  const msg = String(text || '').trim();
+  if (!msg) return;
+  const now = getGameNowMs();
+  const fadeIn = Number(opts?.fadeIn ?? WORLD_TOAST_DEFAULTS.fadeIn);
+  const hold = Number(opts?.hold ?? WORLD_TOAST_DEFAULTS.hold);
+  const fadeOut = Number(opts?.fadeOut ?? WORLD_TOAST_DEFAULTS.fadeOut);
+  WORLD_TOASTS.push({
+    text: msg,
+    start: now,
+    fadeIn: isFinite(fadeIn) ? Math.max(0, fadeIn) : 0,
+    hold: isFinite(hold) ? Math.max(0, hold) : 0,
+    fadeOut: isFinite(fadeOut) ? Math.max(0, fadeOut) : 0
+  });
 }
 
-function drawItemFoundToast() {
-  if (!ITEM_FOUND_TOAST.active || !ITEM_FOUND_TOAST.text) return;
+function showItemFoundToast(text) {
+  showWorldToast(text);
+}
 
-  const now = performance.now();
-  const t = now - ITEM_FOUND_TOAST.start;
-  const total = ITEM_FOUND_TOAST.fadeIn + ITEM_FOUND_TOAST.hold + ITEM_FOUND_TOAST.fadeOut;
+function drawWorldToast() {
+  if (!WORLD_TOASTS.length) return;
 
-  if (t >= total) {
-    ITEM_FOUND_TOAST.active = false;
-    return;
+  const now = getGameNowMs();
+  const alive = [];
+  const lines = [];
+
+  for (const toast of WORLD_TOASTS) {
+    if (!toast || !toast.text) continue;
+    const t = now - toast.start;
+    const total = toast.fadeIn + toast.hold + toast.fadeOut;
+    if (t >= total) continue;
+
+    let alpha = 1;
+    if (t < toast.fadeIn && toast.fadeIn > 0) {
+      alpha = t / toast.fadeIn;
+    } else if (t > toast.fadeIn + toast.hold && toast.fadeOut > 0) {
+      const outT = t - (toast.fadeIn + toast.hold);
+      alpha = 1 - (outT / toast.fadeOut);
+    }
+
+    alive.push(toast);
+    lines.push({ text: toast.text, alpha: Math.max(0, Math.min(1, alpha)) });
   }
 
-  let alpha = 1;
-  if (t < ITEM_FOUND_TOAST.fadeIn) {
-    alpha = t / ITEM_FOUND_TOAST.fadeIn;
-  } else if (t > ITEM_FOUND_TOAST.fadeIn + ITEM_FOUND_TOAST.hold) {
-    const outT = t - (ITEM_FOUND_TOAST.fadeIn + ITEM_FOUND_TOAST.hold);
-    alpha = 1 - (outT / ITEM_FOUND_TOAST.fadeOut);
-  }
-
-  const text = ITEM_FOUND_TOAST.text;
+  WORLD_TOASTS.length = 0;
+  WORLD_TOASTS.push(...alive);
+  if (!lines.length) return;
 
   const padX = 14;
   const padY = 7;
+  const boxH = 30;
+  const gapY = 12;
+  const baseY = 220; // below menu tabs
 
   ctx.save();
-  ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-
-  ctx.font = 'bold 40px monospace';
+  ctx.font = uiFont(40, 'bold');
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
-  const textW = ctx.measureText(text).width;
-  const boxW = Math.ceil(textW) + padX * 2;
-  const boxH = 30;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const textW = ctx.measureText(line.text).width;
+    const boxW = Math.ceil(textW) + padX * 2;
+    const x = Math.floor((canvas.width - boxW) / 2);
+    const y = Math.floor(baseY + i * (boxH + gapY));
 
-  const x = Math.floor((canvas.width - boxW) / 2);
-  const y = 100; // below area/section banners
+    ctx.globalAlpha = line.alpha;
+    const r = 8;
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + boxW - r, y);
+    ctx.quadraticCurveTo(x + boxW, y, x + boxW, y + r);
+    ctx.lineTo(x + boxW, y + boxH - r);
+    ctx.quadraticCurveTo(x + boxW, y + boxH, x + boxW - r, y + boxH);
+    ctx.lineTo(x + r, y + boxH);
+    ctx.quadraticCurveTo(x, y + boxH, x, y + boxH - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+    ctx.fill();
 
-  const r = 8;
-  ctx.fillStyle = 'rgba(0,0,0,0.55)';
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + boxW - r, y);
-  ctx.quadraticCurveTo(x + boxW, y, x + boxW, y + r);
-  ctx.lineTo(x + boxW, y + boxH - r);
-  ctx.quadraticCurveTo(x + boxW, y + boxH, x + boxW - r, y + boxH);
-  ctx.lineTo(x + r, y + boxH);
-  ctx.quadraticCurveTo(x, y + boxH, x, y + boxH - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
-  ctx.closePath();
-  ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
 
-  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(text, x + boxW / 2, y + boxH / 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(line.text, x + boxW / 2, y + boxH / 2);
+  }
 
   ctx.restore();
 }
@@ -3060,25 +9900,32 @@ function drawItemFoundToast() {
 const ITEM_FOUND_FLOATERS = [];
 const ITEM_ICON_CACHE = Object.create(null);
 
-function __getItemIcon(itemIdRaw) {
-  const id = String(itemIdRaw || '').trim().toLowerCase();
-  if (!id) return null;
+function getItemIconKey(itemIdRaw, defOverride = null) {
+  const def = defOverride || getItemDef(itemIdRaw);
+  const raw = def?.image ?? def?.icon ?? def?.sprite ?? itemIdRaw;
+  const key = String(raw || '').trim().toLowerCase();
+  return key || null;
+}
 
-  let entry = ITEM_ICON_CACHE[id];
+function __getItemIcon(itemIdRaw, defOverride = null) {
+  const key = getItemIconKey(itemIdRaw, defOverride);
+  if (!key) return null;
+
+  let entry = ITEM_ICON_CACHE[key];
   if (entry) return entry;
 
   const img = new Image();
-  entry = { img, ready: false, failed: false, key: id };
+  entry = { img, ready: false, failed: false, key };
 
   img.onload = () => { entry.ready = true; };
   img.onerror = () => { entry.ready = false; entry.failed = true; };
 
-  img.src = `assets/items/${id}.png`;
-  ITEM_ICON_CACHE[id] = entry;
+  img.src = `assets/items/${key}.png`;
+  ITEM_ICON_CACHE[key] = entry;
   return entry;
 }
 
-function spawnFoundItemFeedback(itemIdRaw, qtyRaw = 1) {
+function spawnFoundItemFeedback(itemIdRaw, qtyRaw = 1, actor = null) {
   const id = lc(itemIdRaw || '');
   if (!id) return;
 
@@ -3089,17 +9936,18 @@ function spawnFoundItemFeedback(itemIdRaw, qtyRaw = 1) {
   showItemFoundToast(`Found ${name}`);
 
   // Icon floater (only if the icon exists; draw loop will skip until loaded)
-  const icon = __getItemIcon(id);
+  const icon = __getItemIcon(id, def);
   if (!icon || icon.failed) return;
 
-  const now = performance.now();
+  const now = getGameNowMs();
 
-  const worldX0 = (Number(player?.worldX) || 0) + (Number(player?.w) || 0) / 2;
-  const worldY0 = (Number(player?.y) || 0) - 22;
+  const src = actor || player;
+  const worldX0 = (Number(src?.worldX) || 0) + (Number(src?.w) || 0) / 2;
+  const worldY0 = (Number(src?.y) || 0) - 22;
 
   ITEM_FOUND_FLOATERS.push({
     itemId: id,
-    imgKey: id,
+    imgKey: icon.key,
 
     worldX0,
     worldY0,
@@ -3113,7 +9961,7 @@ function spawnFoundItemFeedback(itemIdRaw, qtyRaw = 1) {
 }
 
 function drawItemFoundFloaters(ctx) {
-  const now = performance.now();
+  const now = getGameNowMs();
   if (!ITEM_FOUND_FLOATERS.length) return;
 
   for (let i = ITEM_FOUND_FLOATERS.length - 1; i >= 0; i--) {
@@ -3139,6 +9987,73 @@ function drawItemFoundFloaters(ctx) {
     ctx.save();
     ctx.globalAlpha = Math.max(0, Math.min(1, 1 - t)); // fade out
     ctx.drawImage(icon.img, sx - Math.floor(s / 2), sy - s, s, s);
+    ctx.restore();
+  }
+}
+
+function drawManualTargetingOverlay() {
+  if (!inManualTargeting || !manualTargetingState) return;
+
+  const st = manualTargetingState;
+  if (!Array.isArray(st.candidates) || st.candidates.length === 0) return;
+
+  const now = Date.now();
+
+  ctx.save();
+  ctx.lineWidth = 3;
+
+  for (let i = 0; i < st.candidates.length; i++) {
+    const a = st.candidates[i];
+    if (!a) continue;
+    const pos = __actorRenderCenter(a);
+    if (!pos) continue;
+
+    const r = Math.max(36, Math.min(120, (Number(a.w) || 0) * 0.6));
+    const isSel = (i === st.selectedIndex);
+
+    if (st.flashBadUntilMs && now >= st.flashBadUntilMs) {
+      st.flashBadUntilMs = 0;
+      st.flashBadAtMs = 0;
+    }
+    let isBadFlash = false;
+    if (isSel && st.flashBadUntilMs && now < st.flashBadUntilMs) {
+      const pulseMs = Number(st.flashBadPulseMs || 120);
+      const phase = Math.floor((now - Number(st.flashBadAtMs || now)) / Math.max(40, pulseMs));
+      isBadFlash = (phase % 2 === 0);
+    }
+    ctx.beginPath();
+    ctx.strokeStyle = isBadFlash
+      ? 'rgba(255, 60, 60, 0.95)'
+      : (isSel ? 'rgba(255, 210, 90, 0.95)' : 'rgba(120, 200, 255, 0.7)');
+    ctx.lineWidth = isSel ? 4 : 2.5;
+    ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
+    ctx.stroke();
+
+    if (isSel) {
+      ctx.beginPath();
+      ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+      ctx.lineWidth = 1.5;
+      ctx.arc(pos.x, pos.y, r + 4, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  ctx.restore();
+
+  if (st.errorUntilMs && now < st.errorUntilMs && st.errorMsg) {
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.font = uiFont(42);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = '#ffdddd';
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 3;
+    const msg = String(st.errorMsg);
+    const x = WIDTH / 2;
+    const y = Math.max(16, Math.floor(HEIGHT * 0.08));
+    ctx.strokeText(msg, x, y);
+    ctx.fillText(msg, x, y);
     ctx.restore();
   }
 }
@@ -3279,7 +10194,7 @@ function spawnStatChangeIconsForActor(actor, statKeyRaw, deltaRaw) {
   const icon = __getStatChangeIcon(statKey, dir);
   if (!icon || icon.failed || !icon.ready) return;
 
-  const now = performance.now();
+  const now = getGameNowMs();
 
 
   for (let i = 0; i < count; i++) {
@@ -3312,7 +10227,7 @@ function spawnStatChangeIconsForActor(actor, statKeyRaw, deltaRaw) {
 }
 
 function drawStatChangeFloaters(ctx) {
-  const now = performance.now();
+  const now = getGameNowMs();
   if (!STAT_CHANGE_FLOATERS.length) return;
 
   // prune + draw
@@ -3341,29 +10256,47 @@ function drawStatChangeFloaters(ctx) {
   }
 }
 
-// ===== Player head stat bars (show for 2s; animate fill in middle 1s) =====
-const PLAYER_HEAD_STAT_BARS = {
-  visibleUntilMs: 0,
+// ===== Head stat bars (shared for player + NPCs + mobs) =====
+const HEAD_STAT_BAR_TIMING = {
   holdMs: 500,   // first 0.5s: show old value
-  animMs: 1000,  // middle 1s: slide old -> new
-  totalMs: 2000, // total visible time
-  // per stat: { base, from, to, startMs, endMs, hasTween }
-  sta: { base: 0, from: 0, to: 0, startMs: 0, endMs: 0, hasTween: false },
-  com: { base: 0, from: 0, to: 0, startMs: 0, endMs: 0, hasTween: false }
+  animMs: 500,  // middle 1s: slide old -> new
+  totalMs: 1500 // total visible time
 };
 
+function __ensureHeadBarState(actor) {
+  if (!actor) return null;
+  if (!actor._headStatBars) {
+    actor._headStatBars = {
+      visibleUntilMs: 0,
+      entries: Object.create(null)
+    };
+  }
+  return actor._headStatBars;
+}
+
+function __getHeadBarEntry(actor, statKey) {
+  const bars = __ensureHeadBarState(actor);
+  if (!bars) return null;
+  const key = lc(statKey);
+  if (!bars.entries[key]) {
+    bars.entries[key] = { base: 0, from: 0, to: 0, startMs: 0, endMs: 0, hasTween: false };
+  }
+  return bars.entries[key];
+}
+
 function cancelPlayerHeadBarTweens() {
-  PLAYER_HEAD_STAT_BARS.visibleUntilMs = 0;
+  const bars = __ensureHeadBarState(player);
+  if (!bars) return;
+
+  bars.visibleUntilMs = 0;
 
   // force drawPlayerHeadBars() to use live stat values immediately
-  PLAYER_HEAD_STAT_BARS.sta.hasTween = false;
-  PLAYER_HEAD_STAT_BARS.com.hasTween = false;
-
-  // reset timing (defensive)
-  PLAYER_HEAD_STAT_BARS.sta.startMs = 0;
-  PLAYER_HEAD_STAT_BARS.sta.endMs = 0;
-  PLAYER_HEAD_STAT_BARS.com.startMs = 0;
-  PLAYER_HEAD_STAT_BARS.com.endMs = 0;
+  for (const key of Object.keys(bars.entries)) {
+    const entry = bars.entries[key];
+    entry.hasTween = false;
+    entry.startMs = 0;
+    entry.endMs = 0;
+  }
 }
 
 function __lerp(a, b, t) {
@@ -3375,11 +10308,8 @@ function __lerp(a, b, t) {
   return a + (b - a) * t;
 }
 
-function __getHeadBarDisplayedValue(statKey, nowMs) {
-  const key = lc(statKey);
-  const entry = (key === 'stamina') ? PLAYER_HEAD_STAT_BARS.sta
-              : (key === 'composure') ? PLAYER_HEAD_STAT_BARS.com
-              : null;
+function __getHeadBarDisplayedValue(actor, statKey, nowMs) {
+  const entry = __getHeadBarEntry(actor, statKey);
   if (!entry) return null;
 
   const start = Number(entry.startMs);
@@ -3396,10 +10326,42 @@ function __getHeadBarDisplayedValue(statKey, nowMs) {
   return __lerp(entry.from, entry.to, t);
 }
 
+function noteHeadStatChanged(actor, statKey, prevValue, nextValue) {
+  if (!actor) return;
+
+  const key = lc(statKey);
+  if (key !== 'stamina' && key !== 'composure' && key !== 'hp') return;
+
+  const now = Date.now();
+  const base = Number(actor?.stats?.[key]?.base ?? 0);
+  const bars = __ensureHeadBarState(actor);
+  const entry = __getHeadBarEntry(actor, key);
+
+  // If we're already showing/animating, start the new tween from the currently displayed value
+  const fromVal =
+    (now < Number(bars?.visibleUntilMs || 0))
+      ? __getHeadBarDisplayedValue(actor, key, now)
+      : Number(prevValue);
+
+  entry.base = base;
+  entry.from = Number(fromVal);
+  entry.to = Number(nextValue);
+  entry.startMs = now + HEAD_STAT_BAR_TIMING.holdMs;
+  entry.endMs = entry.startMs + HEAD_STAT_BAR_TIMING.animMs;
+  entry.hasTween = true;
+
+  bars.visibleUntilMs = Math.max(
+    Number(bars.visibleUntilMs || 0),
+    now + HEAD_STAT_BAR_TIMING.totalMs
+  );
+}
+
 function notePlayerHeadStatChanged(statKey, prevValue, nextValue) {
   const key = lc(statKey);
   if (key !== 'stamina' && key !== 'composure') return;
-
+  noteHeadStatChanged(player, key, prevValue, nextValue);
+  return;
+/*
   const now = Date.now();
   const base = Number(player?.stats?.[key]?.base ?? 0);
 
@@ -3422,6 +10384,7 @@ function notePlayerHeadStatChanged(statKey, prevValue, nextValue) {
     PLAYER_HEAD_STAT_BARS.visibleUntilMs,
     now + PLAYER_HEAD_STAT_BARS.totalMs
   );
+*/
 }
 
 function __ensureNpcHeadBarState(npc) {
@@ -3440,7 +10403,9 @@ function noteNpcHeadStatChanged(npcActor, statKey, prevValue, nextValue) {
   if (key !== 'stamina' && key !== 'composure') return;
 
   if (!npcActor) return;
-
+  noteHeadStatChanged(npcActor, key, prevValue, nextValue);
+  return;
+/*
   const now = Date.now();
   const rec = npcActor?.stats?.[key];
   const base = Number(rec?.base ?? 0);
@@ -3462,6 +10427,7 @@ function noteNpcHeadStatChanged(npcActor, statKey, prevValue, nextValue) {
   entry.startMs = now;
   entry.endMs = now + 450;
   entry.showUntilMs = now + 1600;
+*/
 }
 
 
@@ -3509,7 +10475,16 @@ function __getMobHpBarDisplayedValue(mob, nowMs) {
 
 function noteMobHpChanged(mob, prevValue, nextValue) {
   if (!mob) return;
-
+  noteHeadStatChanged(mob, 'hp', prevValue, nextValue);
+  emitGameEvent('mob_hp_change', {
+    ...mobPayloadBase(mob),
+    stat: 'hp',
+    field: 'current',
+    prev: prevValue,
+    next: nextValue
+  });
+  return;
+/*
   const now = Date.now();
 
   const hpRec = mob?.stats?.hp;
@@ -3530,15 +10505,17 @@ function noteMobHpChanged(mob, prevValue, nextValue) {
   bar.startMs = now;
   bar.endMs = now + 450;
   bar.showUntilMs = now + 1600;
+*/
 }
 
 function drawMobHeadBars(mob, x, y) {
   if (!mob) return 0;
 
   const now = Date.now();
-  const bar = __ensureMobHeadBarState(mob);
+  const bars = __ensureHeadBarState(mob);
+  const entry = __getHeadBarEntry(mob, 'hp');
 
-  const forceVisible = now < Number(bar?.showUntilMs || 0);
+  const forceVisible = inManualTargeting || (now < Number(bars?.visibleUntilMs || 0));
 
   // Same rule as NPC: show when names are toggled (N) OR during recent-change window
   if (!forceVisible && !showNames) return 0;
@@ -3548,15 +10525,17 @@ function drawMobHeadBars(mob, x, y) {
   const hpRec = mob?.stats?.hp;
   if (!hpRec) return 0;
 
-  const hpVal = (forceVisible && now < (bar.showUntilMs || 0))
-    ? Number(__getMobHpBarDisplayedValue(mob, now))
+  const hpVal = (forceVisible && entry?.hasTween)
+    ? Number(__getHeadBarDisplayedValue(mob, 'hp', now))
     : Number(hpRec.current || 0);
 
-  // Place just above mob head (same general convention as NPC)
-  const y0 = y - 2;
-  const barsStartYBottom = y0 - 4;
+  // Center on actor body instead of above head
+  const centerY = y + mob.h * 0.45;
+  const totalH = HEAD_STAT_BAR_H + HEAD_STAT_BAR_GAP;
+  const barsStartYBottom = centerY + (totalH / 2);
 
-  return drawFixedStatBar(cx, barsStartYBottom, 'HP', hpVal, Number(hpRec.base || 0), {
+  const hpMax = Number(getStatEffectiveValue(mob, 'hp') ?? hpRec.max ?? 0);
+  return drawFixedStatBar(cx, barsStartYBottom, 'HP', hpVal, hpMax, {
     fill: 'rgba(255, 120, 120, 0.95)'
   });
 }
@@ -3565,42 +10544,48 @@ function drawNpcHeadBars(npc, x, y) {
   if (!npc) return 0;
 
   const now = Date.now();
-  const bars = __ensureNpcHeadBarState(npc);
+  const bars = __ensureHeadBarState(npc);
+  const staEntry = __getHeadBarEntry(npc, 'stamina');
+  const comEntry = __getHeadBarEntry(npc, 'composure');
 
-  const forceVisible =
-    now < Math.max(Number(bars?.sta?.showUntilMs || 0), Number(bars?.com?.showUntilMs || 0));
+  const forceVisible = inManualTargeting || (now < Number(bars?.visibleUntilMs || 0));
+
+
 
   // Match player behavior: show when names are toggled (N) OR during recent-change window
   if (!forceVisible && !showNames) return 0;
 
   const cx = x + npc.w / 2;
 
-  const staRec = npc.stats?.stamina || { base: 0, current: 0 };
-  const comRec = npc.stats?.composure || { base: 0, current: 0 };
+  const staRec = npc.stats?.stamina || { max: 0, current: 0 };
+  const comRec = npc.stats?.composure || { max: 0, current: 0 };
 
-  const staVal = (forceVisible && now < (bars.sta.showUntilMs || 0))
-    ? Number(__getNpcHeadBarDisplayedValue(npc, 'stamina', now))
+  const staVal = (forceVisible && staEntry?.hasTween)
+    ? Number(__getHeadBarDisplayedValue(npc, 'stamina', now))
     : Number(staRec.current || 0);
 
-  const comVal = (forceVisible && now < (bars.com.showUntilMs || 0))
-    ? Number(__getNpcHeadBarDisplayedValue(npc, 'composure', now))
+  const comVal = (forceVisible && comEntry?.hasTween)
+    ? Number(__getHeadBarDisplayedValue(npc, 'composure', now))
     : Number(comRec.current || 0);
 
-  // Bars start just above the NPC head; they stack upward (same as player)
-  const y0 = y - 2;
-  const barsStartYBottom = y0 - 4;
+  // Center on actor body instead of above head
+  const centerY = y + npc.h * 0.45;
+  const totalH = (HEAD_STAT_BAR_H + HEAD_STAT_BAR_GAP) * 2;
+  const barsStartYBottom = centerY + (totalH / 2);
 
   let yBottom = barsStartYBottom;
   let used = 0;
 
-  const usedCom = drawFixedStatBar(cx, yBottom, 'COM', comVal, comRec.base, {
-    fill: 'rgba(120, 170, 255, 0.95)'
+  const comMax = Number(getStatEffectiveValue(npc, 'composure') ?? comRec.max ?? 0);
+  const usedCom = drawFixedStatBar(cx, yBottom, 'COM', comVal, comMax, {
+    fill: 'rgba(16, 55, 122, 0.95)'
   });
   used += usedCom;
   yBottom -= usedCom;
 
-  const usedSta = drawFixedStatBar(cx, yBottom, 'STA', staVal, staRec.base, {
-    fill: 'rgba(140, 240, 140, 0.95)'
+  const staMax = Number(getStatEffectiveValue(npc, 'stamina') ?? staRec.max ?? 0);
+  const usedSta = drawFixedStatBar(cx, yBottom, 'STA', staVal, staMax, {
+    fill: 'rgba(8, 112, 8, 0.95)'
   });
   used += usedSta;
   yBottom -= usedSta;
@@ -3620,39 +10605,45 @@ function drawPlayerHeadBars(x, yBottomStart) {
   ensurePlayerStats();
 
   const now = Date.now();
-  const forceVisible = now < PLAYER_HEAD_STAT_BARS.visibleUntilMs;
+  const bars = __ensureHeadBarState(player);
+  const staEntry = __getHeadBarEntry(player, 'stamina');
+  const comEntry = __getHeadBarEntry(player, 'composure');
+  const forceVisible = inManualTargeting || (now < Number(bars?.visibleUntilMs || 0));
 
   // Respect existing logic (pressing N, name display, etc.)
-  if (!forceVisible && !showNames) return 0;
+  if (!forceVisible && !showNames) {
+    return 0;
+  }
 
   const cx = x + player.w / 2;
 
-  const staRec = player.stats?.stamina || { base: 0, current: 0 };
-  const comRec = player.stats?.composure || { base: 0, current: 0 };
+  const staRec = player.stats?.stamina || { max: 0, current: 0 };
+  const comRec = player.stats?.composure || { max: 0, current: 0 };
 
   // Only use tweened values during the timed "force visible" window.
-  const staVal = (forceVisible && PLAYER_HEAD_STAT_BARS.sta.hasTween)
-    ? (Number(__getHeadBarDisplayedValue('stamina', now)))
+  const staVal = (forceVisible && staEntry?.hasTween)
+    ? (Number(__getHeadBarDisplayedValue(player, 'stamina', now)))
     : Number(staRec.current || 0);
 
-  const comVal = (forceVisible && PLAYER_HEAD_STAT_BARS.com.hasTween)
-    ? (Number(__getHeadBarDisplayedValue('composure', now)))
+  const comVal = (forceVisible && comEntry?.hasTween)
+    ? (Number(__getHeadBarDisplayedValue(player, 'composure', now)))
     : Number(comRec.current || 0);
-
 
   let yBottom = yBottomStart;
 
   let used = 0;
 
   // COM (top) then STA (bottom)
-  const usedCom = drawFixedStatBar(cx, yBottom, 'COM', comVal, comRec.base, {
-    fill: 'rgba(120, 170, 255, 0.95)'
+  const comMax = Number(getStatEffectiveValue(player, 'composure') ?? comRec.max ?? 0);
+  const usedCom = drawFixedStatBar(cx, yBottom, 'COM', comVal, comMax, {
+    fill: 'rgba(16, 55, 122, 0.95)'
   });
   used += usedCom;
   yBottom -= usedCom;
 
-  const usedSta = drawFixedStatBar(cx, yBottom, 'STA', staVal, staRec.base, {
-    fill: 'rgba(140, 240, 140, 0.95)'
+  const staMax = Number(getStatEffectiveValue(player, 'stamina') ?? staRec.max ?? 0);
+  const usedSta = drawFixedStatBar(cx, yBottom, 'STA', staVal, staMax, {
+    fill: 'rgba(8, 112, 8, 0.95)'
   });
   used += usedSta;
   yBottom -= usedSta;
@@ -3672,9 +10663,36 @@ const player = {
   onGround: false,
   name: 'Dace',
 
-  // base/current per stat
-  stats: createStatsFromDefs(PLAYER_STAT_DEFS)
+  // stats per centralized STAT_DEFS
+  stats: createStatsForKind('player'),
+
+  // ability framework (future-proof)
+  abilities: [],
+  autoCastAbilityId: null,
+  abilityNextAtMs: Object.create(null),
+
+  // AI targeting (player may use for auto-cast / targeting UI)
+  aiTargeting: null,
+  aiMovementTargeting: null,
+
+  // Attack targeting (queue + current)
+  attackTargetQueue: [],
+  attackTargetCurrentKey: null,
+  __attackQueueDirty: false,
+  __attackResortAtMs: 0,
+  __attackTargetActor: null,
+  __attackStopRangePx: null,
+  __attackPreferredAbilityId: null,
+
+  // Movement targeting (queue + current)
+  moveTargetQueue: [],
+  moveTargetCurrentKey: null,
+  __moveQueueDirty: false,
+  __moveResortAtMs: 0,
+  __moveTargetActor: null,
+  __moveStopRangePx: null
 };
+globalThis.player = player;
 
 ensurePlayerStats();
 
@@ -3688,7 +10706,7 @@ function clampStatFloor0(v) {
 function recoverPlayerOnPassOut() {
   for (const k of ['stamina', 'composure']) {
     if (!player.stats[k]) continue;
-    player.stats[k].current = clampStatFloor0(player.stats[k].base);
+    player.stats[k].current = clampStatFloor0(player.stats[k].max);
   }
 }
 
@@ -3705,9 +10723,55 @@ function checkPlayerPassOut() {
 // name -> { inParty:boolean, area:string|null, worldX:number|null, stats:{[key]:{base,current}}, rules:Rule[] }
 const npcRegistry = {};
 
+function __npcKey(name) {
+  const k = lc(String(name || '').trim());
+  return k;
+}
+
 // REGISTRY OF Mobs AND THEIR STATES
-// instanceId -> { area, mobId, worldX, y, vx, vy, facing, onGround, ai*, anchor, targetQueue, targetCurrentKey, ... }
+// instanceId -> { area, mobId, worldX, y, vx, vy, facing, onGround, ai*, anchor, attackTarget*, moveTarget*, ... }
 const mobRegistry = Object.create(null);
+
+function ensureMobRecord(instanceId, mobId = null) {
+  const key = String(instanceId || '').trim();
+  if (!key) return null;
+  const rec = mobRegistry[key] || (mobRegistry[key] = Object.create(null));
+  if (mobId && !rec.mobId) rec.mobId = String(mobId);
+  rec.instanceId = key;
+  return rec;
+}
+
+function initMobRegistryFromDefs(rec, mobId, areaName, worldX, mobDef) {
+  if (!rec) return;
+  if (mobId && !rec.mobId) rec.mobId = String(mobId);
+  if (areaName && !rec.area) rec.area = String(areaName);
+  if (Number.isFinite(worldX) && (rec.worldX == null)) rec.worldX = Number(worldX);
+
+  if (mobDef) {
+    if (!Array.isArray(rec.tags) && Array.isArray(mobDef.tags)) rec.tags = mobDef.tags.slice();
+
+    if (!rec.stats) {
+      const hp0 = Math.max(1, Number(mobDef?.stats?.hp ?? 1) || 1);
+      const end0 = Math.max(0, Number(mobDef?.stats?.endurance ?? 0) || 0);
+      const fort0 = Math.max(0, Number(mobDef?.stats?.fortitude ?? 0) || 0);
+      rec.stats = createStatsForKind('mob');
+      if (rec.stats.hp) {
+        rec.stats.hp.max = hp0;
+        rec.stats.hp.current = hp0;
+      }
+      if (rec.stats.endurance) rec.stats.endurance.base = end0;
+      if (rec.stats.fortitude) rec.stats.fortitude.base = fort0;
+    }
+
+    if (rec.autoCastAbilityId === undefined) {
+      rec.autoCastAbilityId = null;
+    }
+  }
+
+  if (!rec.anchor) {
+    rec.anchor = { type: 'worldX', x: Number(rec.worldX ?? 0) };
+  }
+}
 
 
 const triggeredRuleIds = new Set();
@@ -3734,18 +10798,13 @@ function ruleIsActive(ruleId) {
 
 function enableRuleTrace(on = true) {
   window.__traceRules = !!on;
-  console.log('[RuleDebug] __traceRules =', window.__traceRules);
 }
 
 function enableRuleTraceReasons(on = true) {
   window.__traceRulesReasons = !!on;
-  console.log('[RuleDebug] __traceRulesReasons =', window.__traceRulesReasons);
 }
 
 function dumpRuleStatus() {
-  console.log('[RuleDebug] fired rule ids:', Array.from(triggeredRuleIds.values()));
-  console.log('[RuleDebug] active state rule ids:', Array.from(activeStateRuleIds.values()));
-  console.log('[RuleDebug] last event:', __lastEvent);
 }
 
 function isObjectInteractable(objectName, instanceKey = null) {
@@ -3755,6 +10814,14 @@ function isObjectInteractable(objectName, instanceKey = null) {
   // Must be in proximity by TYPE (engine-enforced)
   const typeKey = makeProxTypeKey({ kind: 'object', id: objectId });
   if (!typeKey || !proximityInsideTypes.has(typeKey)) return false;
+
+  // Block interaction while an instance interaction is in progress
+  if (instanceKey && activeObjectInteractions.has(instanceKey)) return false;
+  if (instanceKey && isObjectInstanceCovered(instanceKey)) return false;
+  if (instanceKey) {
+    const def = getObjectDef(objectId);
+    if (def && isObjectInstanceInactive(instanceKey, def, getGameNowMs())) return false;
+  }
 
   // Must have at least one interaction rule whose state currently passes
   for (const rule of (rulesData || [])) {
@@ -3775,13 +10842,8 @@ function isObjectInteractable(objectName, instanceKey = null) {
   // NEW: object-driven interactions (objects.json + party tags)
   const def = getObjectDef(objectId);
   if (def && partyCanInteractWithObjectDef(def)) {
-    if (def.oncePerInstance && instanceKey) {
-      const flagKey = `objectInstanceInteracted:${instanceKey}`;
-      if (getFlag('global', flagKey) === true) return false;
-    }
     return true;
   }
-
 
   return false;
 
@@ -3799,25 +10861,16 @@ function explainRule(ruleId, eventName = null, payload = null) {
   const rule = (rulesData || []).find(r => r && String(r.id) === rid);
   if (!rule) return console.warn('[RuleDebug] explainRule: rule not found:', rid);
 
-  console.log('--- [RuleDebug] explainRule ---');
-  console.log('ruleId=', rid);
-  console.log('event=', ev);
-  console.log('payload=', pl);
-  console.log('once=', !!rule.once, 'hasFiredOnce=', !!(rule.once && triggeredRuleIds.has(rid)));
-  console.log('disabled=', !!rule.disabled);
 
   const stateOk = evaluateRuleState(rule, pl);
-  console.log('stateOk=', stateOk, 'state=', rule.state);
 
   // Event-driven?
   const triggers = normalizeTriggerWhen(rule.triggerWhen);
   if (!triggers.length) {
-    console.log('triggerWhen: (none) => state-only rule (fires via evaluateStateRulesByDepKeys)');
     return;
   }
 
   if (!ev) {
-    console.log('No eventName provided and no __lastEvent recorded yet.');
     return;
   }
 
@@ -3829,8 +10882,6 @@ function explainRule(ruleId, eventName = null, payload = null) {
     (ok ? matching : failing).push(t);
   }
 
-  console.log('matching triggers:', matching);
-  console.log('failing triggers:', failing);
 
   // requires?
   if (rule.requires && Array.isArray(rule.requires)) {
@@ -3838,7 +10889,6 @@ function explainRule(ruleId, eventName = null, payload = null) {
       const c = getEventCount(req, pl, ev);
       return { req, count: c };
     });
-    console.log('requires counts:', reqReport);
   }
 }
 
@@ -3846,11 +10896,8 @@ function explainRulesForLastEvent() {
   if (!__lastEvent) return console.warn('[RuleDebug] No last event recorded yet.');
   const { eventName, payload } = __lastEvent;
 
-  console.log('--- [RuleDebug] explainRulesForLastEvent ---');
-  console.log('event=', eventName, 'payload=', payload);
 
   const list = rulesByEvent[eventName] || [];
-  console.log('candidates (rulesByEvent):', list.map(x => x?.rule?.id));
 
   for (const entry of list) {
     const rule = entry.rule;
@@ -3874,10 +10921,6 @@ function explainRulesForLastEvent() {
       }
     }
 
-    console.log(
-      `[RuleDebug] ${ruleId}`,
-      { blockedOnce, stateOk, reqOk, trigOk, once: !!rule.once }
-    );
   }
 }
 
@@ -3889,6 +10932,9 @@ window.enableRuleTraceReasons = enableRuleTraceReasons;
 window.dumpRuleStatus = dumpRuleStatus;
 window.explainRule = explainRule;
 window.explainRulesForLastEvent = explainRulesForLastEvent;
+window.enableGoalTrace = function (on = true) {
+  window.__traceGoals = !!on;
+};
 
 
 
@@ -3906,7 +10952,9 @@ let rulesByEvent = Object.create(null); // eventName -> [{rule, trigger}]
 function depsPlayerInProximity(payload) {
   const kind = lc(payload?.kind);
   const id   = lc(payload?.id);
-  return (kind && id) ? [`playerInProximity:${kind}:${id}`] : [];
+  const out = (kind && id) ? [`playerInProximity:${kind}:${id}`] : [];
+  if (kind === 'npc') out.push('playerInProximity:npc:*');
+  return out;
 }
 
 function depsNpcProximity(payload) {
@@ -4016,7 +11064,9 @@ const eventStateDependencies = {
   stat_change: (payload) => {
     const actor = lc(payload?.actor || payload?.npc || 'player');
     const stat  = lc(payload?.stat);
-    return (actor && stat) ? [`stat:${actor}:${stat}`] : [];
+    const out = (actor && stat) ? [`stat:${actor}:${stat}`] : [];
+    out.push('stat:any');
+    return out;
   },
 
     // NEW: world time events
@@ -4046,14 +11096,6 @@ const eventStateDependencies = {
     return mob ? [`playerInContact:mob:${mob}`] : [];
   },
 
-  mob_param_change: (payload) => {
-    const mob = lc(payload?.mob);
-    const key = String(payload?.key || '');
-    if (!mob || !key) return [];
-    return [`mobParam:${mob}:${key}`, `mobParam:*:${key}`];
-  },
-
-
 };
 
 
@@ -4076,12 +11118,17 @@ function depKeysForStateCond(s) {
       //   { type:'playerInProximity', npc:'Rowyn' }  => kind:'npc', id:'rowyn'
       const kind = lc(s.kind || (s.npc ? 'npc' : ''));
       const id   = lc(s.id || s.npc);
+      const recruitable = !!s.recruitable;
 
-      if (kind && id) return [`playerInProximity:${kind}:${id}`];
+      const deps = [];
+      if (kind && id) deps.push(`playerInProximity:${kind}:${id}`);
+      else if (kind) deps.push(`playerInProximity:${kind}:*`);
+
+      if (recruitable) deps.push('stat:any');
+      return deps;
 
       // (Optional) keep old key for any remaining legacy rules that still expect it
       // return id ? [`playerInProximity:${id}`] : [];
-      return [];
     }
 
     case 'playerInContact': {
@@ -4159,19 +11206,22 @@ function depKeysForStateCond(s) {
       return id ? [`inventory:${id}`] : [];
     }
 
-    case 'stat': {
-      const actor = lc(s.actor || s.npc || 'player');
-      const stat  = lc(s.stat);
-      return (actor && stat) ? [`stat:${actor}:${stat}`] : [];
+  case 'stat': {
+    const actor = lc(s.actor || s.npc || 'player');
+    const stat  = lc(s.stat);
+    return (actor && stat) ? [`stat:${actor}:${stat}`] : [];
+  }
+  case 'statSum': {
+    const actor = lc(s.actor || s.npc || 'player');
+    const stats = Array.isArray(s.stats) ? s.stats : [];
+    if (!actor || stats.length === 0) return [];
+    const out = [];
+    for (const st of stats) {
+      const stat = lc(st);
+      if (stat) out.push(`stat:${actor}:${stat}`);
     }
-
-    case 'mobParam': {
-      const mob = lc(s.id || s.mob || s.mobId || '');
-      const key = String(s.key || s.param || '');
-      if (!key) return [];
-      if (mob) return [`mobParam:${mob}:${key}`, `mobParam:*:${key}`];
-      return [`mobParam:*:${key}`];
-    }
+    return out;
+  }
 
     default:
       return [];
@@ -4237,8 +11287,26 @@ function deindexStateRule(rule) {
 
 
 function ensureNpcRecord(name) {
-  if (!npcRegistry[name]) {
-    npcRegistry[name] = {
+  const rawName = String(name || '').trim();
+  const key = __npcKey(rawName);
+  if (!key) return null;
+
+  // Merge any legacy mixed-case entry into the normalized key.
+  if (rawName && rawName !== key && npcRegistry[rawName]) {
+    if (!npcRegistry[key]) {
+      npcRegistry[key] = npcRegistry[rawName];
+    } else {
+      const src = npcRegistry[rawName];
+      const dst = npcRegistry[key];
+      for (const [k, v] of Object.entries(src)) {
+        if (dst[k] === undefined || dst[k] === null) dst[k] = v;
+      }
+    }
+    delete npcRegistry[rawName];
+  }
+
+  if (!npcRegistry[key]) {
+    npcRegistry[key] = {
       inParty:false,
       hasBeenInParty:false, // NEW: persistent history flag
       _startingStatsApplied:false, // NEW
@@ -4256,97 +11324,220 @@ function ensureNpcRecord(name) {
       worldX:null,
 
       // Unified stat model (mirrors runtime actor.stats)
-      stats: null
+      stats: null,
+
+      // Inventory (NPCs default to size 0 unless specified in characters.json)
+      inventory: Object.create(null),
+      inventoryUidCounter: 1,
+
+      // Abilities learned via items/scenes
+      learnedAbilities: [],
+      itemGrantProgress: Object.create(null),
+
+      // Goals
+      goalsActive: [],
+      goalsHistory: Object.create(null),
+      goalsRemoved: Object.create(null),
+      goalsStateActive: Object.create(null),
+      _startingGoalsApplied: false
 
     };
   }
 
   // Ensure stats object exists + includes required keys, and migrate legacy flat fields if present.
-  ensureNpcRecordStats(name, npcRegistry[name]);
+  if (!npcRegistry[key].name) npcRegistry[key].name = rawName || key;
+  ensureNpcRecordStats(rawName || key, npcRegistry[key]);
+  ensureNpcRecordGoals(rawName || key, npcRegistry[key]);
 
-  return npcRegistry[name];
+  return npcRegistry[key];
+}
+
+function __defineRegistryProxy(actor, rec, key) {
+  if (!actor || !rec || !key) return;
+  try {
+    Object.defineProperty(actor, key, {
+      configurable: true,
+      enumerable: true,
+      get() { return rec[key]; },
+      set(v) { rec[key] = v; }
+    });
+  } catch {
+    // ignore if defineProperty fails
+  }
+}
+
+function bindNpcPersistentFields(actor, rec) {
+  if (!actor || !rec) return;
+  actor.__registryRef = rec;
+
+  if (!rec.stats) ensureNpcRecordStats(rec.name || actor.name, rec);
+  if (!rec.inventory) rec.inventory = Object.create(null);
+  if (!rec.inventoryUidCounter) rec.inventoryUidCounter = 1;
+  if (!Array.isArray(rec.learnedAbilities)) rec.learnedAbilities = [];
+  if (!rec.itemGrantProgress || typeof rec.itemGrantProgress !== 'object') rec.itemGrantProgress = Object.create(null);
+
+  if (rec.aiAutoCastRulesDefault === undefined) {
+    rec.aiAutoCastRulesDefault = Array.isArray(actor.aiAutoCastRules)
+      ? JSON.parse(JSON.stringify(actor.aiAutoCastRules))
+      : null;
+  }
+  if (!Array.isArray(rec.aiAutoCastRules)) rec.aiAutoCastRules = null;
+  if (!rec.autoCastRulesMode) rec.autoCastRulesMode = 'default';
+
+  if (!Array.isArray(rec.factions)) rec.factions = actor.factions ? actor.factions.slice() : [];
+  if (!rec.allianceByFaction || typeof rec.allianceByFaction !== 'object') rec.allianceByFaction = actor.allianceByFaction ? { ...actor.allianceByFaction } : undefined;
+  if (!rec.allianceByInstance || typeof rec.allianceByInstance !== 'object') rec.allianceByInstance = actor.allianceByInstance ? { ...actor.allianceByInstance } : undefined;
+  if (!rec.aiTargeting || typeof rec.aiTargeting !== 'object') rec.aiTargeting = actor.aiTargeting ? JSON.parse(JSON.stringify(actor.aiTargeting)) : null;
+  if (!rec.aiMovementTargeting || typeof rec.aiMovementTargeting !== 'object') rec.aiMovementTargeting = actor.aiMovementTargeting ? JSON.parse(JSON.stringify(actor.aiMovementTargeting)) : null;
+
+  // Reference persistent objects directly
+  actor.stats = rec.stats;
+  actor.inventory = rec.inventory;
+  actor.inventoryUidCounter = rec.inventoryUidCounter;
+  actor.learnedAbilities = rec.learnedAbilities;
+  actor.itemGrantProgress = rec.itemGrantProgress;
+  actor.factions = rec.factions;
+  actor.allianceByFaction = rec.allianceByFaction;
+  actor.allianceByInstance = rec.allianceByInstance;
+  actor.aiTargeting = rec.aiTargeting;
+  actor.aiMovementTargeting = rec.aiMovementTargeting;
+  actor.aiAutoCastRules = rec.aiAutoCastRules;
+  actor.aiAutoCastRulesDefault = rec.aiAutoCastRulesDefault;
+
+  // Proxy persistent primitive fields
+  __defineRegistryProxy(actor, rec, 'autoCastAbilityId');
+  __defineRegistryProxy(actor, rec, 'autoCastRulesMode');
+  __defineRegistryProxy(actor, rec, 'aiMode');
+  __defineRegistryProxy(actor, rec, 'aiGoalX');
+  __defineRegistryProxy(actor, rec, 'aiGoalRef');
+  __defineRegistryProxy(actor, rec, 'aiAnchorX');
+  __defineRegistryProxy(actor, rec, 'aiNextDecisionAtMs');
+  __defineRegistryProxy(actor, rec, 'aiPhase');
+  __defineRegistryProxy(actor, rec, 'aiMoveTargetX');
+  __defineRegistryProxy(actor, rec, 'worldX');
+}
+
+function bindMobPersistentFields(mob, rec) {
+  if (!mob || !rec) return;
+  mob.__registryRef = rec;
+
+  if (!rec.stats || typeof rec.stats !== 'object') rec.stats = mob.stats || createStatsForKind('mob');
+  if (!Array.isArray(rec.tags)) rec.tags = Array.isArray(mob.tags) ? mob.tags.slice() : [];
+  if (!rec.paramOverrides || typeof rec.paramOverrides !== 'object') rec.paramOverrides = mob.paramOverrides || Object.create(null);
+  if (!Array.isArray(rec.attackTargetQueue)) rec.attackTargetQueue = Array.isArray(mob.attackTargetQueue) ? mob.attackTargetQueue : [];
+  if (!Array.isArray(rec.moveTargetQueue)) rec.moveTargetQueue = Array.isArray(mob.moveTargetQueue) ? mob.moveTargetQueue : [];
+  if (rec.aiAutoCastRulesDefault === undefined) {
+    const defRules = mob.def?.ai?.autoCastRules;
+    rec.aiAutoCastRulesDefault = Array.isArray(defRules) ? JSON.parse(JSON.stringify(defRules)) : null;
+  }
+  if (!Array.isArray(rec.aiAutoCastRules)) rec.aiAutoCastRules = null;
+  if (!rec.autoCastRulesMode) rec.autoCastRulesMode = 'default';
+
+  mob.stats = rec.stats;
+  mob.tags = rec.tags;
+  mob.paramOverrides = rec.paramOverrides;
+  mob.attackTargetQueue = rec.attackTargetQueue;
+  mob.attackTargetCurrentKey = rec.attackTargetCurrentKey ?? mob.attackTargetCurrentKey;
+  mob.moveTargetQueue = rec.moveTargetQueue;
+  mob.moveTargetCurrentKey = rec.moveTargetCurrentKey ?? mob.moveTargetCurrentKey;
+  mob.aiAutoCastRules = rec.aiAutoCastRules;
+  mob.aiAutoCastRulesDefault = rec.aiAutoCastRulesDefault;
+
+  __defineRegistryProxy(mob, rec, 'worldX');
+  __defineRegistryProxy(mob, rec, 'y');
+  __defineRegistryProxy(mob, rec, 'vx');
+  __defineRegistryProxy(mob, rec, 'vy');
+  __defineRegistryProxy(mob, rec, 'facing');
+  __defineRegistryProxy(mob, rec, 'onGround');
+  __defineRegistryProxy(mob, rec, 'aiMode');
+  __defineRegistryProxy(mob, rec, 'aiAnchorX');
+  __defineRegistryProxy(mob, rec, 'aiGoalX');
+  __defineRegistryProxy(mob, rec, 'aiPhase');
+  __defineRegistryProxy(mob, rec, 'aiNextDecisionAtMs');
+  __defineRegistryProxy(mob, rec, 'aiMoveTargetX');
+  __defineRegistryProxy(mob, rec, 'anchor');
+  __defineRegistryProxy(mob, rec, 'autoCastAbilityId');
+  __defineRegistryProxy(mob, rec, 'autoCastRulesMode');
 }
 
 
-function __ensureActorStatRec(statsObj, statKey, baseDefault = 0, currentDefault = null) {
+function __ensureActorStatRec(statsObj, statKey) {
   const k = lc(statKey || '');
   if (!k) return null;
   if (!statsObj[k] || typeof statsObj[k] !== 'object') {
-    const b = Number(baseDefault ?? 0);
-    const c = (currentDefault == null) ? b : Number(currentDefault);
-    statsObj[k] = { base: (isFinite(b) ? b : 0), current: (isFinite(c) ? c : 0) };
+    const def = getStatDef(k);
+    if (!def) return null;
+    if (def.type === 'depletable') {
+      statsObj[k] = {
+        current: Number(def.defaultCurrent ?? def.defaultMax ?? 0),
+        max: Number(def.defaultMax ?? def.defaultCurrent ?? 0),
+        mods: []
+      };
+    } else if (def.type === 'scalar') {
+      statsObj[k] = { base: Number(def.defaultBase ?? 0), mods: [] };
+    } else if (def.type === 'variable') {
+      statsObj[k] = { current: Number(def.defaultCurrent ?? 0), mods: [] };
+    }
   }
-  if (!isFinite(statsObj[k].base)) statsObj[k].base = 0;
-  if (!isFinite(statsObj[k].current)) statsObj[k].current = 0;
+  if (!Array.isArray(statsObj[k].mods)) statsObj[k].mods = [];
   return statsObj[k];
 }
 
 function __applyStartingStatsToStats(statsObj, startingStats) {
   if (!statsObj || typeof statsObj !== 'object') return;
-
   const ss = (startingStats && typeof startingStats === 'object') ? startingStats : null;
+  if (!ss) return;
 
-  // Core stats: allow startingStats.<stat> as a number (sets base; current = base)
-  for (const d of PLAYER_STAT_DEFS) {
-    const k = lc(d.key);
-    const v = ss ? ss[k] : undefined;
-    if (typeof v === 'number' && isFinite(v)) {
-      const r = __ensureActorStatRec(statsObj, k, v, v);
-      if (r) { r.base = v; r.current = v; }
+  for (const [rawKey, rawVal] of Object.entries(ss)) {
+    const k = lc(rawKey);
+    const def = getStatDef(k);
+    if (!def) continue;
+    const rec = __ensureActorStatRec(statsObj, k);
+    if (!rec) continue;
+
+    if (def.type === 'depletable') {
+      if (typeof rawVal === 'number' && isFinite(rawVal)) {
+        setStatRecField(def, rec, 'max', rawVal);
+        setStatRecField(def, rec, 'current', rawVal);
+      } else if (rawVal && typeof rawVal === 'object') {
+        if (rawVal.max != null) setStatRecField(def, rec, 'max', Number(rawVal.max));
+        if (rawVal.current != null) setStatRecField(def, rec, 'current', Number(rawVal.current));
+        if (rawVal.max != null && rawVal.current == null) {
+          setStatRecField(def, rec, 'current', Number(rawVal.max));
+        }
+      }
+    } else if (def.type === 'scalar') {
+      if (typeof rawVal === 'number' && isFinite(rawVal)) {
+        setStatRecField(def, rec, 'base', rawVal);
+      } else if (rawVal && typeof rawVal === 'object' && rawVal.base != null) {
+        setStatRecField(def, rec, 'base', Number(rawVal.base));
+      }
+    } else if (def.type === 'variable') {
+      if (typeof rawVal === 'number' && isFinite(rawVal)) {
+        setStatRecField(def, rec, 'current', rawVal);
+      } else if (rawVal && typeof rawVal === 'object' && rawVal.current != null) {
+        setStatRecField(def, rec, 'current', Number(rawVal.current));
+      }
     }
-  }
-
-
-
-  // alignment/affection: base comes from min*, current starts at 0 (unless overridden explicitly)
-  const minA =
-    (ss && typeof ss.minalignment === 'number' && isFinite(ss.minalignment)) ? ss.minalignment
-    : 0;
-
-  const minF =
-    (ss && typeof ss.minaffection === 'number' && isFinite(ss.minaffection)) ? ss.minaffection
-    : 0;
-
-
-  // If explicitly specified as numbers, treat them as the BASE (threshold).
-  const ar = __ensureActorStatRec(statsObj, 'alignment', minA, 0);
-  if (ar) { ar.base = minA; ar.current = 0; }
-
-  const fr = __ensureActorStatRec(statsObj, 'affection', minF, 0);
-  if (fr) { fr.base = minF; fr.current = 0; }
-
-
-  // Optional explicit starting currents (if you ever add them later)
-  if (ss) {
-    if (typeof ss.alignment === 'number' && isFinite(ss.alignment)) statsObj.alignment.current = ss.alignment;
-    if (typeof ss.affection === 'number' && isFinite(ss.affection)) statsObj.affection.current = ss.affection;
   }
 }
 
 function ensureNpcRecordStats(name, rec) {
   if (!rec || typeof rec !== 'object') return;
 
-  if (!rec.stats || typeof rec.stats !== 'object') {
-    rec.stats = createStatsFromDefs(PLAYER_STAT_DEFS);
-  } else {
-    // Ensure any newly-added defs exist
-    for (const d of PLAYER_STAT_DEFS) {
-      const k = String(d.key).toLowerCase();
-      if (!rec.stats[k] || typeof rec.stats[k] !== 'object') {
-        const base = Number(d.base ?? 0);
-        rec.stats[k] = { base, current: base };
-      }
-    }
+  const details =
+    (npcDetails && npcDetails[name]) ? npcDetails[name]
+    : (npcDetailsByLc ? npcDetailsByLc[lc(name)] : null);
+  const ss = details?.startingStats || null;
+  const hasMinAlign = !!(ss && Object.keys(ss).some(k => lc(k) === 'minalignment'));
+
+  rec.stats = ensureStatsSchemaForKind(rec.stats, 'npc', { skip: hasMinAlign ? [] : ['minalignment'] });
+  if (!hasMinAlign && rec.stats && rec.stats.minalignment) {
+    delete rec.stats.minalignment;
   }
 
   // Apply startingStats/min* from characters.json ONCE (case-insensitive)
   if (!rec._startingStatsApplied) {
-    const details =
-      (npcDetails && npcDetails[name]) ? npcDetails[name]
-      : (npcDetailsByLc ? npcDetailsByLc[lc(name)] : null);
-
-    const ss = details?.startingStats || null;
-
     if (ss) {
       __applyStartingStatsToStats(rec.stats, ss);
       rec._startingStatsApplied = true;
@@ -4360,42 +11551,24 @@ function getActorStatRec(actorName, statKeyRaw) {
   if (!statKey) return null;
 
   if (actor === 'player') {
-    return player.stats?.[statKey] || null;
+    return getPlayerStatRec(statKey);
   }
 
   const rec = ensureNpcRecord(actorName);
+  ensureNpcRecordStats(actorName, rec);
+  ensureNpcStatsShared(actorName);
   const s = rec?.stats;
   return (s && typeof s === 'object') ? (s[statKey] || null) : null;
 }
 
 function setActorStatField(actorName, statKeyRaw, fieldRaw, valueRaw) {
-  const rec = getActorStatRec(actorName, statKeyRaw);
-  if (!rec) return false;
+  const k = normStatKey(statKeyRaw);
+  const def = getStatDef(k);
+  const rec = getActorStatRec(actorName, k);
+  if (!def || !rec) return false;
 
-  const field = normStatKey(fieldRaw) || 'current';
-  const v = Number(valueRaw);
-  if (!isFinite(v)) return false;
-
-  if (field === 'base') rec.base = v;
-  else rec.current = v;
-
-  // Clamp to base for clampToBase stats (STA/COM)
-  if (field !== 'base') {
-    const def = PLAYER_STAT_DEF_MAP[normStatKey(statKeyRaw)];
-    if (def && def.clampToBase) {
-      const b = Number(rec.base ?? 0);
-      if (isFinite(b)) rec.current = Math.max(0, Math.min(b, Number(rec.current ?? 0)));
-    } else {
-      rec.current = Math.max(0, Number(rec.current ?? 0));
-    }
-  } else {
-    rec.base = Math.max(0, Number(rec.base ?? 0));
-    const def = PLAYER_STAT_DEF_MAP[normStatKey(statKeyRaw)];
-    if (def && def.clampToBase) {
-      const b = Number(rec.base ?? 0);
-      rec.current = Math.max(0, Math.min(b, Number(rec.current ?? 0)));
-    }
-  }
+  const result = setStatRecField(def, rec, fieldRaw, valueRaw);
+  if (!result) return false;
 
   // If NPC, keep registry+live actor in sync (shared reference if possible)
   const a = findActorByName(actorName);
@@ -4407,15 +11580,23 @@ function setActorStatField(actorName, statKeyRaw, fieldRaw, valueRaw) {
 }
 
 function addActorStatField(actorName, statKeyRaw, fieldRaw, deltaRaw) {
-  const rec = getActorStatRec(actorName, statKeyRaw);
-  if (!rec) return false;
+  const statKey = normStatKey(statKeyRaw);
+  const def = getStatDef(statKey);
+  const rec = getActorStatRec(actorName, statKey);
+  if (!def || !rec) return false;
 
-  const field = normStatKey(fieldRaw) || 'current';
+  const field = normalizeStatFieldForDef(def, fieldRaw);
   const d = Number(deltaRaw);
   if (!isFinite(d) || d === 0) return false;
 
-  if (field === 'base') return setActorStatField(actorName, statKeyRaw, 'base', Number(rec.base ?? 0) + d);
-  return setActorStatField(actorName, statKeyRaw, 'current', Number(rec.current ?? 0) + d);
+  if (def.type === 'depletable') {
+    const nextVal = (field === 'max') ? Number(rec.max ?? 0) + d : Number(rec.current ?? 0) + d;
+    return setActorStatField(actorName, statKey, field, nextVal);
+  }
+  if (def.type === 'scalar') {
+    return setActorStatField(actorName, statKey, 'base', Number(rec.base ?? 0) + d);
+  }
+  return setActorStatField(actorName, statKey, 'current', Number(rec.current ?? 0) + d);
 }
 
 function mitigateDeltaForActor(actorName, statKey, field, delta) {
@@ -4425,13 +11606,11 @@ function mitigateDeltaForActor(actorName, statKey, field, delta) {
   // Only affects NEGATIVE deltas to current STA/COM, and cannot become healing.
   if (field === 'current' && d < 0) {
     if (statKey === 'stamina') {
-      const endRec = getActorStatRec(actorName, 'endurance');
-      const end = Number(endRec?.current ?? 0);
+      const end = Number(getActorStatValue(actorName, 'endurance', 'current') ?? 0);
       if (isFinite(end) && end > 0) d = Math.min(0, d + end);
       else d = Math.min(0, d);
     } else if (statKey === 'composure') {
-      const fortRec = getActorStatRec(actorName, 'fortitude');
-      const fort = Number(fortRec?.current ?? 0);
+      const fort = Number(getActorStatValue(actorName, 'fortitude', 'current') ?? 0);
       if (isFinite(fort) && fort > 0) d = Math.min(0, d + fort);
       else d = Math.min(0, d);
     }
@@ -4466,28 +11645,51 @@ function getActorStatValue(actorName, statKey, field) {
 
   if (!stat) return null;
 
+  const def = getStatDef(stat);
+  let statsObj = null;
   if (actor === 'player') {
-    const rec = player.stats?.[stat];
-    if (!rec) return null;
-    if (f === 'base' || f === 'max') return rec.base;
-    return rec.current;
+    ensurePlayerStats();
+    statsObj = player.stats;
+  } else {
+    const rec = ensureNpcRecord(actorName);
+    ensureNpcRecordStats(actorName, rec);
+    statsObj = rec?.stats;
   }
-
-  const rec = ensureNpcRecord(actorName);
-  const s = rec?.stats;
-  const st = s && typeof s === 'object' ? s[stat] : null;
+  if (!statsObj || typeof statsObj !== 'object') return null;
+  const st = statsObj[stat];
   if (!st || typeof st !== 'object') return null;
 
-  if (f === 'base' || f === 'max') return Number(st.base ?? 0);
-  return Number(st.current ?? 0);
+  if (!def) {
+    if (f === 'base' || f === 'max') return Number(st.base ?? st.max ?? 0);
+    return Number(st.current ?? 0);
+  }
+
+  if (def.type === 'depletable') {
+    if (f === 'max' || f === 'base') return Number(st.max ?? 0) + sumStatModifiers(st);
+    return Number(st.current ?? 0);
+  }
+  if (def.type === 'scalar') {
+    if (f === 'base') return Number(st.base ?? 0);
+    return Number(st.base ?? 0) + sumStatModifiers(st);
+  }
+  if (def.type === 'variable') {
+    if (f === 'base') return Number(st.current ?? 0);
+    const cur = clampVariableValue(def, st.current ?? 0);
+    return cur + sumStatModifiers(st);
+  }
+  return null;
 }
 
 
-function getInventoryMetric(itemId, measure) {
+function getInventoryMetric(itemId, measure, actorName = null) {
   const id = lc(itemId || '');
   if (!id) return null;
 
-  const inv = player.inventory || Object.create(null);
+  const actor = String(actorName || 'player');
+  const inv =
+    (lc(actor) === 'player')
+      ? (player.inventory || Object.create(null))
+      : (ensureNpcRecord(actor).inventory || Object.create(null));
   const bucket = inv[id];
   if (!bucket) return 0;
 
@@ -4499,7 +11701,7 @@ function getInventoryMetric(itemId, measure) {
   if (m === 'uses') {
     // Total remaining uses across all instances.
     const def = getItemDef(id);
-    const usesPerItem = Math.max(1, Math.floor(Number(def?.usesPerItem ?? 1)));
+    const usesPerItem = getItemUsesPerItem(def);
 
     if (usesPerItem <= 1) {
       // Non-uses items: treat each instance as 1 usable unit.
@@ -4517,16 +11719,36 @@ function getInventoryMetric(itemId, measure) {
   return count;
 }
 
+function getPartyInventoryMetric(itemId, measure) {
+  let total = 0;
+  total += Number(getInventoryMetric(itemId, measure, 'player') || 0);
+  for (const m of party) {
+    if (!m || !m.name) continue;
+    total += Number(getInventoryMetric(itemId, measure, m.name) || 0);
+  }
+  return total;
+}
+
 
 
 function evaluateRuleState(rule, payload) {
   // if (rule.id === 'rowyn_forest1_keep_going_prompt') {
-  //   console.log('[STATE CHECK]', JSON.parse(JSON.stringify(rule.state)));
   // }
 
   if (!Array.isArray(rule.state)) return true;
 
+
+
   for (const s of rule.state) {
+    if (s && Array.isArray(s.any)) {
+      let ok = false;
+      for (const sub of s.any) {
+        if (evaluateRuleState({ state: [sub] }, payload)) { ok = true; break; }
+      }
+      if (!ok) return false;
+      continue;
+    }
+
     switch (s.type) {
       case 'npcInParty': {
         const inParty = isNpcInPartyByName(s.npc);
@@ -4639,13 +11861,56 @@ function evaluateRuleState(rule, payload) {
       case 'playerInProximity': {
         const kind = lc(s.kind || (s.npc ? 'npc' : ''));
         const id = lc(s.id || s.npc);
+        const recruitable = !!s.recruitable;
 
-        if (!kind || !id) return false;
+        if (!kind) return false;
 
-        const key = makeProxKey({ kind, id });
-        if (!key) return false;
+        if (id) {
+          const key = makeProxKey({ kind, id });
+          if (!key) return false;
+          if (!proximityInside.has(key)) return false;
+          if (recruitable && kind === 'npc') {
+            const actor = findActorByName(id);
+            if (!actor || !canRecruitNpc(actor)) return false;
+          }
+        } else {
+          let any = false;
+          for (const t of proximityInsideTypes) {
+            if (String(t).startsWith(`${kind}:`)) { any = true; break; }
+          }
+          if (!any) return false;
 
-        if (!proximityInside.has(key)) return false;
+          if (recruitable && kind === 'npc') {
+            let found = false;
+            for (const t of proximityInsideTypes) {
+              if (!String(t).startsWith('npc:')) continue;
+              const name = String(t).slice(4);
+              const actor = findActorByName(name);
+              if (!actor) continue;
+              if (canRecruitNpc(actor)) { found = true; break; }
+            }
+            if (!found) return false;
+          }
+        }
+        break;
+      }
+
+      case 'tag': {
+        const tag = String(s.tag || s.id || '').trim();
+        if (!tag) return false;
+
+        const expected = ('is' in s) ? !!s.is : true;
+        const who = s.actor || s.npc || 'player';
+
+        let has = false;
+        if (lc(String(who)) === '@party') {
+          has = partyHasTag(tag);
+        } else {
+          const actor = (lc(String(who)) === 'player') ? player : findActorByName(who);
+          has = actor ? actorHasTag(actor, tag) : false;
+        }
+
+        if (has !== expected) return false;
         break;
       }
 
@@ -4725,7 +11990,9 @@ function evaluateRuleState(rule, payload) {
           key = key.replaceAll('${instanceKey}', String(payload.instanceKey || ''));
         }
 
-        const actual = getFlag(scope, key);
+        const actual = (lc(scope) === 'conversation')
+          ? __getDialogConversationFlag(key)
+          : getFlag(scope, key);
 
         // expected semantics:
         //   is:true  => flag must be truthy
@@ -4752,16 +12019,20 @@ function evaluateRuleState(rule, payload) {
         const op = s.op || 'gte';
         const rhs = ('rhs' in s) ? s.rhs : (('value' in s) ? s.value : 1);
 
-        const v = getInventoryMetric(id, measure);
+        const who = s.actor || s.npc || 'player';
+        const v =
+          (lc(who) === '@party')
+            ? getPartyInventoryMetric(id, measure)
+            : getInventoryMetric(id, measure, who);
         if (!numCompare(v, op, rhs)) return false;
         break;
       }
 
-      case 'stat': {
-        const actor = s.actor || s.npc || 'player';
-        const stat  = s.stat;
-        const field = s.field || 'current'; // 'current'|'base' (NPCs ignore field)
-        const op    = s.op || 'lt';
+  case 'stat': {
+    const actor = s.actor || s.npc || 'player';
+    const stat  = s.stat;
+    const field = s.field || 'current'; // 'current'|'base' (NPCs ignore field)
+    const op    = s.op || 'lt';
 
         let rhs = null;
 
@@ -4779,9 +12050,54 @@ function evaluateRuleState(rule, payload) {
         }
 
         const left = getActorStatValue(actor, stat, field);
-        if (!numCompare(left, op, rhs)) return false;
-        break;
+    if (!numCompare(left, op, rhs)) return false;
+    break;
+  }
+
+  case 'statSum': {
+    const actorName = String(s.actor || s.npc || 'player');
+    const stats = Array.isArray(s.stats) ? s.stats : [];
+    if (!actorName || stats.length === 0) return false;
+
+    const field = s.field || 'current';
+    let sum = 0;
+    for (const statName of stats) {
+      const v = getActorStatValue(actorName, statName, field);
+      if (!isFinite(v)) return false;
+      sum += Number(v);
+    }
+
+    let rhs = null;
+    if (s.rhs && typeof s.rhs === 'object') {
+      if (s.rhs.field) {
+        const rhsStat = s.rhs.stat || stats[0];
+        rhs = getActorStatValue(actorName, rhsStat, s.rhs.field);
+      } else if ('value' in s.rhs) {
+        rhs = Number(s.rhs.value);
       }
+    } else if ('rhs' in s) {
+      rhs = Number(s.rhs);
+    } else if ('value' in s) {
+      rhs = Number(s.value);
+    }
+
+    if (typeof rhs === 'string') {
+      const t = lc(rhs);
+      if (t === 'minalignment') rhs = getActorStatValue(actorName, 'minalignment', 'base');
+      else if (t === 'minaffection') rhs = getActorStatValue(actorName, 'minaffection', 'base');
+      else return false;
+    }
+
+    let op = s.op || 'lt';
+    if (op === '<') op = 'lt';
+    else if (op === '<=') op = 'lte';
+    else if (op === '>') op = 'gt';
+    else if (op === '>=') op = 'gte';
+    else if (op === '==') op = 'eq';
+    else if (op === '!=') op = 'neq';
+    if (!numCompare(sum, op, rhs)) return false;
+    break;
+  }
 
 
       case 'hasBeenInParty': {
@@ -4791,28 +12107,46 @@ function evaluateRuleState(rule, payload) {
         break;
       }
 
-      case 'mobParam': {
-        const mobId = lc(s.id || s.mob || s.mobId || '');
+      case 'actorParam': {
         const key = String(s.key || s.param || '');
         const op = lc(s.op || s.compare || 'eq');
         const want = s.value;
-
         if (!key) return false;
 
-        // If mobId provided: ANY instance of that mob can satisfy the condition.
-        // If no mobId: ANY mob instance can satisfy it.
+        const spec = normalizeActorSpec(s, payload);
+        const actors = resolveActorsFromSpec(spec, payload);
+        if (!actors.length) return false;
+
         let ok = false;
+        const __resolveActorParamValue = (actor, raw) => {
+          if (raw && typeof raw === 'object' && raw.stat) {
+            const statKey = String(raw.stat || '');
+            const field = raw.field || 'current';
+            if (isMobActor(actor)) {
+              if (lc(field) === 'current') return Number(actor?.stats?.[lc(statKey)]?.current);
+              if (lc(field) === 'max') return Number(getStatEffectiveValue(actor, statKey));
+              if (lc(field) === 'base') return Number(actor?.stats?.[lc(statKey)]?.base ?? actor?.stats?.[lc(statKey)]?.max ?? 0);
+              return Number(getStatEffectiveValue(actor, statKey));
+            }
+            const actorName = (actor === player) ? 'player' : String(actor?.name || '');
+            return getActorStatValue(actorName, statKey, field);
+          }
+          return raw;
+        };
 
-        for (const m of mobs) {
-          if (!m) continue;
-          if (mobId && lc(m.id) !== mobId) continue;
-
-          const actual = getEffectiveMobParam(m, key);
+        for (const a of actors) {
+          const actual = getEffectiveActorParam(a, key);
+          const rightVal = __resolveActorParamValue(a, want);
 
           if (op === 'exists') { if (actual !== undefined) { ok = true; break; } }
           else if (op === 'notexists') { if (actual === undefined) { ok = true; break; } }
-          else if (op === 'neq') { if (actual !== want) { ok = true; break; } }
-          else { if (actual === want) { ok = true; break; } } // default eq
+          else if (op === 'lt' || op === 'lte' || op === 'gt' || op === 'gte') {
+            const left = Number(actual);
+            const right = Number(rightVal);
+            if (numCompare(left, op, right)) { ok = true; break; }
+          }
+          else if (op === 'neq') { if (actual !== rightVal) { ok = true; break; } }
+          else { if (actual === rightVal) { ok = true; break; } } // default eq
         }
 
         if (!ok) return false;
@@ -4842,6 +12176,19 @@ function triggerMatches(triggerWhenObj, eventName, payload) {
   if (!w) return false;
   if (w.event !== eventName) return false;
 
+  if ((eventName === 'proximity_enter' || eventName === 'proximity_leave') && w.kind === 'object') {
+    const ignoreCover = (w.ignoreCover === true);
+    const covered = !!payload.covered;
+    const coveredWas = !!payload.coveredWas;
+    const rawProximity = !!payload.__rawProximity;
+
+    if (!ignoreCover && covered) return false;
+    if (ignoreCover) {
+      if (covered && !rawProximity) return false; // ignore cover-induced enter/leave
+      if (coveredWas) return false; // avoid double-fire on uncover
+    }
+  }
+
   if (w.area && w.area !== payload.area) return false;
   if (w.fromArea && w.fromArea !== payload.fromArea) return false;
   if (w.toArea && w.toArea !== payload.toArea) return false;
@@ -4862,11 +12209,64 @@ function triggerMatches(triggerWhenObj, eventName, payload) {
       key === 'party' ||
       key === 'alignment' ||
       key === 'affection' ||
-      key === 'option'
+      key === 'option' ||
+      key === 'item' ||
+      key === 'targetKind' ||
+      key === 'targetId' ||
+      key === 'targetNpc' ||
+      key === 'targetName' ||
+      key === 'targetInstanceId' ||
+      key === 'sourceKind' ||
+      key === 'sourceId' ||
+      key === 'sourceNpc' ||
+      key === 'sourceName' ||
+      key === 'sourceInstanceId' ||
+      key === 'ignoreCover'
     ) continue;
 
     if (payload[key] === undefined) return false;
     if (String(payload[key]) !== String(w[key])) return false;
+  }
+
+  // Item targeting (item_use / item_give)
+  if (w.item !== undefined) {
+    if (lc(String(payload?.item || '')) !== lc(String(w.item))) return false;
+  }
+
+  const target = payload?.targetActor;
+  if (w.targetKind !== undefined) {
+    if (lc(String(target?.kind || '')) !== lc(String(w.targetKind))) return false;
+  }
+  if (w.targetId !== undefined) {
+    const tid = String(target?.id || '');
+    if (lc(tid) !== lc(String(w.targetId))) return false;
+  }
+  if (w.targetNpc !== undefined || w.targetName !== undefined) {
+    const want = lc(String(w.targetNpc ?? w.targetName ?? ''));
+    const name = lc(String(target?.name || ''));
+    if (want && name !== want) return false;
+  }
+  if (w.targetInstanceId !== undefined) {
+    const inst = String(target?.instanceId || '');
+    if (String(w.targetInstanceId) !== inst) return false;
+  }
+
+  const source = payload?.sourceActor;
+  if (w.sourceKind !== undefined) {
+    if (lc(String(source?.kind || '')) !== lc(String(w.sourceKind))) return false;
+  }
+  if (w.sourceId !== undefined) {
+    const sid = String(source?.id || '');
+    if (lc(sid) !== lc(String(w.sourceId))) return false;
+  }
+  if (w.sourceNpc !== undefined || w.sourceName !== undefined) {
+    const want = lc(String(w.sourceNpc ?? w.sourceName ?? ''));
+    const name = lc(String(source?.name || ''));
+    if (want && name !== want) return false;
+  }
+  if (w.sourceInstanceId !== undefined) {
+    const inst = String(source?.instanceId || '');
+    if (String(w.sourceInstanceId) !== inst) return false;
   }
 
   // Support "option" in rules (preferred), fallback to optionId
@@ -4877,6 +12277,438 @@ function triggerMatches(triggerWhenObj, eventName, payload) {
   }
 
   return true;
+}
+
+// ===== Goals (character objectives) =====
+function __initGoalStore(store) {
+  if (!store || typeof store !== 'object') return;
+  if (!Array.isArray(store.goalsActive)) store.goalsActive = [];
+  if (!store.goalsHistory || typeof store.goalsHistory !== 'object') store.goalsHistory = Object.create(null);
+  if (!store.goalsRemoved || typeof store.goalsRemoved !== 'object') store.goalsRemoved = Object.create(null);
+  if (!store.goalsStateActive || typeof store.goalsStateActive !== 'object') store.goalsStateActive = Object.create(null);
+  if (!store.goalsProgress || typeof store.goalsProgress !== 'object') store.goalsProgress = Object.create(null);
+}
+
+function __normalizeGoalDef(goal) {
+  if (!goal || typeof goal !== 'object') return null;
+  const id = String(goal.id || '').trim();
+  if (!id) return null;
+  const maxRaw = (goal.maxCompletions ?? goal.maxTimes ?? goal.maxRepeats ?? 1);
+  const max = Number(maxRaw);
+  const norm = {
+    id,
+    name: String(goal.name || id).trim(),
+    description: String(goal.description || '').trim(),
+    visibility: (lc(goal.visibility || 'public') === 'private') ? 'private' : 'public',
+    maxCompletions: (isFinite(max) ? Math.max(0, Math.floor(max)) : 1)
+  };
+  if (goal.triggerWhen) norm.triggerWhen = goal.triggerWhen;
+  if (Array.isArray(goal.state)) norm.state = goal.state;
+  if (Array.isArray(goal.effects)) norm.effects = goal.effects;
+  if (goal.progress && typeof goal.progress === 'object') norm.progress = goal.progress;
+  return norm;
+}
+
+function __cloneGoalDef(goal) {
+  return JSON.parse(JSON.stringify(goal));
+}
+
+function __getGoalMax(goal) {
+  const maxRaw = (goal && (goal.maxCompletions ?? goal.maxTimes ?? goal.maxRepeats));
+  if (maxRaw == null) return 1;
+  const n = Number(maxRaw);
+  return isFinite(n) ? Math.max(0, Math.floor(n)) : 1;
+}
+
+function __getGoalCount(store, goalId) {
+  if (!store || !store.goalsHistory) return 0;
+  return Number(store.goalsHistory[goalId] || 0);
+}
+
+function __goalCanComplete(store, goal) {
+  const max = __getGoalMax(goal);
+  if (max === 0) return true;
+  const count = __getGoalCount(store, goal.id);
+  return count < max;
+}
+
+function addGoalToStore(store, goalDef) {
+  if (!store) return false;
+  __initGoalStore(store);
+  const norm = __normalizeGoalDef(goalDef);
+  if (!norm) return false;
+
+  const exists = store.goalsActive.some(g => g && g.id === norm.id);
+  if (exists) return false;
+  if (store.goalsHistory && store.goalsHistory[norm.id]) return false;
+  if (store.goalsRemoved && store.goalsRemoved[norm.id]) return false;
+
+  const goal = __cloneGoalDef(norm);
+  const count = __getGoalCount(store, goal.id);
+  if (goal.maxCompletions !== 0 && count >= goal.maxCompletions) {
+    goal._completed = true;
+  }
+
+  store.goalsActive.push(goal);
+
+  if (isPublicGoal(goal)) {
+    const name = String(goal.name || goal.id || '').trim();
+    const desc = String(goal.description || '').trim();
+    if (name) {
+      const msg = desc ? `NEW GOAL - ${name} - ${desc}` : `NEW GOAL - ${name}`;
+      showWorldToast(msg);
+    }
+  }
+  return true;
+}
+
+function removeGoalFromStore(store, goalId, outRemoved = null) {
+  if (!store) return false;
+  __initGoalStore(store);
+  const id = String(goalId || '').trim();
+  if (!id) return false;
+
+  const idx = store.goalsActive.findIndex(g => g && g.id === id);
+  if (idx < 0) return false;
+
+  const [goal] = store.goalsActive.splice(idx, 1);
+  if (outRemoved && typeof outRemoved === 'object') outRemoved.goal = goal;
+  const count = __getGoalCount(store, id);
+  if (count > 0 && lc(goal?.visibility || 'public') !== 'private') {
+    store.goalsRemoved[id] = goal;
+  }
+  return true;
+}
+
+function ensureNpcRecordGoals(name, rec) {
+  if (!rec || typeof rec !== 'object') return;
+  __initGoalStore(rec);
+  if (rec._startingGoalsApplied) return;
+  if (!npcDetails && !npcDetailsByLc) return;
+  const details =
+    (npcDetails && npcDetails[name]) ? npcDetails[name]
+    : (npcDetailsByLc ? npcDetailsByLc[lc(name)] : null);
+  const list = Array.isArray(details?.goals) ? details.goals : [];
+  for (const g of list) addGoalToStore(rec, g);
+  rec._startingGoalsApplied = true;
+}
+
+function ensurePlayerGoals() {
+  if (!player || typeof player !== 'object') return;
+  __initGoalStore(player);
+  if (player._startingGoalsApplied) return;
+  if (!npcDetails || !npcDetails.Player) return;
+  const list = Array.isArray(npcDetails?.Player?.goals) ? npcDetails.Player.goals : [];
+  for (const g of list) addGoalToStore(player, g);
+  player._startingGoalsApplied = true;
+}
+
+function __resolveGoalTargetStores(who, payload) {
+  const out = [];
+  const addPlayer = () => { if (player) { __initGoalStore(player); out.push(player); } };
+  const addNpcByName = (name) => {
+    if (!name) return;
+    const rec = ensureNpcRecord(String(name));
+    ensureNpcRecordGoals(String(name), rec);
+    out.push(rec);
+  };
+
+  const w = (who == null) ? 'player' : who;
+
+  if (typeof w === 'string') {
+    const k = lc(w);
+    if (k === '@party') {
+      addPlayer();
+      for (const m of party) {
+        if (m?.name) addNpcByName(m.name);
+      }
+      return out;
+    }
+    if (k === '@self') {
+      const sd = payload?.sourceActor;
+      if (sd?.kind === 'player') addPlayer();
+      else if (sd?.kind === 'npc' && sd?.name) addNpcByName(sd.name);
+      return out;
+    }
+    if (k === '@target') {
+      const td = payload?.targetActor;
+      if (td?.kind === 'player') addPlayer();
+      else if (td?.kind === 'npc' && td?.name) addNpcByName(td.name);
+      return out;
+    }
+    if (k === 'player') {
+      addPlayer();
+      return out;
+    }
+    addNpcByName(w);
+    return out;
+  }
+
+  if (typeof w === 'object') {
+    const kind = lc(w.kind || '');
+    if (kind === 'player') addPlayer();
+    else if (kind === 'npc') addNpcByName(w.name || w.id);
+  }
+
+  return out;
+}
+
+function __completeGoal(store, goal, payload) {
+  if (!store || !goal || !goal.id) return false;
+  const id = goal.id;
+  const prev = __getGoalCount(store, id);
+  const next = prev + 1;
+  store.goalsHistory[id] = next;
+
+  const isPublic = isPublicGoal(goal);
+  if (isPublic) {
+    const owner = (store === player) ? (player?.name || 'Player') : (store?.name || store?.id || 'NPC');
+    const label = String(goal.name || goal.id || '').trim();
+    if (label) {
+      showWorldToast(`${owner} - ${label} - COMPLETE`);
+    }
+  }
+
+  if (Array.isArray(goal.effects) && goal.effects.length) {
+    applyRuleEffects({ effects: goal.effects }, payload || null);
+  }
+
+  const max = __getGoalMax(goal);
+  if (max !== 0 && next >= max) {
+    goal._completed = true;
+  }
+  return true;
+}
+
+function evaluateGoalsForStore(store, eventName, payload) {
+  if (!store || !Array.isArray(store.goalsActive) || store.goalsActive.length === 0) return;
+  __initGoalStore(store);
+
+  for (const goal of store.goalsActive) {
+    if (!goal || !goal.id) continue;
+    if (!__goalCanComplete(store, goal)) continue;
+
+    const hasTrigger = !!goal.triggerWhen;
+    const hasState = Array.isArray(goal.state) && goal.state.length > 0;
+
+    if (hasTrigger) {
+      const triggers = normalizeTriggerWhen(goal.triggerWhen);
+      let match = false;
+      for (const tw of triggers) {
+        if (triggerMatches(tw, eventName, payload || {})) { match = true; break; }
+      }
+      if (!match) continue;
+      if (hasState && !evaluateRuleState(goal, payload)) continue;
+      __completeGoal(store, goal, payload);
+      continue;
+    }
+
+    if (hasState) {
+      const shouldBeActive = evaluateRuleState(goal, payload);
+      const wasActive = !!store.goalsStateActive[goal.id];
+      if (shouldBeActive && !wasActive) {
+        __completeGoal(store, goal, payload);
+      }
+      store.goalsStateActive[goal.id] = shouldBeActive;
+    }
+  }
+}
+
+function evaluateAllGoalsForEvent(eventName, payload) {
+  if (!eventName) return;
+  if (player) evaluateGoalsForStore(player, eventName, payload);
+  for (const rec of Object.values(npcRegistry || {})) {
+    if (!rec) continue;
+    evaluateGoalsForStore(rec, eventName, payload);
+  }
+}
+
+// ===== Pathfinding (area + section) for goal progress =====
+let __areaGraphCache = null; // { nodesByArea, edges }
+
+function __getAreaSections(areaName) {
+  const area = buildAreaFromDefinition(areaName);
+  if (!area || !Array.isArray(area.sections)) return null;
+  return area.sections;
+}
+
+function __getSectionIndexByName(areaName, sectionName) {
+  const sections = __getAreaSections(areaName);
+  if (!sections || !sectionName) return 0;
+  for (let i = 0; i < sections.length; i++) {
+    if (sections[i]?.name === sectionName) return i;
+  }
+  return 0;
+}
+
+function __nodeKey(areaName, sectionIndex) {
+  return `${String(areaName)}::${Number(sectionIndex) || 0}`;
+}
+
+function __ensureAreaGraph() {
+  if (__areaGraphCache) return __areaGraphCache;
+  if (!areasData || typeof areasData !== 'object') return null;
+
+  const nodesByArea = new Map(); // area -> sectionCount
+  const edges = new Map(); // nodeKey -> Set(nodeKey)
+
+  const addEdge = (a, b) => {
+    if (!edges.has(a)) edges.set(a, new Set());
+    edges.get(a).add(b);
+  };
+
+  for (const areaName of Object.keys(areasData)) {
+    const sections = __getAreaSections(areaName);
+    if (!sections) continue;
+    nodesByArea.set(areaName, sections.length);
+
+    for (let i = 0; i < sections.length; i++) {
+      const from = __nodeKey(areaName, i);
+      if (i > 0) addEdge(from, __nodeKey(areaName, i - 1));
+      if (i < sections.length - 1) addEdge(from, __nodeKey(areaName, i + 1));
+    }
+
+    const def = areasData[areaName] || {};
+    const left = def.leftarea || null;
+    const right = def.rightarea || null;
+    if (left) {
+      const leftSections = __getAreaSections(left);
+      if (leftSections && leftSections.length) {
+        const a = __nodeKey(areaName, 0);
+        const b = __nodeKey(left, leftSections.length - 1);
+        addEdge(a, b);
+        addEdge(b, a);
+      }
+    }
+    if (right) {
+      const a = __nodeKey(areaName, sections.length - 1);
+      const b = __nodeKey(right, 0);
+      addEdge(a, b);
+      addEdge(b, a);
+    }
+
+    // Exits (up/down)
+    for (let i = 0; i < sections.length; i++) {
+      const sec = sections[i];
+      const exits = Array.isArray(sec?.exits) ? sec.exits : [];
+      for (const ex of exits) {
+        const target = parseTargetExitString(ex?.target);
+        if (!target || !target.area) continue;
+        const targetIdx = target.section
+          ? __getSectionIndexByName(target.area, target.section)
+          : 0;
+        addEdge(__nodeKey(areaName, i), __nodeKey(target.area, targetIdx));
+      }
+    }
+  }
+
+  __areaGraphCache = { nodesByArea, edges };
+  return __areaGraphCache;
+}
+
+function __getDistanceToTarget(areaName, sectionIndex, targetArea, targetSection) {
+  const graph = __ensureAreaGraph();
+  if (!graph) return null;
+
+  const start = __nodeKey(areaName, sectionIndex);
+  const edges = graph.edges;
+
+  const wantArea = String(targetArea || '');
+  if (!wantArea) return null;
+
+  const targetNodes = new Set();
+  if (targetSection) {
+    const idx = __getSectionIndexByName(wantArea, targetSection);
+    targetNodes.add(__nodeKey(wantArea, idx));
+  } else {
+    const count = graph.nodesByArea.get(wantArea) || 0;
+    for (let i = 0; i < count; i++) targetNodes.add(__nodeKey(wantArea, i));
+  }
+
+  if (targetNodes.has(start)) return 0;
+
+  const q = [start];
+  const dist = new Map();
+  dist.set(start, 0);
+
+  while (q.length) {
+    const cur = q.shift();
+    const d = dist.get(cur) || 0;
+    const next = edges.get(cur);
+    if (!next) continue;
+    for (const n of next) {
+      if (dist.has(n)) continue;
+      const nd = d + 1;
+      if (targetNodes.has(n)) return nd;
+      dist.set(n, nd);
+      q.push(n);
+    }
+  }
+
+  return null;
+}
+
+function __goalProgressTargetActorName(goal, ownerName) {
+  const p = goal?.progress || null;
+  if (!p || typeof p !== 'object') return ownerName || null;
+  const who = p.actor || p.npc || p.who || null;
+  if (who == null || who === '') return ownerName || null;
+  return String(who);
+}
+
+function evaluateGoalProgressForEvent(eventName, payload) {
+  if (eventName !== 'section_enter') return;
+  const actorName = String(payload?.npc || '');
+  if (!actorName) return;
+  const area = String(payload?.area || '');
+  const section = String(payload?.section || '');
+  if (!area || !section) return;
+
+  const curIdx = __getSectionIndexByName(area, section);
+
+  const stores = [];
+  if (player) stores.push({ name: player?.name || 'Player', store: player });
+  for (const [name, rec] of Object.entries(npcRegistry || {})) {
+    if (!rec) continue;
+    stores.push({ name, store: rec });
+  }
+
+  for (const { name: ownerName, store } of stores) {
+    if (!store || !Array.isArray(store.goalsActive)) continue;
+    __initGoalStore(store);
+    for (const goal of store.goalsActive) {
+      const p = goal?.progress;
+      if (!p || typeof p !== 'object') continue;
+      if (!__goalCanComplete(store, goal)) continue;
+      if (lc(p.type || 'location') !== 'location') continue;
+
+      const targetActor = __goalProgressTargetActorName(goal, ownerName);
+      if (lc(targetActor) !== lc(actorName)) continue;
+
+      const targetArea = p?.target?.area ?? p?.area ?? null;
+      const targetSection = p?.target?.section ?? p?.section ?? null;
+      if (!targetArea) continue;
+
+      const dist = __getDistanceToTarget(area, curIdx, targetArea, targetSection);
+      if (!isFinite(dist)) continue;
+
+      const perGoal = store.goalsProgress[goal.id] || (store.goalsProgress[goal.id] = Object.create(null));
+      const key = lc(targetActor);
+      const prev = (perGoal[key] != null) ? Number(perGoal[key]) : null;
+
+      if (prev != null) {
+        if (dist < prev && Array.isArray(p.closerEffects) && p.closerEffects.length) {
+          const p2 = { ...(payload || {}), __goalId: goal.id, __goalProgress: 'closer' };
+          applyRuleEffects({ effects: p.closerEffects }, p2);
+        } else if (dist > prev && Array.isArray(p.fartherEffects) && p.fartherEffects.length) {
+          const p2 = { ...(payload || {}), __goalId: goal.id, __goalProgress: 'farther' };
+          applyRuleEffects({ effects: p.fartherEffects }, p2);
+        }
+      }
+
+      perGoal[key] = dist;
+    }
+  }
 }
 
 
@@ -5071,30 +12903,190 @@ function applyMovementEffect(eff, payload) {
   setNpcAiMode(actor, 'stationary', {});
 }
 
+function __actorDescriptorForReset(actor) {
+  if (!actor) return null;
+  if (typeof targetActorDescriptorFromActor === 'function') {
+    return targetActorDescriptorFromActor(actor);
+  }
+  if (actor === player) return { kind: 'player' };
+  if (actor?.name) return { kind: 'npc', name: actor.name };
+  if (actor?.id && actor?.instanceId) return { kind: 'mob', id: actor.id, instanceId: actor.instanceId };
+  return null;
+}
+
+function __snapshotNpcAiState(actor) {
+  if (!actor || typeof actor !== 'object') return null;
+  return {
+    aiMode: actor.aiMode ?? null,
+    aiGoalX: actor.aiGoalX ?? null,
+    aiGoalRef: actor.aiGoalRef ? JSON.parse(JSON.stringify(actor.aiGoalRef)) : null,
+    aiAnchorX: actor.aiAnchorX ?? null,
+    aiNextDecisionAtMs: actor.aiNextDecisionAtMs ?? null,
+    aiPhase: actor.aiPhase ?? null,
+    aiMoveTargetX: actor.aiMoveTargetX ?? null
+  };
+}
+
+function __restoreNpcAiState(actor, snap) {
+  if (!actor || !snap) return false;
+  actor.aiMode = snap.aiMode ?? actor.aiMode;
+  actor.aiGoalX = snap.aiGoalX ?? null;
+  actor.aiGoalRef = snap.aiGoalRef ?? null;
+  actor.aiAnchorX = snap.aiAnchorX ?? actor.aiAnchorX;
+  actor.aiNextDecisionAtMs = snap.aiNextDecisionAtMs ?? actor.aiNextDecisionAtMs;
+  actor.aiPhase = snap.aiPhase ?? actor.aiPhase;
+  actor.aiMoveTargetX = snap.aiMoveTargetX ?? actor.aiMoveTargetX;
+  return true;
+}
+
 function applyRuleEffects(rule, payload) {
   const effects = Array.isArray(rule?.effects) ? rule.effects : [];
+  const __effectDurMs = (eff) => {
+    const v = Number(eff?.durationMs ?? eff?.ms ?? eff?.duration ?? 0);
+    return (isFinite(v) && v > 0) ? Math.floor(v) : 0;
+  };
+  const resetSpec = payload?.__resetSpec || null;
+  const resetCapture = (resetSpec && isFinite(Number(resetSpec.resetMs)) && Number(resetSpec.resetMs) > 0)
+    ? payload?.__resetCapture
+    : null;
+  const __queueResetAction = (action) => {
+    if (!resetCapture || !action) return;
+    if (!Array.isArray(resetCapture.actions)) resetCapture.actions = [];
+    resetCapture.actions.push(action);
+  };
+  const __queueTagInverse = (actorDesc, tag, inverseType) => {
+    if (!actorDesc || !tag || !inverseType) return;
+    __queueResetAction({
+      type: inverseType,
+      npc: actorDesc,
+      tag
+    });
+  };
+  const __setTagExpiry = (actor, tag, expiresAtMs) => {
+    if (!actor) return;
+    if (!actor.tagExpiresAtMs || typeof actor.tagExpiresAtMs !== 'object') {
+      actor.tagExpiresAtMs = Object.create(null);
+    }
+    const k = lc(tag);
+    if (!k) return;
+    actor.tagExpiresAtMs[k] = expiresAtMs;
+  };
+  const __clearTagExpiry = (actor, tag) => {
+    if (!actor || !actor.tagExpiresAtMs) return;
+    const k = lc(tag);
+    if (!k) return;
+    delete actor.tagExpiresAtMs[k];
+  };
 
   // Snapshot party eligibility BEFORE applying this rule's effects,
-  // so we can attribute a drop reason to the stat that crossed the threshold.
+  // so we can attribute a drop reason to the threshold crossing.
   const _partyEligBefore = new Map();
   for (const m of party.slice()) {
-    const curA0 = Number(m?.stats?.alignment?.current ?? 0);
-    const minA0 = Number(m?.stats?.alignment?.base ?? 0);
-    const curF0 = Number(m?.stats?.affection?.current ?? 0);
-    const minF0 = Number(m?.stats?.affection?.base ?? 0);
+    const curA0 = Number(getActorStatValue(m?.name || '', 'alignment', 'current') ?? 0);
+    const minA0Raw = getActorStatValue(m?.name || '', 'minalignment', 'base');
+    const curF0 = Number(getActorStatValue(m?.name || '', 'affection', 'current') ?? 0);
 
     _partyEligBefore.set(m, {
-      badAlignment: curA0 < minA0,
-      badAffection: curF0 < minF0
+      belowMinAlignSum: (minA0Raw == null) ? false : ((curA0 + curF0) < Number(minA0Raw))
     });
   }
 
   for (const eff of effects) {
     if (!eff || typeof eff !== 'object') continue;
+    if (eff.type === 'updateStat' && lc(String(eff.npc || '')) === 'mira' && (lc(String(eff.stat || '')) === 'alignment' || lc(String(eff.stat || '')) === 'affection')) {
+      const ruleId = rule?.id || null;
+      const goalId = payload?.__goalId || null;
+      const goalProg = payload?.__goalProgress || null;
+      const evt = payload?.__eventName || payload?.event || null;
+      const src = payload?.ability || payload?.rule || payload?.dialog || payload?.source || null;
+      console.log(
+        `dbg/mira_stat_source stat=${eff.stat} delta=${eff.delta} rule=${ruleId || 'null'} goal=${goalId || 'null'} progress=${goalProg || 'null'} event=${evt || 'null'} source=${src || 'null'}`
+      );
+    }
+    if (eff.type === 'setFlag') {
+      const scope = eff.scope || 'area';
+      const key = eff.key;
+      const value = (eff.value !== undefined) ? eff.value : true;
+      setFlag(scope, key, value);
+      continue;
+    }
+
+    if (eff.type === 'setFlagTimed') {
+      const scope = eff.scope || 'area';
+      const key = eff.key;
+      const value = (eff.value !== undefined) ? eff.value : true;
+      const durationMs = Number(eff.durationMs || eff.ms || eff.duration || 0);
+      setFlagTimed(scope, key, value, durationMs);
+      continue;
+    }
+
+    if (eff.type === 'restoreNpcAiState') {
+      const spec = normalizeActorSpec(eff, payload);
+      const actors = resolveActorsFromSpec(spec, payload);
+      for (const a of actors) {
+        __restoreNpcAiState(a, eff.state || eff.aiState || null);
+      }
+      continue;
+    }
+
+    if (eff.type === 'deleteActorParam') {
+      const key = String(eff?.key || eff?.param || '');
+      if (!key) continue;
+      const spec = normalizeActorSpec(eff, payload);
+      const actors = resolveActorsFromSpec(spec, payload);
+      for (const a of actors) {
+        if (!a) continue;
+        const kind = getActorKind(a);
+        if (kind === 'mob') {
+          if (!a.paramOverrides) continue;
+          deleteByDotPath(a.paramOverrides, key);
+        } else {
+          if ((kind === 'npc' || kind === 'mob') && a.__registryRef) {
+            deleteByDotPath(a.__registryRef, key);
+          } else {
+            deleteByDotPath(a, key);
+          }
+        }
+      }
+      continue;
+    }
+
+    if (eff.type === 'removeItemInstances') {
+      const id = eff.id || eff.item || eff.itemId;
+      const uids = Array.isArray(eff.uids) ? eff.uids.map(x => String(x)) : [];
+      if (!id || uids.length === 0) continue;
+      const spec = normalizeActorSpec({ actor: eff.actor ?? eff.npc ?? eff.target ?? eff.subject }, payload);
+      const actors = resolveActorsFromSpec(spec, payload);
+      const list = actors.length ? actors : [player];
+      for (const a of list) {
+        if (!a) continue;
+        for (const uid of uids) {
+          removeItemInstanceFromActorInventory(a, id, uid);
+        }
+      }
+      continue;
+    }
+
+    if (eff.type === 'openMap') {
+      setMapOverlayOpen(true, false);
+      continue;
+    }
 
     if (eff.type === 'updateStat') {
       let who = (eff.npc == null) ? 'player' : String(eff.npc);
       const statKey = normStatKey(eff.stat);
+      const durMs = __effectDurMs(eff);
+      const delta = Number(eff.delta || 0);
+      const def = getStatDef(statKey);
+
+      // Allow payload targeting: npc:'@self'
+      if (lc(who) === '@self') {
+        const sd = payload?.sourceActor;
+        if (sd && sd.kind === 'npc' && sd.name) who = String(sd.name);
+        else if (sd && sd.kind === 'player') who = 'player';
+        else if (sd && sd.kind === 'mob' && sd.id && sd.instanceId) who = sd;
+        else who = '';
+      }
 
       // Allow payload targeting: npc:'@target'
       if (lc(who) === '@target') {
@@ -5105,53 +13097,120 @@ function applyRuleEffects(rule, payload) {
         else who = '';
       }
 
-      console.log(
-        '[applyRuleEffects updateStat]',
-        'who=', who,
-        'statKey=', statKey,
-        'delta=', eff.delta,
-        'payload.targetActor=', payload?.targetActor
-      );
-
       if (!who) continue;
 
-console.log('[applyRuleEffects -> applyStatChangeWithFeedback]', { kind: 'player' }, statKey, eff.delta);
-
-      if ((lc(who) === 'player') && PLAYER_STAT_DEF_MAP[statKey]) {
-        applyStatChangeWithFeedback(
-          { kind: 'player' },
-          statKey,
-          { mode: 'delta', field: (eff.field || 'current'), delta: eff.delta },
-          payload
-        );
+      if ((lc(who) === 'player') && statAppliesToActor(statKey, player)) {
+        if (durMs > 0 && def && def.type !== 'depletable') {
+          addTimedStatModForActor(player, statKey, delta, durMs);
+        } else {
+          applyStatChangeWithFeedback(
+            { kind: 'player' },
+            statKey,
+            { mode: 'delta', field: (eff.field || 'current'), delta },
+            payload
+          );
+          if (durMs > 0 && isFinite(delta) && delta !== 0) {
+            const expiresAtMs = getGameNowMs() + durMs;
+            scheduleTimedEffect(expiresAtMs, () => {
+              applyStatChangeWithFeedback(
+                { kind: 'player' },
+                statKey,
+                { mode: 'delta', field: (eff.field || 'current'), delta: -delta },
+                payload
+              );
+            });
+          }
+        }
         continue;
       }
       
-      console.log('[applyRuleEffects -> applyStatChangeWithFeedback MOB]', who, statKey, eff.delta);
-
       if (who && typeof who === 'object' && lc(who.kind) === 'mob') {
-        applyStatChangeWithFeedback(
-          who,
-          statKey,
-          { mode: 'delta', field: (eff.field || 'current'), delta: eff.delta },
-          payload
-        );
+        if (durMs > 0 && def && def.type !== 'depletable') {
+          const mobActor = resolveActorFromTargetDescriptor(who);
+          if (mobActor) addTimedStatModForActor(mobActor, statKey, delta, durMs);
+        } else {
+          applyStatChangeWithFeedback(
+            who,
+            statKey,
+            { mode: 'delta', field: (eff.field || 'current'), delta },
+            payload
+          );
+          if (durMs > 0 && isFinite(delta) && delta !== 0) {
+            const targetDesc = who;
+            const expiresAtMs = getGameNowMs() + durMs;
+            scheduleTimedEffect(expiresAtMs, () => {
+              applyStatChangeWithFeedback(
+                targetDesc,
+                statKey,
+                { mode: 'delta', field: (eff.field || 'current'), delta: -delta },
+                payload
+              );
+            });
+          }
+        }
         continue;
       }
-console.log('[applyRuleEffects -> applyStatChangeWithFeedback]', { kind: 'npc', name: String(who) }, statKey, eff.delta);
-
-      applyStatChangeWithFeedback(
-        { kind: 'npc', name: String(who) },
-        statKey,
-        { mode: 'delta', field: (eff.field || 'current'), delta: eff.delta },
-        payload
-      );
+      const npcTarget = { kind: 'npc', name: String(who) };
+      if (lc(npcTarget.name) === 'mira' && (statKey === 'alignment' || statKey === 'affection') && (eff.field || 'current') === 'current') {
+        const src = payload?.ability || payload?.rule || payload?.dialog || payload?.source || null;
+        const effJson = JSON.stringify(eff);
+        console.log(`dbg/mira_stat_source stat=${statKey} delta=${delta} source=${src} eff=${effJson}`);
+      }
+      if (durMs > 0 && def && def.type !== 'depletable') {
+        const actor = findActorByName(npcTarget.name) || ensureNpcRecord(npcTarget.name);
+        if (actor) addTimedStatModForActor(actor, statKey, delta, durMs);
+      } else {
+        applyStatChangeWithFeedback(
+          npcTarget,
+          statKey,
+          { mode: 'delta', field: (eff.field || 'current'), delta },
+          payload
+        );
+        if (durMs > 0 && isFinite(delta) && delta !== 0) {
+          const expiresAtMs = getGameNowMs() + durMs;
+          scheduleTimedEffect(expiresAtMs, () => {
+            applyStatChangeWithFeedback(
+              npcTarget,
+              statKey,
+              { mode: 'delta', field: (eff.field || 'current'), delta: -delta },
+              payload
+            );
+          });
+        }
+      }
       continue;
     }
 
     if (eff.type === 'setStat') {
       let who = (eff.npc == null) ? 'player' : String(eff.npc);
       const statKey = normStatKey(eff.stat);
+      const field = normStatKey(eff.field) || 'current';
+      const def = getStatDef(statKey);
+      const __resolveSetStatValue = (targetActor, raw, targetName = '') => {
+        if (raw && typeof raw === 'object' && raw.stat) {
+          const sKey = String(raw.stat || '');
+          const f = raw.field || 'current';
+          if (!sKey) return null;
+          if (targetActor && isMobActor(targetActor)) {
+            if (lc(f) === 'current') return Number(targetActor?.stats?.[lc(sKey)]?.current);
+            if (lc(f) === 'max') return Number(getStatEffectiveValue(targetActor, sKey));
+            if (lc(f) === 'base') return Number(targetActor?.stats?.[lc(sKey)]?.base ?? targetActor?.stats?.[lc(sKey)]?.max ?? 0);
+            return Number(getStatEffectiveValue(targetActor, sKey));
+          }
+          const nm = (targetActor === player) ? 'player' : (String(targetActor?.name || targetName || ''));
+          return getActorStatValue(nm, sKey, f);
+        }
+        return raw;
+      };
+
+      // Allow payload targeting: npc:'@self'
+      if (lc(who) === '@self') {
+        const sd = payload?.sourceActor;
+        if (sd && sd.kind === 'npc' && sd.name) who = String(sd.name);
+        else if (sd && sd.kind === 'player') who = 'player';
+        else if (sd && sd.kind === 'mob' && sd.id && sd.instanceId) who = sd;
+        else who = '';
+      }
 
       // Allow payload targeting: npc:'@target'
       if (lc(who) === '@target') {
@@ -5164,32 +13223,82 @@ console.log('[applyRuleEffects -> applyStatChangeWithFeedback]', { kind: 'npc', 
 
       if (!who) continue;
 
-      if ((lc(who) === 'player') && PLAYER_STAT_DEF_MAP[statKey]) {
+      if (statKey === 'alignment' && field === 'current') {
+        const rawVal = eff.value;
+        const isZero = (rawVal === 0 || rawVal === '0' || (rawVal && typeof rawVal === 'object' && Number(rawVal.value) === 0));
+        if (isZero && lc(String(who)) === 'mira') {
+          console.log('[align-reset]', {
+            npc: who,
+            value: eff.value,
+            payloadSource: payload?.source || null,
+            ability: payload?.ability || null,
+            rule: payload?.rule || null,
+            dialog: payload?.dialog || null
+          });
+        }
+      }
+
+      if ((lc(who) === 'player') && statAppliesToActor(statKey, player)) {
+        let prevVal = null;
+        if (resetCapture && player?.stats?.[statKey] && def) {
+          prevVal = getStatRecFieldValue(def, player.stats[statKey], field);
+        }
+        const resolvedValue = __resolveSetStatValue(player, eff.value, 'player');
         applyStatChangeWithFeedback(
           { kind: 'player' },
           statKey,
-          { mode: 'set', field: (eff.field || 'current'), value: eff.value },
+          { mode: 'set', field: (eff.field || 'current'), value: resolvedValue },
           payload
         );
+        if (resetCapture && isFinite(prevVal)) {
+          __queueResetAction({
+            type: 'setStat',
+            npc: 'player',
+            stat: statKey,
+            field: normalizeStatFieldForDef(def, field),
+            value: prevVal
+          });
+        }
         continue;
       }
 
       if (who && typeof who === 'object' && lc(who.kind) === 'mob') {
+        const mobActor = resolveActorFromTargetDescriptor(who);
+        const resolvedValue = __resolveSetStatValue(mobActor, eff.value);
         applyStatChangeWithFeedback(
           who,
           statKey,
-          { mode: 'set', field: (eff.field || 'current'), value: eff.value },
+          { mode: 'set', field: (eff.field || 'current'), value: resolvedValue },
           payload
         );
         continue;
       }
 
+      const npcName = String(who);
+      let prevVal = null;
+      if (resetCapture) {
+        const a = findActorByName(npcName);
+        if (a && a.stats && a.stats[statKey] && def) {
+          prevVal = getStatRecFieldValue(def, a.stats[statKey], field);
+        }
+      }
+      const npcActor = findActorByName(npcName) || ensureNpcRecord(npcName);
+      const resolvedValue = __resolveSetStatValue(npcActor, eff.value, npcName);
       applyStatChangeWithFeedback(
-        { kind: 'npc', name: String(who) },
+        { kind: 'npc', name: npcName },
         statKey,
-        { mode: 'set', field: (eff.field || 'current'), value: eff.value },
+        { mode: 'set', field: (eff.field || 'current'), value: resolvedValue },
         payload
       );
+      if (resetCapture && isFinite(prevVal)) {
+        __queueResetAction({
+          type: 'setStat',
+          npc: npcName,
+          stat: statKey,
+          field,
+          value: prevVal
+        });
+      }
       continue;
 
     }
@@ -5197,7 +13306,30 @@ console.log('[applyRuleEffects -> applyStatChangeWithFeedback]', { kind: 'npc', 
     if (eff.type === 'addItem') {
       const id = eff.id || eff.item || eff.itemId;
       const qty = (eff.qty !== undefined) ? eff.qty : (eff.count !== undefined ? eff.count : 1);
-      addItemToInventory(id, qty);
+      const targetDesc = payload?.targetActor || payload?.sourceActor || null;
+      const target =
+        (targetDesc && targetDesc.kind === 'npc' && targetDesc.name)
+          ? findActorByName(targetDesc.name)
+          : (targetDesc && targetDesc.kind === 'player')
+            ? player
+            : null;
+      const outUids = resetCapture ? [] : null;
+      if (target) {
+        addItemToActorInventory(target, id, qty, outUids);
+      } else {
+        addItemToInventory(id, qty, outUids);
+      }
+      if (resetCapture && outUids && outUids.length) {
+        const desc = target ? __actorDescriptorForReset(target) : { kind: 'player' };
+        if (desc) {
+          __queueResetAction({
+            type: 'removeItemInstances',
+            actor: desc,
+            id,
+            uids: outUids
+          });
+        }
+      }
       continue;
     }
 
@@ -5241,8 +13373,75 @@ console.log('[applyRuleEffects -> applyStatChangeWithFeedback]', { kind: 'npc', 
       continue;
     }
 
+    if (eff.type === 'addGoal') {
+      const goal = eff.goal || eff.value || null;
+      if (!goal) continue;
+      const targets = __resolveGoalTargetStores((eff.actor ?? eff.npc ?? 'player'), payload);
+      for (const t of targets) {
+        const added = addGoalToStore(t, goal);
+        if (resetCapture && added) {
+          const desc = (t === player)
+            ? { kind: 'player' }
+            : (t?.name ? { kind: 'npc', name: t.name } : null);
+          if (desc) {
+            const goalId = String(goal.id || goal.goalId || goal.value || goal);
+            if (goalId) {
+              __queueResetAction({
+                type: 'removeGoal',
+                actor: desc,
+                goalId
+              });
+            }
+          }
+        }
+      }
+      continue;
+    }
+
+    if (eff.type === 'removeGoal') {
+      const goalId = eff.goalId || eff.id || eff.goal || eff.value;
+      if (!goalId) continue;
+      const targets = __resolveGoalTargetStores((eff.actor ?? eff.npc ?? 'player'), payload);
+      for (const t of targets) {
+        const outRemoved = resetCapture ? {} : null;
+        const removed = removeGoalFromStore(t, goalId, outRemoved);
+        if (resetCapture && removed && outRemoved?.goal) {
+          const desc = (t === player)
+            ? { kind: 'player' }
+            : (t?.name ? { kind: 'npc', name: t.name } : null);
+          if (desc) {
+            __queueResetAction({
+              type: 'addGoal',
+              actor: desc,
+              goal: outRemoved.goal
+            });
+          }
+        }
+      }
+      continue;
+    }
+
     if (eff.type === 'setMovement' || eff.type === 'setNpcMovement' || eff.type === 'setNpcAiMode') {
       // Back-compat: setNpcAiMode can pass { npc, mode, goalX } OR the new goal spec
+      if (resetCapture) {
+        const who = eff.actor || eff.npc;
+        if (who) {
+          const actor =
+            (lc(who) === 'player') ? player :
+            getOrCreateNpcByName(who);
+          if (actor) {
+            const snap = __snapshotNpcAiState(actor);
+            const desc = __actorDescriptorForReset(actor);
+            if (snap && desc) {
+              __queueResetAction({
+                type: 'restoreNpcAiState',
+                actor: desc,
+                state: snap
+              });
+            }
+          }
+        }
+      }
       applyMovementEffect(eff, payload);
       continue;
     }
@@ -5286,12 +13485,232 @@ console.log('[applyRuleEffects -> applyStatChangeWithFeedback]', { kind: 'npc', 
       const value = Number(eff.value);
       if (!isFinite(value)) continue;
 
+      let prevVal = null;
+      if (resetCapture) {
+        const m = resolveActorFromTargetDescriptor({ kind: 'mob', id: mobId, instanceId: wantInstanceId });
+        prevVal = Number(m?.stats?.hp?.current ?? 0);
+      }
+
       applyStatChangeWithFeedback(
         { kind: 'mob', id: mobId, instanceId: wantInstanceId },
         'hp',
         { mode: 'set', field: 'value', value },
         payload
       );
+      if (resetCapture && isFinite(prevVal)) {
+        __queueResetAction({
+          type: 'setMobHp',
+          id: mobId,
+          instanceId: wantInstanceId,
+          value: prevVal
+        });
+      }
+
+      continue;
+    }
+
+    if (eff.type === 'setActorParam') {
+      const key = String(eff?.key || eff?.param || '');
+      if (!key) continue;
+
+      const spec = normalizeActorSpec(eff, payload);
+      const actors = resolveActorsFromSpec(spec, payload);
+      if (!actors.length) continue;
+
+      const kNorm = lc(key);
+      const isAiKey = (kNorm === 'mode' || kNorm === 'aimode' || kNorm === 'goalx' || kNorm === 'aigoalx' || kNorm === 'anchorx');
+      const isTargetAdd = (kNorm === 'targetadd');
+      const isTargetRemove = (kNorm === 'targetremove');
+
+      for (const a of actors) {
+        let prevVal = undefined;
+        let prevSnap = null;
+        let hadTarget = false;
+
+        if (resetCapture) {
+          if (isAiKey) {
+            prevSnap = __snapshotNpcAiState(a);
+          } else if (isTargetAdd || isTargetRemove) {
+            const td = (() => {
+              const v = eff.value;
+              if (typeof v === 'string') {
+                const s = lc(v);
+                if (s === 'player') return { kind: 'player' };
+                return { kind: 'npc', name: String(v) };
+              }
+              if (v && typeof v === 'object') {
+                const kk = lc(v.kind || '');
+                if (kk === 'player') return { kind: 'player' };
+                if (kk === 'npc') return { kind: 'npc', name: String(v.name || v.id || '') };
+                if (kk === 'mob') return { kind: 'mob', id: String(v.id || ''), instanceId: String(v.instanceId || '') };
+              }
+              return null;
+            })();
+            if (td && Array.isArray(a.attackTargetQueue)) {
+              const k2 = targetKeyFromDescriptor(td);
+              hadTarget = a.attackTargetQueue.some(x => targetKeyFromDescriptor(x) === k2);
+            }
+          } else {
+            const kind = getActorKind(a);
+            prevVal = (kind === 'mob') ? getEffectiveMobParam(a, key) : getEffectiveActorParam(a, key);
+          }
+        }
+
+        const ok = applyActorParam(a, key, eff.value);
+
+        if (resetCapture && ok) {
+          const desc = __actorDescriptorForReset(a);
+          if (desc) {
+            if (isAiKey && prevSnap) {
+              __queueResetAction({
+                type: 'restoreNpcAiState',
+                actor: desc,
+                state: prevSnap
+              });
+            } else if (isTargetAdd && !hadTarget) {
+              __queueResetAction({
+                type: 'setActorParam',
+                actor: desc,
+                key: 'targetRemove',
+                value: eff.value
+              });
+            } else if (isTargetRemove && hadTarget) {
+              __queueResetAction({
+                type: 'setActorParam',
+                actor: desc,
+                key: 'targetAdd',
+                value: eff.value
+              });
+            } else {
+              if (prevVal === undefined) {
+                if (kNorm === 'autocastabilityid') {
+                  __queueResetAction({
+                    type: 'setActorParam',
+                    actor: desc,
+                    key,
+                    value: null
+                  });
+                } else {
+                  __queueResetAction({
+                    type: 'deleteActorParam',
+                    actor: desc,
+                    key
+                  });
+                }
+              } else {
+                __queueResetAction({
+                  type: 'setActorParam',
+                  actor: desc,
+                  key,
+                  value: prevVal
+                });
+              }
+            }
+          }
+        }
+      }
+      continue;
+    }
+
+    if (eff.type === 'stun') {
+      const durMs = __effectDurMs(eff);
+      if (!isFinite(durMs) || durMs <= 0) continue;
+
+      const spec = normalizeActorSpec({
+        actor: eff.actor ?? eff.target ?? eff.subject ?? eff.npc ?? eff.player ?? null,
+        mob: eff.mob ?? eff.mobId ?? eff.id ?? null,
+        instanceId: eff.instanceId ?? eff.instance ?? null
+      }, payload);
+      const actors = resolveActorsFromSpec(spec, payload);
+      if (!actors.length) continue;
+
+      const nowMs = getGameNowMs();
+      const expiresAtMs = nowMs + durMs;
+
+      for (const a of actors) {
+        if (!a) continue;
+        if (actorHasTag(a, 'stun_immune')) continue;
+
+        const hadTag = resetCapture ? actorHasTag(a, 'stunned') : false;
+        actorAddTag(a, 'stunned');
+        __setTagExpiry(a, 'stunned', expiresAtMs);
+
+        if (resetCapture && !hadTag) {
+          const desc = __actorDescriptorForReset(a);
+          if (desc) __queueTagInverse(desc, 'stunned', 'removeTag');
+        }
+
+        scheduleTimedEffect(expiresAtMs, () => {
+          const exp = a?.tagExpiresAtMs?.stunned;
+          if (isFinite(exp) && Number(exp) !== expiresAtMs) return;
+          actorRemoveTag(a, 'stunned');
+          __clearTagExpiry(a, 'stunned');
+        });
+
+        // Pause movement / AI
+        if (a !== player) {
+          lockActorMovementUntil(a, expiresAtMs);
+        } else {
+          player.vx = 0;
+          player.vy = 0;
+        }
+
+        // Pause interaction-driven movement (resume after stun ends)
+        if (a.__interactionMoveActive) {
+          a.vx = 0;
+          a.vy = 0;
+        }
+
+        // Lock facing for the stun duration (keep current facing)
+        lockActorFacingUntil(a, expiresAtMs, (a.facing === -1 || a.facing === 1) ? a.facing : null, { override: true });
+      }
+
+      continue;
+    }
+
+    if (eff.type === 'push') {
+      const dist = Number(eff.distance ?? eff.dist ?? eff.px ?? 0);
+      if (!isFinite(dist) || dist === 0) continue;
+
+      const dirRaw = lc(eff.direction ?? eff.dir ?? eff.towards ?? eff.away ?? '');
+      const speedFactor = Number(eff.speedFactor ?? eff.speed ?? 1);
+
+      const spec = normalizeActorSpec({
+        actor: eff.actor ?? eff.target ?? eff.subject ?? eff.npc ?? eff.player ?? null,
+        mob: eff.mob ?? eff.mobId ?? eff.id ?? null,
+        instanceId: eff.instanceId ?? eff.instance ?? null
+      }, payload);
+      const actors = resolveActorsFromSpec(spec, payload);
+      if (!actors.length) continue;
+
+      const srcActor = payload?.sourceActor ? resolveActorFromTargetDescriptor(payload.sourceActor) : null;
+
+      for (const a of actors) {
+        if (!a) continue;
+        if (actorHasTag(a, 'push_immune')) continue;
+
+        let dir = 0;
+        if (dirRaw === 'left') dir = -1;
+        else if (dirRaw === 'right') dir = 1;
+        else if (dirRaw === 'towardscaster' || dirRaw === 'towards_caster' || dirRaw === 'towards') {
+          if (srcActor) dir = Math.sign((srcActor.worldX || 0) - (a.worldX || 0));
+        } else if (dirRaw === 'awayfromcaster' || dirRaw === 'away_from_caster' || dirRaw === 'away') {
+          if (srcActor) dir = Math.sign((a.worldX || 0) - (srcActor.worldX || 0));
+        }
+
+        if (!dir) continue;
+
+        const targetX = Number(a.worldX || 0) + (dir * dist);
+        if (!isFinite(targetX)) continue;
+
+        // Push overrides interaction movement
+        if (a.__interactionMoveActive) {
+          a.__interactionMoveActive = false;
+          a.__interactionMove = null;
+        }
+
+        startForcedMove(a, targetX, speedFactor, { source: 'push' });
+      }
 
       continue;
     }
@@ -5301,6 +13720,8 @@ console.log('[applyRuleEffects -> applyStatChangeWithFeedback]', { kind: 'npc', 
       // Targets: player | npc by name | '@party' | mob descriptor | '@target' (player/npc/mob)
       const tag = eff.tag ?? eff.keyTag ?? eff.value;
       let who = (eff.npc == null) ? 'player' : eff.npc;
+      const durMs = __effectDurMs(eff);
+      const nowMs = getGameNowMs();
 
       // Allow payload targeting: npc:'@target'
       if (typeof who === 'string' && lc(who) === '@target') {
@@ -5309,21 +13730,138 @@ console.log('[applyRuleEffects -> applyStatChangeWithFeedback]', { kind: 'npc', 
         else who = '';
       }
 
-      // Mob descriptor support
-      if (who && typeof who === 'object' && lc(who.kind) === 'mob') {
-        const mob = resolveActorFromTargetDescriptor(who);
-        if (mob) actorAddTag(mob, tag);
-        continue;
+      // Target descriptor support
+      if (who && typeof who === 'object') {
+        const kind = lc(who.kind || '');
+        if (kind === 'mob') {
+          const mob = resolveActorFromTargetDescriptor(who);
+          if (mob) {
+            const hadTag = resetCapture ? actorHasTag(mob, tag) : false;
+            actorAddTag(mob, tag);
+            if (resetCapture && !hadTag) {
+              __queueTagInverse(
+                { kind: 'mob', id: mob.id, instanceId: mob.instanceId },
+                tag,
+                'removeTag'
+              );
+            }
+            if (durMs > 0) {
+              const expiresAtMs = nowMs + durMs;
+              __setTagExpiry(mob, tag, expiresAtMs);
+              scheduleTimedEffect(expiresAtMs, () => {
+                actorRemoveTag(mob, tag);
+                __clearTagExpiry(mob, tag);
+              });
+            } else {
+              __clearTagExpiry(mob, tag);
+            }
+          }
+          continue;
+        }
+        if (kind === 'player') {
+          const hadTag = resetCapture ? actorHasTag(player, tag) : false;
+          actorAddTag(player, tag);
+          if (resetCapture && !hadTag) {
+            __queueTagInverse({ kind: 'player' }, tag, 'removeTag');
+          }
+          if (durMs > 0) {
+            const expiresAtMs = nowMs + durMs;
+            __setTagExpiry(player, tag, expiresAtMs);
+            scheduleTimedEffect(expiresAtMs, () => {
+              actorRemoveTag(player, tag);
+              __clearTagExpiry(player, tag);
+            });
+          } else {
+            __clearTagExpiry(player, tag);
+          }
+          continue;
+        }
+        if (kind === 'npc') {
+          const name = who.name || who.id || '';
+          if (name) {
+            let found = null;
+            for (const m of party) {
+              if (lc(m?.name) === lc(name)) { found = m; break; }
+            }
+            if (!found) {
+              for (const n of npcs) {
+                if (lc(n?.name) === lc(name)) { found = n; break; }
+              }
+            }
+            if (found) {
+              const hadTag = resetCapture ? actorHasTag(found, tag) : false;
+              actorAddTag(found, tag);
+              if (resetCapture && !hadTag) {
+                __queueTagInverse({ kind: 'npc', name: found.name }, tag, 'removeTag');
+              }
+              if (durMs > 0) {
+                const expiresAtMs = nowMs + durMs;
+                __setTagExpiry(found, tag, expiresAtMs);
+                scheduleTimedEffect(expiresAtMs, () => {
+                  actorRemoveTag(found, tag);
+                  __clearTagExpiry(found, tag);
+                });
+              } else {
+                __clearTagExpiry(found, tag);
+              }
+            }
+          }
+          continue;
+        }
       }
 
       if (typeof who === 'string' && lc(who) === '@party') {
+        const playerHad = resetCapture ? actorHasTag(player, tag) : false;
         actorAddTag(player, tag);
-        for (const m of party) actorAddTag(m, tag);
+        if (resetCapture && !playerHad) {
+          __queueTagInverse({ kind: 'player' }, tag, 'removeTag');
+        }
+        for (const m of party) {
+          if (!m) continue;
+          const hadTag = resetCapture ? actorHasTag(m, tag) : false;
+          actorAddTag(m, tag);
+          if (resetCapture && !hadTag) {
+            __queueTagInverse({ kind: 'npc', name: m.name }, tag, 'removeTag');
+          }
+        }
+        if (durMs > 0) {
+          const expiresAtMs = nowMs + durMs;
+          __setTagExpiry(player, tag, expiresAtMs);
+          scheduleTimedEffect(expiresAtMs, () => {
+            actorRemoveTag(player, tag);
+            __clearTagExpiry(player, tag);
+          });
+          for (const m of party) {
+            if (!m) continue;
+            __setTagExpiry(m, tag, expiresAtMs);
+            scheduleTimedEffect(expiresAtMs, () => {
+              actorRemoveTag(m, tag);
+              __clearTagExpiry(m, tag);
+            });
+          }
+        } else {
+          __clearTagExpiry(player, tag);
+          for (const m of party) __clearTagExpiry(m, tag);
+        }
         continue;
       }
 
       if (typeof who === 'string' && lc(who) === 'player') {
+        const hadTag = resetCapture ? actorHasTag(player, tag) : false;
         actorAddTag(player, tag);
+        if (resetCapture && !hadTag) {
+          __queueTagInverse({ kind: 'player' }, tag, 'removeTag');
+        }
+        if (durMs > 0) {
+          const expiresAtMs = nowMs + durMs;
+          __setTagExpiry(player, tag, expiresAtMs);
+          scheduleTimedEffect(expiresAtMs, () => {
+            actorRemoveTag(player, tag);
+            __clearTagExpiry(player, tag);
+          });
+        } else {
+          __clearTagExpiry(player, tag);
+        }
         continue;
       }
 
@@ -5340,13 +13878,31 @@ console.log('[applyRuleEffects -> applyStatChangeWithFeedback]', { kind: 'npc', 
         }
       }
 
-      if (found) actorAddTag(found, tag);
+      if (found) {
+        const hadTag = resetCapture ? actorHasTag(found, tag) : false;
+        actorAddTag(found, tag);
+        if (resetCapture && !hadTag) {
+          __queueTagInverse({ kind: 'npc', name: found.name }, tag, 'removeTag');
+        }
+        if (durMs > 0) {
+          const expiresAtMs = nowMs + durMs;
+          __setTagExpiry(found, tag, expiresAtMs);
+          scheduleTimedEffect(expiresAtMs, () => {
+            actorRemoveTag(found, tag);
+            __clearTagExpiry(found, tag);
+          });
+        } else {
+          __clearTagExpiry(found, tag);
+        }
+      }
       continue;
     }
 
     if (eff.type === 'removeTag') {
       const tag = eff.tag ?? eff.keyTag ?? eff.value;
       let who = (eff.npc == null) ? 'player' : eff.npc;
+      const durMs = __effectDurMs(eff);
+      const nowMs = getGameNowMs();
 
       // Allow payload targeting: npc:'@target'
       if (typeof who === 'string' && lc(who) === '@target') {
@@ -5355,22 +13911,110 @@ console.log('[applyRuleEffects -> applyStatChangeWithFeedback]', { kind: 'npc', 
         else who = '';
       }
 
-      // Mob descriptor support
-      if (who && typeof who === 'object' && lc(who.kind) === 'mob') {
-        const mob = resolveActorFromTargetDescriptor(who);
-        if (mob) actorRemoveTag(mob, tag);
-        continue;
+      // Target descriptor support
+      if (who && typeof who === 'object') {
+        const kind = lc(who.kind || '');
+        if (kind === 'mob') {
+          const mob = resolveActorFromTargetDescriptor(who);
+          if (mob) {
+            const hadTag = resetCapture ? actorHasTag(mob, tag) : false;
+            actorRemoveTag(mob, tag);
+            __clearTagExpiry(mob, tag);
+            if (resetCapture && hadTag) {
+              __queueTagInverse(
+                { kind: 'mob', id: mob.id, instanceId: mob.instanceId },
+                tag,
+                'addTag'
+              );
+            }
+            if (durMs > 0) {
+              const expiresAtMs = nowMs + durMs;
+              scheduleTimedEffect(expiresAtMs, () => actorAddTag(mob, tag));
+            }
+          }
+          continue;
+        }
+        if (kind === 'player') {
+          const hadTag = resetCapture ? actorHasTag(player, tag) : false;
+          actorRemoveTag(player, tag);
+          __clearTagExpiry(player, tag);
+          if (resetCapture && hadTag) {
+            __queueTagInverse({ kind: 'player' }, tag, 'addTag');
+          }
+          if (durMs > 0) {
+            const expiresAtMs = nowMs + durMs;
+            scheduleTimedEffect(expiresAtMs, () => actorAddTag(player, tag));
+          }
+          continue;
+        }
+        if (kind === 'npc') {
+          const name = who.name || who.id || '';
+          if (name) {
+            let found = null;
+            for (const m of party) {
+              if (lc(m?.name) === lc(name)) { found = m; break; }
+            }
+            if (!found) {
+              for (const n of npcs) {
+                if (lc(n?.name) === lc(name)) { found = n; break; }
+              }
+            }
+            if (found) {
+              const hadTag = resetCapture ? actorHasTag(found, tag) : false;
+              actorRemoveTag(found, tag);
+              __clearTagExpiry(found, tag);
+              if (resetCapture && hadTag) {
+                __queueTagInverse({ kind: 'npc', name: found.name }, tag, 'addTag');
+              }
+              if (durMs > 0) {
+                const expiresAtMs = nowMs + durMs;
+                scheduleTimedEffect(expiresAtMs, () => actorAddTag(found, tag));
+              }
+            }
+          }
+          continue;
+        }
       }
 
 
       if (typeof who === 'string' && lc(who) === '@party') {
+        const playerHad = resetCapture ? actorHasTag(player, tag) : false;
         actorRemoveTag(player, tag);
-        for (const m of party) actorRemoveTag(m, tag);
+        if (resetCapture && playerHad) {
+          __queueTagInverse({ kind: 'player' }, tag, 'addTag');
+        }
+        for (const m of party) {
+          if (!m) continue;
+          const hadTag = resetCapture ? actorHasTag(m, tag) : false;
+          actorRemoveTag(m, tag);
+          if (resetCapture && hadTag) {
+            __queueTagInverse({ kind: 'npc', name: m.name }, tag, 'addTag');
+          }
+        }
+        __clearTagExpiry(player, tag);
+        for (const m of party) __clearTagExpiry(m, tag);
+        if (durMs > 0) {
+          const expiresAtMs = nowMs + durMs;
+          scheduleTimedEffect(expiresAtMs, () => actorAddTag(player, tag));
+          for (const m of party) {
+            if (!m) continue;
+            scheduleTimedEffect(expiresAtMs, () => actorAddTag(m, tag));
+          }
+        }
         continue;
       }
 
       if (typeof who === 'string' && lc(who) === 'player') {
+        const hadTag = resetCapture ? actorHasTag(player, tag) : false;
         actorRemoveTag(player, tag);
+        __clearTagExpiry(player, tag);
+        if (resetCapture && hadTag) {
+          __queueTagInverse({ kind: 'player' }, tag, 'addTag');
+        }
+        if (durMs > 0) {
+          const expiresAtMs = nowMs + durMs;
+          scheduleTimedEffect(expiresAtMs, () => actorAddTag(player, tag));
+        }
         continue;
       }
 
@@ -5386,35 +14030,127 @@ console.log('[applyRuleEffects -> applyStatChangeWithFeedback]', { kind: 'npc', 
         }
       }
 
-      if (found) actorRemoveTag(found, tag);
+      if (found) {
+        const hadTag = resetCapture ? actorHasTag(found, tag) : false;
+        actorRemoveTag(found, tag);
+        __clearTagExpiry(found, tag);
+        if (resetCapture && hadTag) {
+          __queueTagInverse({ kind: 'npc', name: found.name }, tag, 'addTag');
+        }
+        if (durMs > 0) {
+          const expiresAtMs = nowMs + durMs;
+          scheduleTimedEffect(expiresAtMs, () => actorAddTag(found, tag));
+        }
+      }
       continue;
     }
 
     // Convenience aliases (so Rowyn's veil ability can tag everyone easily)
     if (eff.type === 'addPartyTag') {
       const tag = eff.tag ?? eff.keyTag ?? eff.value;
+      const durMs = __effectDurMs(eff);
+      const nowMs = getGameNowMs();
+      const playerHad = resetCapture ? actorHasTag(player, tag) : false;
       actorAddTag(player, tag);
-      for (const m of party) actorAddTag(m, tag);
+      if (resetCapture && !playerHad) {
+        __queueTagInverse({ kind: 'player' }, tag, 'removeTag');
+      }
+      for (const m of party) {
+        if (!m) continue;
+        const hadTag = resetCapture ? actorHasTag(m, tag) : false;
+        actorAddTag(m, tag);
+        if (resetCapture && !hadTag) {
+          __queueTagInverse({ kind: 'npc', name: m.name }, tag, 'removeTag');
+        }
+      }
+      if (durMs > 0) {
+        const expiresAtMs = nowMs + durMs;
+        __setTagExpiry(player, tag, expiresAtMs);
+        scheduleTimedEffect(expiresAtMs, () => {
+          actorRemoveTag(player, tag);
+          __clearTagExpiry(player, tag);
+        });
+        for (const m of party) {
+          if (!m) continue;
+          __setTagExpiry(m, tag, expiresAtMs);
+          scheduleTimedEffect(expiresAtMs, () => {
+            actorRemoveTag(m, tag);
+            __clearTagExpiry(m, tag);
+          });
+        }
+      } else {
+        __clearTagExpiry(player, tag);
+        for (const m of party) __clearTagExpiry(m, tag);
+      }
       continue;
     }
 
     if (eff.type === 'removePartyTag') {
       const tag = eff.tag ?? eff.keyTag ?? eff.value;
+      const durMs = __effectDurMs(eff);
+      const nowMs = getGameNowMs();
+      const playerHad = resetCapture ? actorHasTag(player, tag) : false;
       actorRemoveTag(player, tag);
-      for (const m of party) actorRemoveTag(m, tag);
+      if (resetCapture && playerHad) {
+        __queueTagInverse({ kind: 'player' }, tag, 'addTag');
+      }
+      for (const m of party) {
+        if (!m) continue;
+        const hadTag = resetCapture ? actorHasTag(m, tag) : false;
+        actorRemoveTag(m, tag);
+        if (resetCapture && hadTag) {
+          __queueTagInverse({ kind: 'npc', name: m.name }, tag, 'addTag');
+        }
+      }
+      __clearTagExpiry(player, tag);
+      for (const m of party) __clearTagExpiry(m, tag);
+      if (durMs > 0) {
+        const expiresAtMs = nowMs + durMs;
+        scheduleTimedEffect(expiresAtMs, () => actorAddTag(player, tag));
+        for (const m of party) {
+          if (!m) continue;
+          scheduleTimedEffect(expiresAtMs, () => actorAddTag(m, tag));
+        }
+      }
       continue;
     }
 
     // ===== Gate state effects =====
     if (eff.type === 'setGateOpen') {
-      const id = String(eff.id ?? eff.instanceId ?? '').trim();
-      if (id) setGateIsOpenByInstanceId(id, !!eff.open);
+      let id = String(eff.id ?? eff.instanceId ?? '').trim();
+      if (!id && payload?.area && payload?.section && payload?.objectSectionId) {
+        id = `${payload.area}.${payload.section}.${payload.objectSectionId}`;
+      }
+      if (id) {
+        if (resetCapture) {
+          const prev = getFlag('global', resolveGateFlagKeyFromId(id));
+          if (prev === true || prev === false) {
+            __queueResetAction({
+              type: 'setGateOpen',
+              id,
+              open: prev
+            });
+          }
+        }
+        setGateIsOpenByInstanceId(id, !!eff.open);
+      }
       continue;
     }
 
     if (eff.type === 'toggleGate') {
-      const id = String(eff.id ?? eff.instanceId ?? '').trim();
-      if (id) toggleGateByInstanceId(id);
+      let id = String(eff.id ?? eff.instanceId ?? '').trim();
+      if (!id && payload?.area && payload?.section && payload?.objectSectionId) {
+        id = `${payload.area}.${payload.section}.${payload.objectSectionId}`;
+      }
+      if (id) {
+        if (resetCapture) {
+          __queueResetAction({
+            type: 'toggleGate',
+            id
+          });
+        }
+        toggleGateByInstanceId(id);
+      }
       continue;
     }
 
@@ -5424,26 +14160,20 @@ console.log('[applyRuleEffects -> applyStatChangeWithFeedback]', { kind: 'npc', 
 
   // Re-evaluate party eligibility after ANY stat change
   for (const member of party.slice()) {
-    const curA = Number(member?.stats?.alignment?.current ?? 0);
-    const minA = Number(member?.stats?.alignment?.base ?? 0);
+    const curA = Number(getActorStatValue(member?.name || '', 'alignment', 'current') ?? 0);
+    const minARaw = getActorStatValue(member?.name || '', 'minalignment', 'base');
 
-    const curF = Number(member?.stats?.affection?.current ?? 0);
-    const minF = Number(member?.stats?.affection?.base ?? 0);
+    const curF = Number(getActorStatValue(member?.name || '', 'affection', 'current') ?? 0);
 
-    const badAlignment = curA < minA;
-    const badAffection = curF < minF;
+    if (minARaw == null) continue;
+    const sum = curA + curF;
+    if (sum < Number(minARaw)) {
+      const prev = _partyEligBefore.get(member) || { belowMinAlignSum: false };
 
-    // Only drop if BOTH are below minimum
-    if (badAlignment && badAffection) {
-      const prev = _partyEligBefore.get(member) || { badAlignment: false, badAffection: false };
+      // Only drop when crossing from eligible -> ineligible
+      if (prev.belowMinAlignSum) continue;
 
-      // Attribute the "cause" to whichever stat crossed from not-bad -> bad
-      const alignBecameBad = !prev.badAlignment && badAlignment;
-      const affBecameBad = !prev.badAffection && badAffection;
-
-      let reason = 'low_both';
-      if (alignBecameBad && !affBecameBad) reason = 'low_alignment';
-      else if (!alignBecameBad && affBecameBad) reason = 'low_affection';
+      const reason = 'below_min_alignment';
 
       removeNpcFromPartyInternal(member, {
         emit: true,
@@ -5516,18 +14246,26 @@ function expireInverseDialogPrompts(eventName, payload) {
   }
 }
 
+function __isTimeTriggerEvent(ev) {
+  const e = lc(ev || '');
+  return e === 'time_phase_change' || e === 'time_tick' || e.startsWith('time_');
+}
+
+function __getPromptTimeoutModeForRule(rule) {
+  if (!rule) return 'none';
+  const triggers = normalizeTriggerWhen(rule.triggerWhen);
+  for (const t of triggers) {
+    if (__isTimeTriggerEvent(t?.event)) return 'time';
+  }
+  return 'none';
+}
+
 function applyRulesForEvent(eventName, payload) {
   const list = rulesByEvent[eventName] || [];
 
-  if (window.__traceRules) {
-    for (const entry of list) {
-      console.log('[applyRulesForEvent]', 'event=', eventName, 'rule=', entry?.rule?.id, 'payload=', payload);
-    }
-  }
-
   const logReason = (...args) => {
-    if (window.__traceRulesReasons) console.log('[RuleTrace]', ...args);
   };
+
 
 
   expireInverseDialogPrompts(eventName, payload);
@@ -5553,10 +14291,16 @@ function applyRulesForEvent(eventName, payload) {
 
     // State gate
     if (ruleId === 'rowyn_forest1_keep_going_prompt' && window.__traceRules) {
-      console.log('[rowyn_forest1_keep_going_prompt] pre-state payload=', payload);
     }
 
-    if (!evaluateRuleState(rule, payload)) {
+    if (ruleId === 'mira_forest_north_return_after_safeplace') {
+      const stateOk = evaluateRuleState(rule, payload);
+      const miraLive = !!findActorByName('Mira');
+      if (!stateOk) {
+        logReason('SKIP state-fail', { eventName, ruleId, state: rule.state, payload });
+        continue;
+      }
+    } else if (!evaluateRuleState(rule, payload)) {
       logReason('SKIP state-fail', { eventName, ruleId, state: rule.state, payload });
       continue;
     }
@@ -5597,7 +14341,8 @@ function applyRulesForEvent(eventName, payload) {
             speaker,
             rule.dialog.prompt,
             rule.dialog.start,
-            ruleId
+            ruleId,
+            { timeoutMode: __getPromptTimeoutModeForRule(rule), ruleId }
           );
 
           // IMPORTANT: if this is a triggerWhen rule, bind it to the state system
@@ -5609,15 +14354,6 @@ function applyRulesForEvent(eventName, payload) {
         }
       }
 
-      if (window.__traceRulesReasons) {
-        console.log('[RuleTrace] dialog speaker resolve', {
-          ruleId,
-          requestedNpc: rule.dialog.npc,
-          speakerFound: !!speaker,
-          party: party.map(n => n.name),
-          npcs: npcs.map(n => n.name)
-        });
-      }
     }
 
     let startedScene = false;
@@ -5627,7 +14363,10 @@ function applyRulesForEvent(eventName, payload) {
       startedScene = true;
     }
 
-    if (rule.once && !startedScene) triggeredRuleIds.add(ruleId);
+    // For dialog prompts, we defer "once" until the prompt is triggered or times out.
+    if (rule.once && !startedScene && !(rule.dialog && rule.dialog.prompt && rule.dialog.start)) {
+      triggeredRuleIds.add(ruleId);
+    }
 
   }
 }
@@ -5649,32 +14388,44 @@ function handleObjectInteractEvent(payload) {
   if (hasInteractTags && !partyCanInteractWithObjectDef(def)) return;
 
   const wasTypeInteracted = !!payload?.wasTypeInteracted;
+  const wasInstanceInteracted = !!payload?.wasInstanceInteracted;
 
-  // Support several field names (keep current objects.json working)
-  const sceneFirst =
-    def.sceneFirst || def.sceneFirstTime || def.firstScene || def.firstInteractScene || null;
+  // Dialog hooks (new object schema)
+  const dialogFirstType = def?.dialog?.firstType || null;
+  const dialogFirstInstance = def?.dialog?.firstInstance || null;
+  const dialogEveryType = def?.dialog?.everyType || null;
 
-  const sceneEvery =
-    def.sceneEveryTime || def.sceneEvery || def.scene || def.interactScene || null;
+  let dialogStart = null;
+  if (!wasTypeInteracted && dialogFirstType) {
+    dialogStart = dialogFirstType;
+  } else if (!wasInstanceInteracted && dialogFirstInstance) {
+    dialogStart = dialogFirstInstance;
+  } else if (dialogEveryType) {
+    dialogStart = dialogEveryType;
+  }
 
-  const effectsFirst =
-    Array.isArray(def.effectsFirstTime) ? def.effectsFirstTime
-    : Array.isArray(def.effectsFirst) ? def.effectsFirst
-    : [];
+  const effectsFirstType =
+    Array.isArray(def.effectsFirstType) ? def.effectsFirstType : [];
+
+  const effectsFirstInstance =
+    Array.isArray(def.effectsFirstInstance) ? def.effectsFirstInstance : [];
 
   const effects =
     Array.isArray(def.effects) ? def.effects : [];
 
-  const oncePerInstance = !!def.oncePerInstance;
+  const resetMs = Number(def.resetMs || 0);
+  const inactiveMs = Number(def.inactiveMs || 0);
+  const interactionsBeforeInactiveRaw = (def.interactionsBeforeInactive != null)
+    ? def.interactionsBeforeInactive
+    : 1;
+  const interactionsBeforeInactive = Math.max(1, Math.floor(Number(interactionsBeforeInactiveRaw)));
 
-  // Choose ONE scene to run (your bush scene handles first-vs-repeat internally via flags)
-  const sceneToRun = (!wasTypeInteracted && sceneFirst) ? sceneFirst : sceneEvery;
-
-  if (sceneToRun && sceneToRun.start && !loading) {
-    startRuleScene(sceneToRun.start, `__object:${objectId}:${(!wasTypeInteracted ? 'first' : 'every')}`);
+  // Start dialog if specified (no dialog if no hook exists)
+  if (dialogStart && !loading) {
+    startRuleScene(dialogStart, `__object:${objectId}:${(!wasTypeInteracted ? 'first' : 'every')}`);
   }
 
-  // Apply effects (only when interaction actually happens)
+  // Apply effects (queued for dialog placement)
   const instanceKey = payload.instanceKey;
 
   // Convert proximity instanceKey ("object:...") into the gate instance id used by gateOpen flags.
@@ -5682,6 +14433,11 @@ function handleObjectInteractEvent(payload) {
   // - legacy: "object:<layer>:<base>:<i>"      -> "<layer>:<base>:<i>"
   const gateInstanceId =
     (() => {
+      const area = String(payload?.area || '').trim();
+      const section = String(payload?.section || '').trim();
+      const objId = String(payload?.objectSectionId || '').trim();
+      if (area && section && objId) return `${area}.${section}.${objId}`;
+
       const raw = String(instanceKey || '');
       if (!raw.startsWith('object:')) return '';
 
@@ -5715,11 +14471,45 @@ function handleObjectInteractEvent(payload) {
   };
 
 
-  if (!wasTypeInteracted && effectsFirst.length) {
-    applyEffects(__withGateTarget(effectsFirst), { source: 'object', objectId, instanceKey, firstTime: true });
+  const combinedEffects = [];
+  if (!wasTypeInteracted && effectsFirstType.length) combinedEffects.push(...effectsFirstType);
+  if (!wasInstanceInteracted && effectsFirstInstance.length) combinedEffects.push(...effectsFirstInstance);
+  if (effects.length) combinedEffects.push(...effects);
+
+  const payloadBase = {
+    source: 'object',
+    objectId,
+    instanceKey,
+    firstTime: !wasTypeInteracted,
+    area: payload?.area || null,
+    section: payload?.section || null,
+    objectSectionId: payload?.objectSectionId || null,
+    interactor: payload?.interactor,
+    sourceActor: payload?.sourceActor,
+    targetActor: payload?.interactor || payload?.targetActor
+  };
+
+  const resetSpec = (isFinite(resetMs) && resetMs > 0)
+    ? { resetMs, objectId, instanceKey }
+    : null;
+
+  if (pendingObjectInteraction) {
+    __flushPendingObjectInteraction('override');
   }
-  if (effects.length) {
-    applyEffects(__withGateTarget(effects), { source: 'object', objectId, instanceKey, firstTime: !wasTypeInteracted });
+
+  if (dialogStart) {
+    pendingObjectInteraction = {
+      instanceKey,
+      effects: __withGateTarget(combinedEffects),
+      payload: payloadBase,
+      releaseLock: true,
+      resetSpec
+    };
+  } else {
+    if (combinedEffects.length) {
+      __applyObjectInteractionEffects(__withGateTarget(combinedEffects), payloadBase, resetSpec);
+    }
+    __releaseObjectInteractionLock(instanceKey);
   }
 
 
@@ -5728,15 +14518,33 @@ function handleObjectInteractEvent(payload) {
     setFlag('global', `objectTypeInteracted:${objectId}`, true);
   }
 
-  if (oncePerInstance && payload.instanceKey) {
-    setFlag('global', `objectInstanceInteracted:${payload.instanceKey}`, true);
+  if (payload.instanceKey) {
+    const areaKey = String(payload.area || currentAreaName || '').trim();
+    const flagKey = areaKey
+      ? `objectInstanceInteracted:${areaKey}:${payload.instanceKey}`
+      : `objectInstanceInteracted:${payload.instanceKey}`;
+    setFlag('global', flagKey, true);
   }
 
   // Kick object "_interact" animation (if available) on the specific instance that was interacted with
   if (payload.instanceKey) {
     const inst = findPlacedObjectByInstanceKey(payload.instanceKey);
     if (inst) {
-      inst._interactAnimStartMs = performance.now();
+      inst._interactAnimStartMs = getGameNowMs();
+    }
+  }
+
+  if (payload.instanceKey) {
+    const st = getObjectInteractState(payload.instanceKey);
+    if (st) {
+      st.totalInteractions += 1;
+      st.interactionsSinceInactive += 1;
+      if (isFinite(inactiveMs) && inactiveMs > 0) {
+        if (st.interactionsSinceInactive >= interactionsBeforeInactive) {
+          st.inactiveUntilMs = getGameNowMs() + inactiveMs;
+          st.interactionsSinceInactive = 0;
+        }
+      }
     }
   }
 }
@@ -5747,14 +14555,24 @@ function emitGameEvent(eventName, payload) {
   if (!payload || typeof payload !== 'object') payload = {};
   payload.__eventName = eventName;
 
+  if (
+    (eventName === 'area_enter' || eventName === 'section_enter') &&
+    (payload?.area === 'eldertide_forest_shrine_back' || payload?.section === 'forest_shrine_back_middle')
+  ) {
+    const key = `event:${eventName}:${payload?.area || ''}:${payload?.section || ''}:${payload?.npc || ''}:${payload?.fromArea || ''}:${payload?.toArea || ''}`;
+  }
+
   __lastEvent = { eventName, payload };
 
   applyRulesForEvent(eventName, payload);
+  evaluateAllGoalsForEvent(eventName, payload);
+  evaluateGoalProgressForEvent(eventName, payload);
 
   // Pass-out carry system: after a full day unconscious, auto-move NPCs to nearest safe place + recover
   if (eventName === 'time_tick') {
     __processUnconsciousNpcAutoRecover(payload?.dayIndex);
   }
+
 
 
   if (eventName === 'object_interact') {
@@ -5767,6 +14585,29 @@ function emitGameEvent(eventName, payload) {
     const s = String(payload?.section || '');
     if (a && s) {
       setFlag('global', `visited:${a}:${s}`, true);
+    }
+  }
+
+  // Mark portals as "used" for map visualization (area + section + object id)
+  if (eventName === 'portal_use') {
+    const area = String(payload?.area || '').trim();
+    const objectId = String(payload?.objectId || '').trim();
+    const sectionName = String(payload?.section || '').trim();
+    const sectionIndex = Number(payload?.sectionIndex);
+    const sectionKey = sectionName || getSectionKeyForIndex(area, sectionIndex);
+    if (area && objectId && sectionKey) {
+      const usedKey = `portalUsed:${area}:${sectionKey}:${objectId}`;
+      setFlag('global', usedKey, true);
+    }
+  }
+
+  // Mark exits as "used" for map visualization
+  if (eventName === 'exit_use') {
+    const area = String(payload?.area || '');
+    const sectionIndex = Number(payload?.sectionIndex);
+    const exitId = String(payload?.exitId || '');
+    if (area && isFinite(sectionIndex) && sectionIndex >= 0 && exitId) {
+      setFlag('global', `exitUsed:${area}:${sectionIndex}:${exitId}`, true);
     }
   }
 
@@ -5786,7 +14627,13 @@ function emitGameEvent(eventName, payload) {
     // Only player current STA/COM should drive the head bars
     if (actor === 'player' && field === 'current' && (stat === 'stamina' || stat === 'composure')) {
       notePlayerHeadStatChanged(stat, payload?.prev, payload?.next);
+    } else if (actor && field === 'current' && (stat === 'stamina' || stat === 'composure')) {
+      const a = findActorByName(actor);
+      if (a && a !== player) {
+        noteHeadStatChanged(a, stat, payload?.prev, payload?.next);
+      }
     }
+
   }
 
     // Actor animation reactions (mobs + NPCs)
@@ -5805,14 +14652,14 @@ function emitGameEvent(eventName, payload) {
       }
 
       if (target) {
-        const list = Array.isArray(target?.def?.abilities) ? target.def.abilities : [];
+        const list = Array.isArray(target?.abilities) ? target.abilities : [];
         const adef = list.find(a => a && lc(a.id || a.name) === abilityId) || null;
 
         const spec = getActionAnimSpec(adef, 'ability', 520);
         setActorTempAnim(target, spec.type, spec.durationMs);
 
-        if (adef?.stopMoving === true) {
-          lockActorMovementForMs(target, spec.durationMs);
+        if (adef?.stopMoving === true && Number(adef?.castingTimeMs || 0) > 0) {
+          lockActorMovementForMs(target, Number(adef.castingTimeMs));
         }
       }
     }
@@ -5829,17 +14676,23 @@ function emitGameEvent(eventName, payload) {
         null;
 
       if (target) {
+        if (abilityId) noteAbilityUseForActor(target, abilityId);
         const list = Array.isArray(target?.abilities) ? target.abilities : [];
         const adef = list.find(a => a && lc(a.id || a.name) === abilityId) || null;
 
         const spec = getActionAnimSpec(adef, 'ability', 520);
         setActorTempAnim(target, spec.type, spec.durationMs);
 
-        if (adef?.stopMoving === true) {
-          lockActorMovementForMs(target, spec.durationMs);
+        if (adef?.stopMoving === true && Number(adef?.castingTimeMs || 0) > 0) {
+          lockActorMovementForMs(target, Number(adef.castingTimeMs));
         }
       }
     }
+  }
+
+  if (eventName === 'player_ability_cast') {
+    const abilityId = lc(payload?.ability || '');
+    if (abilityId) noteAbilityUseForActor(player, abilityId);
   }
 
 
@@ -5856,6 +14709,22 @@ function emitGameEvent(eventName, payload) {
       }
       if (target) setActorTempAnim(target, 'despawn', 700);
     }
+  }
+
+  // Keep menu tabs in sync with dynamic page visibility
+  if (
+    eventName === 'party_join' ||
+    eventName === 'party_leave' ||
+    eventName === 'talk_start' ||
+    eventName === 'inventory_change'
+  ) {
+    renderMenuTabs(menuTopTabs, !inMenu, true);
+  }
+
+  if (eventName === 'inventory_change') {
+    const who = payload?.actor || payload?.npc || payload?.name || null;
+    const actor = who ? findActorByName(who) : player;
+    if (actor) rebuildActorItemGrants(actor);
   }
 
 }
@@ -5900,6 +14769,15 @@ function evaluateStateRulesByDepKeys(depKeys, payload) {
 
       let fired = false;
 
+      // ---- effect-based state rule ----
+      if (Array.isArray(rule.effects) && rule.effects.length) {
+        applyRuleEffects(rule, payload);
+        fired = true;
+        if (rule.once) {
+          triggeredRuleIds.add(ruleId);
+        }
+      }
+
       // ---- dialog-based state rule ----
       if (rule.dialog) {
         const speaker = rule.dialog.npc || payload?.npc;
@@ -5908,7 +14786,8 @@ function evaluateStateRulesByDepKeys(depKeys, payload) {
             speaker,
             rule.dialog.prompt,
             rule.dialog.start,
-            rule.id
+            rule.id,
+            { ruleId: rule.id }
           );
           fired = true;
         }
@@ -5926,13 +14805,10 @@ function evaluateStateRulesByDepKeys(depKeys, payload) {
 
       // Only mark "active" for prompt rules (prevents duplicate prompts).
       // Do NOT mark scenes as active, or they can get stuck "active" without a scene actually starting.
-      if (fired && rule.dialog) {
+      if (fired && (rule.dialog || (Array.isArray(rule.effects) && rule.effects.length))) {
         activeStateRuleIds.add(ruleId);
 
-        // dialog prompts are "fired" immediately
-        if (rule.once) {
-          triggeredRuleIds.add(ruleId);
-        }
+        // dialog prompts are NOT fired immediately; handled on trigger/timeout
       }
 
 
@@ -5965,22 +14841,18 @@ function evaluateAllStateRules(payload) {
     const shouldBeActive = evaluateRuleState(rule, payload);
     const hasFiredOnce = rule.once && triggeredRuleIds.has(ruleId);
 
-
-  
-    if (ruleId === 'rowyn_recover_composure_scene') {
-      console.log('[DEBUG][recover] seen in evaluateAllStateRules', {
-        inConversation,
-        loading,
-        isActive: activeStateRuleIds.has(ruleId),
-        hasFiredOnce: (rule.once && triggeredRuleIds.has(ruleId)),
-        shouldBeActive: evaluateRuleState(rule, payload),
-        sceneStart: rule?.scene?.start
-      });
-    }
-
     if (shouldBeActive && !isActive && !hasFiredOnce) {
 
       let fired = false;
+
+      // ---- effect-based state rule ----
+      if (Array.isArray(rule.effects) && rule.effects.length) {
+        applyRuleEffects(rule, payload);
+        fired = true;
+        if (rule.once) {
+          triggeredRuleIds.add(ruleId);
+        }
+      }
 
       // ---- dialog-based state rule ----
       if (rule.dialog) {
@@ -5990,7 +14862,8 @@ function evaluateAllStateRules(payload) {
             speaker,
             rule.dialog.prompt,
             rule.dialog.start,
-            rule.id
+            rule.id,
+            { ruleId: rule.id }
           );
           fired = true;
         }
@@ -5999,7 +14872,6 @@ function evaluateAllStateRules(payload) {
       // ---- scene / action-based state rule ----
       if (!fired && rule.scene && rule.scene.start && !inConversation && !loading) {
         if (ruleId === 'rowyn_recover_composure_scene') {
-          console.log('[DEBUG][recover] FIRING scene now');
         }
 
         startRuleScene(rule.scene.start, ruleId);
@@ -6011,12 +14883,10 @@ function evaluateAllStateRules(payload) {
 
       // Only mark "active" for prompt rules (prevents duplicate prompts).
       // Do NOT mark scenes as active.
-      if (fired && rule.dialog) {
+      if (fired && (rule.dialog || (Array.isArray(rule.effects) && rule.effects.length))) {
         activeStateRuleIds.add(ruleId);
 
-        if (rule.once) {
-          triggeredRuleIds.add(ruleId);
-        }
+        // dialog prompts are NOT fired immediately; handled on trigger/timeout
       }
 
 
@@ -6027,8 +14897,8 @@ function evaluateAllStateRules(payload) {
       removeDialogPromptForRule(rule.id);
       activeStateRuleIds.delete(ruleId);
     }
+
   }
-  console.log('[DEBUG] stateRuleById size', stateRuleById.size);
 
 }
 
@@ -6080,6 +14950,28 @@ async function loadItemsJSON() {
   return {};
 }
 
+// LOAD ABILITIES
+async function loadAbilitiesJSON() {
+  try {
+    const resp = await fetch(`data/abilities.json`);
+    if (resp.ok) return await resp.json();
+  } catch (err) {
+    console.warn("Failed to fetch data/abilities.json", err);
+  }
+  return {};
+}
+
+// LOAD FACTIONS
+async function loadFactionsJSON() {
+  try {
+    const resp = await fetch(`data/factions.json`);
+    if (resp.ok) return await resp.json();
+  } catch (err) {
+    console.warn("Failed to fetch data/factions.json", err);
+  }
+  return { baseAlliance: {} };
+}
+
 // LOAD OBJECTS
 async function loadObjectsJSON() {
   try {
@@ -6123,6 +15015,15 @@ const npcSprites = {};
 let npcDetails = null;
 let npcDetailsByLc = null;
 let npcNameList = [];
+
+// Create a single shared promise for Abilities data.
+const abilitiesDataPromise = loadAbilitiesJSON();
+let abilitiesData = null;
+let abilitiesDataByLc = null;
+
+// Create a single shared promise for Factions data.
+const factionsDataPromise = loadFactionsJSON();
+let factionsData = null;
 
 
 // Create a single shared promise for Mob details.
@@ -6168,6 +15069,204 @@ function deepMergeReplaceArrays(base, override) {
     out[k] = ov;
   }
   return out;
+}
+
+function getAbilityDefById(id) {
+  const key = lc(id || '');
+  if (!key) return null;
+  if (abilitiesDataByLc && abilitiesDataByLc[key]) return abilitiesDataByLc[key];
+  if (abilitiesData && abilitiesData[key]) return abilitiesData[key];
+  return null;
+}
+
+function resolveAbilityEntry(entry) {
+  if (!entry) return null;
+
+  if (typeof entry === 'string') {
+    const base = getAbilityDefById(entry);
+    return base ? deepMergeReplaceArrays({}, base) : null;
+  }
+
+  if (typeof entry === 'object') {
+    const id = entry.id || entry.name || '';
+    const base = getAbilityDefById(id);
+    return base ? deepMergeReplaceArrays(base, entry) : deepMergeReplaceArrays({}, entry);
+  }
+
+  return null;
+}
+
+function resolveAbilityList(list) {
+  if (!Array.isArray(list) || list.length === 0) return [];
+  const out = [];
+  for (const entry of list) {
+    const resolved = resolveAbilityEntry(entry);
+    if (resolved) out.push(resolved);
+  }
+  return out;
+}
+
+function abilityIdOf(ability) {
+  const id = lc(ability?.id || ability?.name || '');
+  return id || '';
+}
+
+function mergeAbilityLists(lists) {
+  const order = [];
+  const map = new Map();
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const a of list) {
+      const id = abilityIdOf(a);
+      if (!id) continue;
+      if (!map.has(id)) order.push(id);
+      map.set(id, a);
+    }
+  }
+  return order.map(id => map.get(id)).filter(Boolean);
+}
+
+function isMobActor(actor) {
+  if (!actor || !actor.instanceId) return false;
+  const id = lc(actor.id || '');
+  return !!(id && mobDetails && mobDetails[id]);
+}
+
+function isPlayerActor(actor) {
+  return !!(actor && actor === player);
+}
+
+function isPartyActor(actor) {
+  if (!actor) return false;
+  if (actor === player) return true;
+  return Array.isArray(party) && party.includes(actor);
+}
+
+function isNpcActor(actor) {
+  if (!actor || isPlayerActor(actor) || isMobActor(actor)) return false;
+  return !!actor.name;
+}
+
+function getActorBaseFactions(actor) {
+  if (!actor) return [];
+  if (Array.isArray(actor.factions)) return actor.factions.slice();
+  if (actor.def && Array.isArray(actor.def.factions)) return actor.def.factions.slice();
+  if (actor.def && actor.def.faction) return [String(actor.def.faction)];
+  if (actor.faction) return [String(actor.faction)];
+  if (isMobActor(actor)) {
+    const def = mobDetails?.[lc(actor.id || '')];
+    if (def && def.faction) return [String(def.faction)];
+  }
+  return [];
+}
+
+function getActorFactions(actor) {
+  const out = new Set();
+  for (const f of getActorBaseFactions(actor)) {
+    const k = lc(f || '');
+    if (k) out.add(k);
+  }
+
+  if (isPartyActor(actor)) out.add('party');
+  if (isNpcActor(actor)) out.add('npc');
+  if (isMobActor(actor)) {
+    out.add('mob');
+    const id = lc(actor.id || '');
+    if (id) out.add(id); // implicit mob type faction
+  }
+
+  return Array.from(out.values());
+}
+
+function getActorAllianceByFaction(actor, factionKey) {
+  if (!actor || !factionKey) return 0;
+  const map = actor.allianceByFaction;
+  if (!map || typeof map !== 'object') return 0;
+  const v = Number(map[factionKey]);
+  return isFinite(v) ? v : 0;
+}
+
+function getActorAllianceByInstance(actor, instanceKey) {
+  if (!actor || !instanceKey) return 0;
+  const map = actor.allianceByInstance;
+  if (!map || typeof map !== 'object') return 0;
+  const v = Number(map[instanceKey]);
+  return isFinite(v) ? v : 0;
+}
+
+function getActorInstanceAllianceKey(actor) {
+  if (!actor) return '';
+  if (isMobActor(actor)) return `mob:${lc(actor.id || '')}:${String(actor.instanceId || '')}`;
+  if (isPlayerActor(actor)) return 'player';
+  if (actor.name) return `npc:${lc(actor.name || '')}`;
+  return '';
+}
+
+function getActorStatCurrent(actor, keyRaw) {
+  if (!actor || !actor.stats) return null;
+  const key = lc(keyRaw || '');
+  if (!key) return null;
+  const v = Number(actor?.stats?.[key]?.current);
+  return isFinite(v) ? v : null;
+}
+
+function getPartyAllianceSum(targetFactions) {
+  if (!Array.isArray(targetFactions) || targetFactions.length === 0) return 0;
+  let sum = 0;
+  const members = [player, ...(Array.isArray(party) ? party : [])];
+  for (const member of members) {
+    if (!member) continue;
+    for (const f of targetFactions) {
+      sum += getActorAllianceByFaction(member, f);
+    }
+  }
+  return sum;
+}
+
+function getAllianceScore(caster, target) {
+  if (!caster || !target) return 0;
+
+  const casterFactions = getActorFactions(caster);
+  const targetFactions = getActorFactions(target);
+
+  let score = 0;
+
+  const base = factionsData?.baseAlliance || {};
+  for (const cf of casterFactions) {
+    const row = base[cf];
+    if (!row || typeof row !== 'object') continue;
+    for (const tf of targetFactions) {
+      const v = Number(row[tf]);
+      if (isFinite(v)) score += v;
+    }
+  }
+
+  for (const tf of targetFactions) {
+    score += getActorAllianceByFaction(caster, tf);
+  }
+
+  const instKey = getActorInstanceAllianceKey(target);
+  if (instKey) score += getActorAllianceByInstance(caster, instKey);
+
+  if (isPartyActor(caster)) {
+    score += getPartyAllianceSum(targetFactions);
+  }
+
+  if (isNpcActor(caster) && isPartyActor(target)) {
+    const align = getActorStatCurrent(caster, 'alignment');
+    const aff = getActorStatCurrent(caster, 'affection');
+    if (align != null) score += align;
+    if (aff != null) score += aff;
+  }
+
+  return score;
+}
+
+function getRelation(caster, target) {
+  const score = getAllianceScore(caster, target);
+  if (score > 0) return 'ally';
+  if (score < 0) return 'enemy';
+  return 'neutral';
 }
 
 function resolveMobTemplates(raw) {
@@ -6226,6 +15325,9 @@ let mobSpawnCounter = 0;
 
 // Pending conditional spawns for the CURRENT area (mobs, NPCs, placed objects)
 let pendingSpawns = [];
+let __pendingAreaEnterEvents = [];
+let __lastSpawnIfEvalAtMs = 0;
+const SPAWN_IF_EVAL_INTERVAL_MS = 200;
 
 
 
@@ -6424,6 +15526,7 @@ const MOB_ANIM_TYPES = new Set([
   'run',
   'move',
   'stopped',
+  'stunned',
   'attack',
   'ranged',
   'ability',
@@ -6448,6 +15551,7 @@ function mobSpritePath(id, type, dir) {
 // Global fallback order (fixed). This is “what to try if requested type missing”.
 function mobFallbackTypes(type) {
   switch (String(type || '')) {
+    case 'stunned': return ['stunned', 'stopped'];
     case 'attack':  return ['attack', 'ranged', 'ability', 'stopped'];
     case 'ranged':  return ['ranged', 'attack', 'ability', 'stopped'];
     case 'ability': return ['ability', 'attack', 'ranged', 'stopped'];
@@ -6579,6 +15683,28 @@ function getOrRequestMobSprite(mobId, type, dir) {
   );
 }
 
+function actorHasAnimSprite(kind, idRaw, type) {
+  const id = lc(idRaw || '');
+  const t = lc(type || '');
+  if (!id || !t) return false;
+
+  const storeKey = actorStoreKey(kind, idRaw);
+  if (!storeKey) return false;
+
+  const entry = ACTOR_SPRITES[storeKey];
+  const k = spriteAnimKey(t, '');
+  if (entry && Object.prototype.hasOwnProperty.call(entry.byKey, k)) {
+    return !!entry.byKey[k];
+  }
+
+  const sheet =
+    (lc(kind) === 'mob')
+      ? getOrRequestMobSprite(id, t, '')
+      : getOrRequestNpcSprite(id, t, '');
+
+  return !!sheet;
+}
+
 
 // Convenience: populate the legacy sprite fields drawActorSprite expects (idle/runLeft/runRight/stoppedLeft/stoppedRight/stoppedForward).
 function buildMobLegacySpriteSet(mob) {
@@ -6611,6 +15737,7 @@ const NPC_ANIM_TYPES = new Set([
   'run',
   'move',
   'stopped',
+  'stunned',
   'attack',
   'ranged',
   'ability',
@@ -6632,6 +15759,7 @@ function npcSpritePath(id, type, dir) {
 
 function npcFallbackTypes(type) {
   switch (String(type || '')) {
+    case 'stunned': return ['stunned', 'stopped'];
     case 'attack':  return ['attack', 'ranged', 'ability', 'stopped'];
     case 'ranged':  return ['ranged', 'attack', 'ability', 'stopped'];
     case 'ability': return ['ability', 'attack', 'ranged', 'stopped'];
@@ -6725,7 +15853,7 @@ let currentDialog = null;
 let currentPhraseId = null;
 let currentDialogKey = null; // which dialog file is currently loaded (e.g. "mira", "rowyn", "forest")
 let activeDialogPrompts = [];
-let firedDialogTriggers = new Set();
+let firedDialogTriggers = new Map();
 let areaFlags = Object.create(null);          // resets on area enter
 const globalFlags = Object.create(null);      // persists until page refresh
 
@@ -6755,6 +15883,7 @@ function setFlag(scope, key, value = true) {
 
 // Timed flags (global/area scopes)
 const TIMED_FLAGS = new Map(); // fullKey -> { expiresAtMs, scope, key, revertTo }
+const TIMED_EFFECTS = []; // { expiresAtMs, fn }
 
 function _timedFlagFullKey(scope, key) {
   return `${lc(scope || 'global')}:${String(key || '')}`;
@@ -6762,7 +15891,7 @@ function _timedFlagFullKey(scope, key) {
 
 function setFlagTimed(scope, key, value, durationMs, nowMs = null) {
   const dur = Math.max(0, Math.floor(Number(durationMs || 0)));
-  const now = (nowMs == null) ? performance.now() : Number(nowMs);
+  const now = (nowMs == null) ? getGameNowMs() : Number(nowMs);
 
   setFlag(scope, key, value);
 
@@ -6790,6 +15919,28 @@ function expireTimedFlags(nowMs) {
     if (now >= rec.expiresAtMs) {
       setFlag(rec.scope, rec.key, rec.revertTo);
       TIMED_FLAGS.delete(fullKey);
+    }
+  }
+}
+
+function scheduleTimedEffect(expiresAtMs, fn) {
+  const t = Number(expiresAtMs);
+  if (!isFinite(t) || typeof fn !== 'function') return;
+  TIMED_EFFECTS.push({ expiresAtMs: t, fn });
+}
+
+function processTimedEffects(nowMs) {
+  if (!TIMED_EFFECTS.length) return;
+  const now = Number(nowMs);
+  for (let i = TIMED_EFFECTS.length - 1; i >= 0; i--) {
+    const rec = TIMED_EFFECTS[i];
+    if (!rec || !isFinite(rec.expiresAtMs)) {
+      TIMED_EFFECTS.splice(i, 1);
+      continue;
+    }
+    if (now >= rec.expiresAtMs) {
+      TIMED_EFFECTS.splice(i, 1);
+      try { rec.fn(); } catch (_) {}
     }
   }
 }
@@ -6923,14 +16074,21 @@ function applyEffects(effects, payload = null) {
 
 
 let currentTriggeredPromptId = null;
+let currentTriggeredPromptRuleId = null;
 let currentRuleSceneId = null;
 let dialogOptionsMap = null;
+let dialogOptionsByKey = null;
 const queuedDialogPrompts = [];
+let dialogEndQueue = [];
+let __dialogEndQueueActive = false;
+let dialogConversationFlags = new Set();
 
 // Party prompt numbering: assign lowest unused integer (1..9) to each active prompt id.
 // Freed when prompt disappears.
 const __partyPromptSlotById = new Map(); // promptId -> slotNum
 const __partyPromptUsedSlots = new Set(); // slotNum
+const __promptVisibleMsById = new Map(); // promptId -> ms visible (only while player can trigger)
+const __promptAnimYById = new Map(); // promptId -> animated y
 
 function __allocLowestUnusedPartyPromptSlot() {
   for (let n = 1; n <= 9; n++) {
@@ -6956,6 +16114,87 @@ function __releasePartyPromptSlot(promptId) {
   const n = __partyPromptSlotById.get(promptId);
   __partyPromptSlotById.delete(promptId);
   if (Number.isFinite(n)) __partyPromptUsedSlots.delete(n);
+}
+
+function __resetDialogEndQueue() {
+  dialogEndQueue = [];
+  __dialogEndQueueActive = false;
+}
+
+function __resetDialogConversationFlags() {
+  dialogConversationFlags = new Set();
+}
+
+function __setDialogConversationFlag(key, value = true) {
+  const k = String(key || '');
+  if (!k) return;
+  if (value) dialogConversationFlags.add(k);
+  else dialogConversationFlags.delete(k);
+}
+
+function __getDialogConversationFlag(key) {
+  const k = String(key || '');
+  if (!k) return undefined;
+  return dialogConversationFlags.has(k) ? true : undefined;
+}
+
+function __stripAtEndFlag(eff) {
+  if (!eff || typeof eff !== 'object') return eff;
+  if (!Object.prototype.hasOwnProperty.call(eff, 'atEnd')) return eff;
+  const out = { ...eff };
+  delete out.atEnd;
+  return out;
+}
+
+function __splitDialogEffects(effects) {
+  const immediate = [];
+  const atEnd = [];
+  if (!Array.isArray(effects)) return { immediate, atEnd };
+  for (const eff of effects) {
+    if (!eff || typeof eff !== 'object') continue;
+    if (eff.atEnd === true) atEnd.push(__stripAtEndFlag(eff));
+    else immediate.push(eff);
+  }
+  return { immediate, atEnd };
+}
+
+function __enqueueDialogEndEffects(effects) {
+  if (!Array.isArray(effects) || effects.length === 0) return;
+  dialogEndQueue.push({ type: 'effects', effects });
+}
+
+function __enqueueDialogEndAction(action) {
+  if (!action || typeof action !== 'object') return;
+  const out = { ...action };
+  delete out.atEnd;
+  dialogEndQueue.push({ type: 'action', action: out });
+}
+
+function __continueDialogEndQueue() {
+  while (dialogEndQueue.length) {
+    const item = dialogEndQueue.shift();
+    if (!item) continue;
+    if (item.type === 'effects') {
+      applyEffects(item.effects);
+      continue;
+    }
+    if (item.type === 'action') {
+      const phrase = { action: item.action, __endQueue: true };
+      startActionPhrase('__dialog_end_queue', phrase);
+      return;
+    }
+  }
+  __dialogEndQueueActive = false;
+  __finalizeConversationEnd();
+}
+
+function __startDialogEndQueue() {
+  if (!dialogEndQueue.length) {
+    __finalizeConversationEnd();
+    return;
+  }
+  __dialogEndQueueActive = true;
+  __continueDialogEndQueue();
 }
 
 
@@ -6999,6 +16238,28 @@ function __extractNextIdsFromNextField(nextField) {
   }
 
   return out;
+}
+
+function __resolveConditionalNext(nextField, npcCtx) {
+  if (!nextField) return null;
+  if (typeof nextField === 'string') return nextField;
+  if (!nextField || typeof nextField !== 'object') return null;
+
+  const entries = Object.entries(nextField);
+  entries.sort((a, b) => {
+    const wa = a[1]?.when && Object.keys(a[1].when).length > 0 ? 0 : 1;
+    const wb = b[1]?.when && Object.keys(b[1].when).length > 0 ? 0 : 1;
+    return wa - wb;
+  });
+
+  for (const [branchName, branch] of entries) {
+    const w = branch?.when || {};
+    if (checkWhenBlock(w, npcCtx)) {
+      return branchName;
+    }
+  }
+
+  return null;
 }
 
 function __findCameraResetPhraseId(dialog, startPhraseId) {
@@ -7069,6 +16330,7 @@ const rememberedPartyIndex = Object.create(null); // nameLower -> index
 
 // Helper to load a dialog JSON for a given NPC name. Uses fetch and caches the result.
 async function loadDialogFor(name) {
+  if (loading) await waitForAreaReady();
   name = lc(name);
   if (dialogs[name]) return dialogs[name];
   try {
@@ -7127,19 +16389,16 @@ async function ensureDialogAndGetPhrase(ref) {
 function enqueueDialogPrompt(p) {
 
   if (window.__traceRulesReasons) {
-    console.log('[PromptQueue] enqueue', p, 'queuedLen(before)=', queuedDialogPrompts.length);
   }
 
   if (!p || !p.npc) return;
 
   if (window.__traceRules) {
-    console.log('[enqueueDialogPrompt]', p);
   }
 
   queuedDialogPrompts.push(p);
 
   if (window.__traceRulesReasons) {
-    console.log('[PromptQueue] queuedLen(after)=', queuedDialogPrompts.length);
   }
 
 }
@@ -7165,6 +16424,7 @@ function __parseDialogStartRef(startRef, defaultNpcName) {
 function __kickDialogWarm(fileKey) {
   const k = lc(fileKey || '');
   if (!k) return;
+  if (loading) return;
   if (dialogs?.[k]) return;
 
   // Fire-and-forget; loadDialogFor caches into dialogs[k]
@@ -7186,7 +16446,7 @@ function __getPromptTextFromStart(startRef, defaultNpcName) {
   return (typeof t === 'string' && t.trim()) ? t : null;
 }
 
-function enqueueNpcSpeechBubblePrompt(npcName, promptText, startPhrase, triggerKey) {
+function enqueueNpcSpeechBubblePrompt(npcName, promptText, startPhrase, triggerKey, opts = {}) {
   // If promptText isn't supplied, use the text of the start phrase (so you can author short prompt labels in dialog files).
   const autoText = (promptText == null || promptText === '')
     ? __getPromptTextFromStart(startPhrase, npcName)
@@ -7197,7 +16457,11 @@ function enqueueNpcSpeechBubblePrompt(npcName, promptText, startPhrase, triggerK
     triggerKey: triggerKey || null, // MUST be set for rule-driven prompts
     prompt: (promptText == null || promptText === '') ? (autoText || '…') : promptText,
     start: startPhrase,
-    mode: 'npc_bubble'
+    mode: 'npc_bubble',
+    timeoutMode: opts.timeoutMode || 'none',
+    ruleId: opts.ruleId || null,
+    safeplaceId: opts.safeplaceId || null,
+    safeplaceArea: opts.safeplaceArea || null
   });
 }
 
@@ -7234,43 +16498,462 @@ let pendingVerticalTransferFrom = null; // 'up' | 'down' | null
 //LOADING NEW AREAS
 let loadingMessage = 'Loading...';
 
-function beginLoadingForCurrentArea(msg = 'Loading...') {
-  loading = true;
-  loadingMessage = msg;
+const BLOCKING_LOAD_TRACKER = {
+  active: false,
+  keys: new Set(),
+  started: new Set(),
+  done: new Set(),
+  failed: new Set()
+};
+
+function __resetBlockingLoadTracker(keys) {
+  BLOCKING_LOAD_TRACKER.active = true;
+  BLOCKING_LOAD_TRACKER.keys = new Set(keys || []);
+  BLOCKING_LOAD_TRACKER.started.clear();
+  BLOCKING_LOAD_TRACKER.done.clear();
+  BLOCKING_LOAD_TRACKER.failed.clear();
 }
 
-function getVisibleSectionRange(area) {
-  // cameraX is already set when we enter the area (placePlayerAtAreaEdge)
-  const tileW = area.sectionTileWidth || 128;
-  const startX = cameraX;
-  const endX = cameraX + cameraViewportW();
+function __endBlockingLoadTracker() {
+  BLOCKING_LOAD_TRACKER.active = false;
+  BLOCKING_LOAD_TRACKER.keys.clear();
+  BLOCKING_LOAD_TRACKER.started.clear();
+  BLOCKING_LOAD_TRACKER.done.clear();
+  BLOCKING_LOAD_TRACKER.failed.clear();
+}
 
-  const i0 = Math.max(0, Math.floor(startX / tileW));
-  const i1 = Math.min(area.sections.length - 1, Math.floor(endX / tileW));
+function __getBlockingLoadProgress() {
+  const total = BLOCKING_LOAD_TRACKER.keys.size;
+  const done = BLOCKING_LOAD_TRACKER.done.size + BLOCKING_LOAD_TRACKER.failed.size;
+  const started = BLOCKING_LOAD_TRACKER.started.size;
+  return { total, done, started };
+}
+
+function __logBlockingLoad(kind, key, extra = '') {
+  if (!BLOCKING_LOAD_TRACKER.active) return;
+  const suffix = extra ? ` ${extra}` : '';
+  console.log(`[asset-load] ${kind} ${key}${suffix}`);
+}
+
+function __trackBlockingImage(key, img) {
+  if (!BLOCKING_LOAD_TRACKER.active) return;
+  if (!BLOCKING_LOAD_TRACKER.keys.has(key)) return;
+  if (BLOCKING_LOAD_TRACKER.started.has(key)) return;
+  BLOCKING_LOAD_TRACKER.started.add(key);
+  __logBlockingLoad('start', key);
+
+  if (!img) {
+    BLOCKING_LOAD_TRACKER.failed.add(key);
+    __logBlockingLoad('fail', key);
+    return;
+  }
+
+  const finalize = (ok) => {
+    if (BLOCKING_LOAD_TRACKER.done.has(key) || BLOCKING_LOAD_TRACKER.failed.has(key)) return;
+    if (ok) {
+      BLOCKING_LOAD_TRACKER.done.add(key);
+      __logBlockingLoad('done', key);
+    } else {
+      BLOCKING_LOAD_TRACKER.failed.add(key);
+      __logBlockingLoad('fail', key);
+    }
+  };
+
+  if (img.complete) {
+    finalize(!!img.naturalWidth);
+    return;
+  }
+
+  const onLoad = () => finalize(true);
+  const onErr = () => finalize(false);
+
+  img.addEventListener('load', onLoad, { once: true });
+  img.addEventListener('error', onErr, { once: true });
+}
+
+function __trackBlockingEntry(entry) {
+  if (!entry || !entry._assetKey) return;
+  __trackBlockingImage(entry._assetKey, entry.img);
+  if (entry.ready) {
+    if (!BLOCKING_LOAD_TRACKER.done.has(entry._assetKey)) {
+      BLOCKING_LOAD_TRACKER.done.add(entry._assetKey);
+      __logBlockingLoad('done', entry._assetKey);
+    }
+  } else if (entry.failed) {
+    if (!BLOCKING_LOAD_TRACKER.failed.has(entry._assetKey)) {
+      BLOCKING_LOAD_TRACKER.failed.add(entry._assetKey);
+      __logBlockingLoad('fail', entry._assetKey);
+    }
+  }
+}
+
+function __buildBlockingLoadKeys() {
+  const keys = new Set();
+  if (currentArea) {
+    if (currentArea.skyEntry && currentArea.skyEntry._assetKey) {
+      keys.add(currentArea.skyEntry._assetKey);
+    }
+    const [i0, i1] = getSectionRangeForLoading(currentArea, 2);
+    for (let i = i0; i <= i1; i++) {
+      const g = currentArea.groundEntries && currentArea.groundEntries[i];
+      if (g && g._assetKey) keys.add(g._assetKey);
+
+      const d = currentArea.distantEntries && currentArea.distantEntries[i];
+      if (typeof d === 'string') keys.add(`tile:${d}`);
+      else if (d && d._assetKey) keys.add(d._assetKey);
+
+      const b = currentArea.backgroundEntries && currentArea.backgroundEntries[i];
+      if (typeof b === 'string') keys.add(`tile:${b}`);
+      else if (b && b._assetKey) keys.add(b._assetKey);
+    }
+  }
+
+  // Objects in range (all layers)
+  if (currentArea) {
+    const [i0, i1] = getSectionRangeForLoading(currentArea, 2);
+    const objLists = [
+      currentArea.backObjects,
+      currentArea.foreObjects,
+      currentArea.groundBackObjects,
+      currentArea.groundForeObjects
+    ];
+    for (const list of objLists) {
+      if (!Array.isArray(list)) continue;
+      for (const obj of list) {
+        if (!obj) continue;
+        if (obj._spawned === false) continue;
+        const idx = (typeof obj.sectionIndex === 'number') ? obj.sectionIndex : -1;
+        if (idx < i0 || idx > i1) continue;
+        const base = objectBaseFromKey(obj.key || obj.name || obj.filename);
+        if (!base) continue;
+        keys.add(`object:${base}`);
+      }
+    }
+  }
+
+  // World items in range
+  if (currentArea && Array.isArray(currentArea.worldItems)) {
+    const [i0, i1] = getSectionRangeForLoading(currentArea, 2);
+    for (const it of currentArea.worldItems) {
+      if (!it) continue;
+      const idx = (typeof it.sectionIndex === 'number')
+        ? it.sectionIndex
+        : getSectionIndexForWorldX(currentAreaName, it.worldX);
+      if (idx < i0 || idx > i1) continue;
+      if (it.itemId) keys.add(`itemIcon:${it.itemId}`);
+    }
+  }
+
+  // Player + visible NPC sprites are part of the load gate.
+  keys.add('playerSprite:idle');
+  for (const npc of npcs || []) {
+    if (!npc || !npc.name) continue;
+    keys.add(`npcSprite:${npc.name}`);
+  }
+
+  // NPC + mob sprites referenced by section defs in range
+  if (currentArea) {
+    const [i0, i1] = getSectionRangeForLoading(currentArea, 2);
+    const secDefs = currentArea.raw?.sections || {};
+    for (let i = i0; i <= i1; i++) {
+      const sdef = currentArea.sections && currentArea.sections[i];
+      const secName = sdef?.name || null;
+      if (!secName) continue;
+      const raw = secDefs[secName] || null;
+      if (!raw) continue;
+
+      const chars = raw.characters;
+      if (Array.isArray(chars)) {
+        for (const c of chars) {
+          const nm = String(c?.name || c?.npc || c?.id || '').trim();
+          if (nm) keys.add(`npcSprite:${nm}`);
+        }
+      } else if (chars && typeof chars === 'object') {
+        const nm = String(chars.name || chars.npc || chars.id || '').trim();
+        if (nm) keys.add(`npcSprite:${nm}`);
+      }
+
+      const mobsArr = raw.mobs;
+      if (Array.isArray(mobsArr)) {
+        for (const m of mobsArr) {
+          const id = String(m?.id || m?.mob || m?.name || '').trim();
+          if (id) keys.add(`mobSprite:${id}`);
+        }
+      }
+    }
+  }
+
+  return [...keys];
+}
+
+function __primeBlockingLoadTracking() {
+  if (!BLOCKING_LOAD_TRACKER.active) return;
+
+  if (currentArea) {
+    if (currentArea.skyEntry) __trackBlockingEntry(currentArea.skyEntry);
+    const [i0, i1] = getSectionRangeForLoading(currentArea, 2);
+    for (let i = i0; i <= i1; i++) {
+      const g = currentArea.groundEntries && currentArea.groundEntries[i];
+      if (g) __trackBlockingEntry(g);
+
+      const d = currentArea.distantEntries && currentArea.distantEntries[i];
+      if (typeof d === 'string') {
+        const entry = loadTileImage(d);
+        currentArea.distantEntries[i] = entry;
+        __trackBlockingEntry(entry);
+      } else if (d) {
+        __trackBlockingEntry(d);
+      }
+
+      const b = currentArea.backgroundEntries && currentArea.backgroundEntries[i];
+      if (typeof b === 'string') {
+        const entry = loadTileImage(b);
+        currentArea.backgroundEntries[i] = entry;
+        __trackBlockingEntry(entry);
+      } else if (b) {
+        __trackBlockingEntry(b);
+      }
+    }
+  }
+
+  if (currentArea) {
+    const [i0, i1] = getSectionRangeForLoading(currentArea, 2);
+
+    const objLists = [
+      currentArea.backObjects,
+      currentArea.foreObjects,
+      currentArea.groundBackObjects,
+      currentArea.groundForeObjects
+    ];
+    for (const list of objLists) {
+      if (!Array.isArray(list)) continue;
+      for (const obj of list) {
+        if (!obj) continue;
+        if (obj._spawned === false) continue;
+        const idx = (typeof obj.sectionIndex === 'number') ? obj.sectionIndex : -1;
+        if (idx < i0 || idx > i1) continue;
+        const base = objectBaseFromKey(obj.key || obj.name || obj.filename);
+        if (!base) continue;
+        const entry = loadObjectImage(base);
+        if (entry) {
+          entry._assetKey = `object:${base}`;
+          __trackBlockingEntry(entry);
+        }
+      }
+    }
+
+    if (Array.isArray(currentArea.worldItems)) {
+      for (const it of currentArea.worldItems) {
+        if (!it) continue;
+        const idx = (typeof it.sectionIndex === 'number')
+          ? it.sectionIndex
+          : getSectionIndexForWorldX(currentAreaName, it.worldX);
+        if (idx < i0 || idx > i1) continue;
+        if (!it.itemId) continue;
+        const def = getItemDef(it.itemId);
+        const icon = __getItemIcon(it.itemId, def);
+        if (icon) {
+          icon._assetKey = `itemIcon:${it.itemId}`;
+          __trackBlockingEntry(icon);
+        }
+      }
+    }
+  }
+
+  if (playerSprites && playerSprites.idle) {
+    __trackBlockingImage('playerSprite:idle', playerSprites.idle);
+    if (playerSprites.ready) {
+      BLOCKING_LOAD_TRACKER.done.add('playerSprite:idle');
+      __logBlockingLoad('done', 'playerSprite:idle');
+    }
+  }
+
+  for (const npc of npcs || []) {
+    if (!npc || !npc.name) continue;
+    const entry = npcSprites[npc.name];
+    if (!entry || !entry.idle) continue;
+    const key = `npcSprite:${npc.name}`;
+    __trackBlockingImage(key, entry.idle);
+    if (entry.ready) {
+      BLOCKING_LOAD_TRACKER.done.add(key);
+      __logBlockingLoad('done', key);
+    }
+  }
+
+  if (currentArea) {
+    const [i0, i1] = getSectionRangeForLoading(currentArea, 2);
+    const secDefs = currentArea.raw?.sections || {};
+    for (let i = i0; i <= i1; i++) {
+      const sdef = currentArea.sections && currentArea.sections[i];
+      const secName = sdef?.name || null;
+      if (!secName) continue;
+      const raw = secDefs[secName] || null;
+      if (!raw) continue;
+
+      const chars = raw.characters;
+      const trackNpc = (nm) => {
+        if (!nm) return;
+        const entry = npcSprites[nm];
+        if (!entry || !entry.idle) return;
+        const key = `npcSprite:${nm}`;
+        __trackBlockingImage(key, entry.idle);
+        if (entry.ready) {
+          BLOCKING_LOAD_TRACKER.done.add(key);
+          __logBlockingLoad('done', key);
+        }
+      };
+
+      if (Array.isArray(chars)) {
+        for (const c of chars) {
+          const nm = String(c?.name || c?.npc || c?.id || '').trim();
+          trackNpc(nm);
+        }
+      } else if (chars && typeof chars === 'object') {
+        const nm = String(chars.name || chars.npc || chars.id || '').trim();
+        trackNpc(nm);
+      }
+
+      const mobsArr = raw.mobs;
+      if (Array.isArray(mobsArr)) {
+        for (const m of mobsArr) {
+          const id = String(m?.id || m?.mob || m?.name || '').trim();
+          if (!id) continue;
+          const entry = mobSprites[id];
+          if (entry && entry.img) {
+            __trackBlockingImage(`mobSprite:${id}`, entry.img);
+            if (entry.ready) {
+              BLOCKING_LOAD_TRACKER.done.add(`mobSprite:${id}`);
+              __logBlockingLoad('done', `mobSprite:${id}`);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+function beginLoadingForCurrentArea(msg = 'Loading...') {
+  loading = true;
+  globalThis.loading = true;
+  loadingMessage = msg;
+
+  const keys = __buildBlockingLoadKeys();
+  __resetBlockingLoadTracker(keys);
+  __primeBlockingLoadTracking();
+}
+
+async function waitForAreaReady() {
+  if (!loading) return;
+  while (loading) {
+    await sleepMs(50);
+  }
+}
+
+function getSectionRangeForLoading(area, pad = 2) {
+  if (!area) return [0, -1];
+  const tileW = area.sectionTileWidth || 128;
+  const curIdx = Math.max(0, Math.floor(player.worldX / tileW));
+  const i0 = Math.max(0, curIdx - pad);
+  const i1 = Math.min(area.sections.length - 1, curIdx + pad);
   return [i0, i1];
 }
 
-function isAreaBackgroundReady(area) {
+function __isEntryReadyOrFailed(entry) {
+  if (!entry) return true;
+  if (entry.ready) return true;
+  if (entry.failed) return true;
+  return false;
+}
+
+function isAreaReadyForSections(area, i0, i1) {
   if (!area) return false;
 
-  // Require sky if defined
-  if (area.skyEntry && !area.skyEntry.ready) return false;
+  // Require sky if defined (ready or failed)
+  if (area.skyEntry && !__isEntryReadyOrFailed(area.skyEntry)) return false;
 
-  // Require visible section layers (ground + distant + background)
-  const [i0, i1] = getVisibleSectionRange(area);
-
+  // Require section layers (ground + distant + background)
   for (let i = i0; i <= i1; i++) {
     const g = area.groundEntries[i];
-    if (g && !g.ready) return false;
+    if (g && !__isEntryReadyOrFailed(g)) return false;
 
     const d = area.distantEntries && area.distantEntries[i];
     if (typeof d === 'string') return false;
-    if (d && !d.ready) return false;
+    if (d && !__isEntryReadyOrFailed(d)) return false;
 
     const b = area.backgroundEntries && area.backgroundEntries[i];
     if (typeof b === 'string') return false;
-    if (b && !b.ready) return false;
+    if (b && !__isEntryReadyOrFailed(b)) return false;
+  }
 
+  // Objects in range (all layers)
+  const objLists = [
+    area.backObjects,
+    area.foreObjects,
+    area.groundBackObjects,
+    area.groundForeObjects
+  ];
+  for (const list of objLists) {
+    if (!Array.isArray(list)) continue;
+    for (const obj of list) {
+      if (!obj) continue;
+      if (obj._spawned === false) continue;
+      const idx = (typeof obj.sectionIndex === 'number') ? obj.sectionIndex : -1;
+      if (idx < i0 || idx > i1) continue;
+      const base = objectBaseFromKey(obj.key || obj.name || obj.filename);
+      if (!base) continue;
+      const entry = loadObjectImage(base);
+      if (!__isEntryReadyOrFailed(entry)) return false;
+    }
+  }
+
+  // World items in range
+  if (Array.isArray(area.worldItems)) {
+    for (const it of area.worldItems) {
+      if (!it) continue;
+      const idx = (typeof it.sectionIndex === 'number')
+        ? it.sectionIndex
+        : getSectionIndexForWorldX(currentAreaName, it.worldX);
+      if (idx < i0 || idx > i1) continue;
+      const def = getItemDef(it.itemId);
+      const icon = __getItemIcon(it.itemId, def);
+      if (!__isEntryReadyOrFailed(icon)) return false;
+    }
+  }
+
+  // NPC + mob sprites for placed entries in range
+  const secDefs = area.raw?.sections || {};
+  for (let i = i0; i <= i1; i++) {
+    const sdef = area.sections && area.sections[i];
+    const secName = sdef?.name || null;
+    if (!secName) continue;
+    const raw = secDefs[secName] || null;
+    if (!raw) continue;
+
+    const chars = raw.characters;
+    if (Array.isArray(chars)) {
+      for (const c of chars) {
+        const nm = String(c?.name || c?.npc || c?.id || '').trim();
+        if (!nm) continue;
+        const sprites = npcSprites[nm];
+        if (sprites && !__isEntryReadyOrFailed(sprites)) return false;
+      }
+    } else if (chars && typeof chars === 'object') {
+      const nm = String(chars.name || chars.npc || chars.id || '').trim();
+      if (nm) {
+        const sprites = npcSprites[nm];
+        if (sprites && !__isEntryReadyOrFailed(sprites)) return false;
+      }
+    }
+
+    const mobsArr = raw.mobs;
+    if (Array.isArray(mobsArr)) {
+      for (const m of mobsArr) {
+        const id = String(m?.id || m?.mob || m?.name || '').trim();
+        if (!id) continue;
+        const sprite = mobSprites[id];
+        if (sprite && !__isEntryReadyOrFailed(sprite)) return false;
+      }
+    }
   }
 
   return true;
@@ -7292,13 +16975,13 @@ const AREA_BANNER = {
 function showAreaBanner(name) {
   AREA_BANNER.active = true;
   AREA_BANNER.text = String(name || '').trim();
-  AREA_BANNER.start = performance.now();
+  AREA_BANNER.start = getGameNowMs();
 }
 
 function drawAreaBanner() {
   if (!AREA_BANNER.active || !AREA_BANNER.text) return;
 
-  const now = performance.now();
+  const now = getGameNowMs();
   const t = now - AREA_BANNER.start;
   const total = AREA_BANNER.fadeIn + AREA_BANNER.hold + AREA_BANNER.fadeOut;
 
@@ -7323,7 +17006,7 @@ function drawAreaBanner() {
   ctx.save();
   ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
 
-  ctx.font = 'bold 60px monospace';
+  ctx.font = uiFont(60, 'bold');
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
@@ -7374,13 +17057,13 @@ const SECTION_BANNER = {
 function showSectionBanner(name) {
   SECTION_BANNER.active = true;
   SECTION_BANNER.text = String(name || '').trim();
-  SECTION_BANNER.start = performance.now();
+  SECTION_BANNER.start = getGameNowMs();
 }
 
 function drawSectionBanner() {
   if (!SECTION_BANNER.active || !SECTION_BANNER.text) return;
 
-  const now = performance.now();
+  const now = getGameNowMs();
   const t = now - SECTION_BANNER.start;
   const total = SECTION_BANNER.fadeIn + SECTION_BANNER.hold + SECTION_BANNER.fadeOut;
 
@@ -7404,7 +17087,7 @@ function drawSectionBanner() {
   ctx.save();
   ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
 
-  ctx.font = 'bold 46px monospace';
+  ctx.font = uiFont(46, 'bold');
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
@@ -7448,6 +17131,7 @@ function loadGroundTile(key) {
   if (groundImages.has(key)) return groundImages.get(key);
   const img = new Image();
   const entry = { img, ready: false, w: 0, h: 0 };
+  entry._assetKey = `ground:${String(key)}`;
   img.onload = () => {
     entry.ready = true;
     entry.w = img.width;
@@ -7486,6 +17170,7 @@ function loadTileImage(name) {
   if (tileImages.has(key)) return tileImages.get(key);
   const img = new Image();
   const entry = { img, ready: false, w: 0, h: 0 };
+  entry._assetKey = `tile:${key}`;
   img.onload = () => { entry.ready = true; entry.w = img.width; entry.h = img.height; };
   img.onerror = () => console.warn('Failed to load tile image:', key);
   // Allow names with or without extension
@@ -8026,7 +17711,6 @@ async function loadAreasJSON() {
       const resp = await fetch(url);
       if (resp.ok) {
         const data = await resp.json();
-        console.log("Loaded Areas from", url);
         return data;
       }
     } catch (e) {
@@ -8065,6 +17749,76 @@ function normalizeSafePlaces(safeObj) {
   return arr;
 }
 
+function normalizeItems(itemsObj) {
+  // itemsObj can be:
+  //  - [{ item: "map", position: 1200, id?: "instance" }, ...]
+  //  - { "map": { Position: 1200, id?: "instance" }, ... }
+  // Return array of { itemId, posLocal, qty, instanceId }
+  const arr = [];
+  if (!itemsObj) return arr;
+
+  const pushItem = (itemIdRaw, entry) => {
+    const itemId = String(itemIdRaw || '').trim();
+    if (!itemId) return;
+    const pos = entry?.Position ?? entry?.position ?? entry?.pos ?? 0;
+    const qtyRaw = entry?.qty ?? entry?.quantity ?? entry?.count ?? 1;
+    const qty = Math.max(1, Math.floor(Number(qtyRaw || 1)));
+    const instanceIdRaw = entry?.instanceId ?? entry?.id ?? null;
+    const instanceId = (instanceIdRaw != null && instanceIdRaw !== '')
+      ? String(instanceIdRaw)
+      : null;
+    arr.push({
+      itemId,
+      posLocal: Number(pos) || 0,
+      qty,
+      instanceId
+    });
+  };
+
+  if (Array.isArray(itemsObj)) {
+    for (const it of itemsObj) {
+      if (!it) continue;
+      if (typeof it === 'string') {
+        pushItem(it, {});
+        continue;
+      }
+      if (typeof it === 'object') {
+        let itemId = it.item ?? it.itemId ?? it.name ?? it.itemName ?? null;
+        let instanceId = it.instanceId ?? it.inst ?? it.instance ?? null;
+        if (!itemId && it.id) {
+          itemId = it.id;
+        } else if (itemId && it.id != null && instanceId == null) {
+          instanceId = it.id;
+        }
+        pushItem(itemId, { ...it, instanceId });
+      }
+    }
+    return arr;
+  }
+
+  if (typeof itemsObj === 'object') {
+    for (const [itemId, entry] of Object.entries(itemsObj)) {
+      pushItem(itemId, entry);
+    }
+  }
+
+  return arr;
+}
+
+function worldItemInstanceId(areaName, sectionIndex, itemId, instanceId, idx) {
+  const a = lc(areaName || '');
+  const s = String(sectionIndex ?? '');
+  const id = lc(itemId || '');
+  const inst = (instanceId != null && instanceId !== '') ? String(instanceId) : String(idx);
+  if (!a || !id) return '';
+  return `${a}:${s}:${id}:${inst}`;
+}
+
+function worldItemPickedFlagKey(instanceKey) {
+  const k = String(instanceKey || '').trim();
+  return k ? `worldItemPicked:${k}` : '';
+}
+
 function asArrayMaybe(objOrArray) {
   if (!objOrArray) return [];
   if (Array.isArray(objOrArray)) return objOrArray;
@@ -8087,40 +17841,69 @@ function resetSceneryForArea(areaLengthPx) {
 }
 
 function spawnNpcFromSectionDef(name, atX, c, rec, sectionStartX) {
-  spawnNpc(name, atX);
-  // NEW: apply saved stats onto the instance
-  const spawned = npcs.find(n => n.name === name);
-  if (spawned) {
-    spawned.stats = rec.stats;
+  // Initialize registry first
+  rec.area = currentAreaName;
+  rec.worldX = Number.isFinite(atX) ? atX : rec.worldX;
 
-
-    // ===== Spawn AI mode (areas.json) =====
-    const modeRaw = (c.ai && c.ai.mode) ? c.ai.mode : (c.mode ?? c.aiMode ?? 'stationary');
-    const mode = lc(modeRaw);
-
-    if (mode === 'waiting') {
-      // Anchor is spawn point (or saved point if they spawned from registry earlier)
-      setNpcAiMode(spawned, 'waiting', { anchorX: spawned.worldX });
-    } else if (mode === 'moving') {
-      // Goal can be absolute (goalWorldX) or local-to-section (goalPosition)
-      let goalX = null;
-
-      if (c.ai && (c.ai.goalWorldX !== undefined && c.ai.goalWorldX !== null)) {
-        goalX = Number(c.ai.goalWorldX);
-      } else if (c.goalWorldX !== undefined && c.goalWorldX !== null) {
-        goalX = Number(c.goalWorldX);
-      } else if (c.ai && (c.ai.goalPosition !== undefined && c.ai.goalPosition !== null)) {
-        goalX = sectionStartX + Number(c.ai.goalPosition);
-      } else if (c.goalPosition !== undefined && c.goalPosition !== null) {
-        goalX = sectionStartX + Number(c.goalPosition);
+  // Auto-cast override from areas.json (max one)
+  if (c && Object.prototype.hasOwnProperty.call(c, 'autoCastRules')) {
+    const raw = c.autoCastRules;
+    if (raw === 'default' || raw === 'disabled') {
+      rec.autoCastRulesMode = String(raw).toLowerCase();
+    } else if (Array.isArray(raw)) {
+      rec.aiAutoCastRules = raw;
+      rec.autoCastRulesMode = 'custom';
+    } else if (raw && typeof raw === 'object') {
+      const mode = String(raw.mode || raw.state || 'custom').toLowerCase();
+      if (mode === 'default' || mode === 'disabled') {
+        rec.autoCastRulesMode = mode;
+      } else {
+        if (Array.isArray(raw.rules)) rec.aiAutoCastRules = raw.rules;
+        rec.autoCastRulesMode = 'custom';
       }
-
-      if (isFinite(goalX)) setNpcAiMode(spawned, 'moving', { goalX });
-      else setNpcAiMode(spawned, 'stationary');
-    } else {
-      setNpcAiMode(spawned, 'stationary');
+    }
+  } else if (c && Object.prototype.hasOwnProperty.call(c, 'autoCastAbility')) {
+    const raw = c.autoCastAbility;
+    if (raw === null || raw === false || (typeof raw === 'string' && lc(raw) === 'none')) {
+      rec.autoCastAbilityId = null;
+    } else if (typeof raw === 'string') {
+      rec.autoCastAbilityId = lc(raw);
     }
   }
+
+  // ===== Spawn AI mode (areas.json) =====
+  const modeRaw = (c.ai && c.ai.mode) ? c.ai.mode : (c.mode ?? c.aiMode ?? 'stationary');
+  const mode = lc(modeRaw);
+
+  if (mode === 'waiting') {
+    rec.aiMode = 'waiting';
+    rec.aiAnchorX = (rec.aiAnchorX !== undefined && rec.aiAnchorX !== null) ? rec.aiAnchorX : rec.worldX;
+  } else if (mode === 'moving') {
+    let goalX = null;
+    if (c.ai && (c.ai.goalWorldX !== undefined && c.ai.goalWorldX !== null)) {
+      goalX = Number(c.ai.goalWorldX);
+    } else if (c.goalWorldX !== undefined && c.goalWorldX !== null) {
+      goalX = Number(c.goalWorldX);
+    } else if (c.ai && (c.ai.goalPosition !== undefined && c.ai.goalPosition !== null)) {
+      goalX = sectionStartX + Number(c.ai.goalPosition);
+    } else if (c.goalPosition !== undefined && c.goalPosition !== null) {
+      goalX = sectionStartX + Number(c.goalPosition);
+    }
+
+    if (isFinite(goalX)) {
+      rec.aiMode = 'moving';
+      rec.aiGoalX = goalX;
+    } else {
+      rec.aiMode = 'stationary';
+    }
+  } else {
+    rec.aiMode = 'stationary';
+  }
+
+  // Spawn after registry is ready
+  spawnNpc(name, atX);
+  const spawned = npcs.find(n => n.name === name);
+  if (spawned) bindNpcPersistentFields(spawned, rec);
 }
 
 
@@ -8131,39 +17914,31 @@ function spawnPredefinedNPCs(sectionIndex, sectionStartX, sectionDef, areaName) 
     const name = c.name;
     const rec = ensureNpcRecord(name);
 
+    const spawnWhen = normalizeTriggerWhen(c.spawnWhen);
+    const spawnIf = c.spawnIf;
+    const despawnWhen = normalizeTriggerWhen(c.despawnWhen);
+    const despawnIf = c.despawnIf;
+
+    const hasSpawnWhen = !!(spawnWhen && spawnWhen.length);
+    const hasDespawnWhen = !!(despawnWhen && despawnWhen.length);
+    const hasSpawnIf = !!spawnIf;
+    const hasDespawnIf = !!despawnIf;
+    const hasAnyConditional = hasSpawnWhen || hasDespawnWhen || hasSpawnIf || hasDespawnIf;
+
     // If NPC is in party, never spawn in world
     if (rec.inParty) continue;
 
     // If NPC has a saved location in another area, don't spawn here
     if (rec.area && rec.area !== areaName) continue;
 
-    // If NPC already fixed to this area, spawn at saved worldX
-    if (rec.area === areaName && typeof rec.worldX === 'number') {
-      spawnNpc(name, rec.worldX);
-      continue;
-    }
-
     // No record yet — adopt the predefined position
     const posLocal = Number(c.position || 0);
-    const atX = sectionStartX + posLocal;
+    const defaultAtX = sectionStartX + posLocal;
+    const atX = (rec.area === areaName && typeof rec.worldX === 'number') ? rec.worldX : defaultAtX;
+    if (!rec.area) rec.area = areaName;
+    if (!isFinite(rec.worldX)) rec.worldX = defaultAtX;
 
-    console.log(
-      '[NPC SPAWN]',
-      'area=', areaName,
-      'npc=', name,
-      'sectionTileWidth=', currentArea.sectionTileWidth,
-      'sectionIndex=', sectionIndex,
-      'sectionStartX=', sectionStartX,
-      'posLocal=', posLocal,
-      'atX=', atX,
-      'groundReady=', currentArea.groundEntries?.[sectionIndex]?.ready
-    );
-
-
-    const spawnWhen = normalizeTriggerWhen(c.spawnWhen);
-    const spawnIf = c.spawnIf;
-
-    if ((spawnWhen && spawnWhen.length) || spawnIf) {
+    if (hasAnyConditional) {
       pendingSpawns.push({
         kind: 'npc',
         name,
@@ -8172,8 +17947,22 @@ function spawnPredefinedNPCs(sectionIndex, sectionStartX, sectionDef, areaName) 
         rec,
         sectionStartX,
         spawnWhen,
-        spawnIf
+        spawnIf,
+        despawnWhen,
+        despawnIf
       });
+
+      // If there is no spawn trigger/state, spawn immediately but keep the spec for despawn.
+      if (!hasSpawnWhen && !hasSpawnIf) {
+        spawnNpcFromSectionDef(name, atX, c, rec, sectionStartX);
+      }
+
+      continue;
+    }
+
+    // If NPC already fixed to this area, spawn at saved worldX
+    if (rec.area === areaName && typeof rec.worldX === 'number') {
+      spawnNpc(name, rec.worldX);
       continue;
     }
 
@@ -8186,6 +17975,75 @@ function isMobInWorldById(mobId) {
   const id = lc(mobId);
   if (!id) return false;
   return mobs.some(m => lc(m?.id) === id);
+}
+
+function buildActorRuntimeBase(opts = {}) {
+  const worldX = Number(opts.worldX) || 0;
+  const y = Number(opts.y) || 0;
+  const w = Number(opts.w) || 0;
+  const h = Number(opts.h) || 0;
+  const onGround = (opts.onGround !== undefined) ? !!opts.onGround : true;
+  const facing = (opts.facing === -1 || opts.facing === 1) ? opts.facing : 1;
+
+  const innateAbilities = Array.isArray(opts.innateAbilities) ? opts.innateAbilities : [];
+  const learnedAbilities = Array.isArray(opts.learnedAbilities) ? opts.learnedAbilities : [];
+
+  return {
+    worldX,
+    y,
+    w,
+    h,
+
+    // motion state
+    vx: 0,
+    vy: 0,
+    onGround,
+    facing,
+
+    // animation bookkeeping
+    animFrame: 0,
+    animTimer: 0,
+    lastMoveTime: getGameNowMs(),
+    hasEverMoved: false,
+
+    // shared stats
+    stats: opts.stats,
+
+    // abilities
+    innateAbilities,
+    learnedAbilities,
+    heldAbilities: [],
+    abilities: [],
+    autoCastAbilityId: opts.autoCastAbilityId || null,
+
+    // factions / relations
+    factions: Array.isArray(opts.factions) ? opts.factions.slice() : [],
+    allianceByFaction: (opts.allianceByFaction && typeof opts.allianceByFaction === 'object')
+      ? { ...opts.allianceByFaction }
+      : undefined,
+    allianceByInstance: (opts.allianceByInstance && typeof opts.allianceByInstance === 'object')
+      ? { ...opts.allianceByInstance }
+      : undefined,
+
+    // Attack targeting (queue + current)
+    attackTargetQueue: [],
+    attackTargetCurrentKey: null,
+    __attackQueueDirty: false,
+    __attackResortAtMs: 0,
+    __attackTargetActor: null,
+    __attackStopRangePx: null,
+    __attackPreferredAbilityId: null,
+
+    // Movement targeting (queue + current)
+    moveTargetQueue: [],
+    moveTargetCurrentKey: null,
+    __moveQueueDirty: false,
+    __moveResortAtMs: 0,
+    __moveTargetActor: null,
+    __moveStopRangePx: null,
+
+    abilityNextAtMs: Object.create(null)
+  };
 }
 
 function createMob(mobId, worldX, opts = {}) {
@@ -8216,31 +18074,39 @@ function createMob(mobId, worldX, opts = {}) {
   const end0 = Math.max(0, Number(def?.stats?.endurance ?? 0) || 0);
   const fort0 = Math.max(0, Number(def?.stats?.fortitude ?? 0) || 0);
 
-  return {
+  const innateAbilities = resolveAbilityList(def?.abilities);
+  let autoCastAbilityId = null;
+
+  const stats = createStatsForKind('mob');
+  if (stats.hp) {
+    stats.hp.max = hp0;
+    stats.hp.current = hp0;
+  }
+  if (stats.endurance) stats.endurance.base = end0;
+  if (stats.fortitude) stats.fortitude.base = fort0;
+
+  const base = buildActorRuntimeBase({
+    worldX,
+    y: y0,
+    w,
+    h,
+    onGround: (locomotionMode !== 'hover' && locomotionMode !== 'fly'),
+    stats,
+    innateAbilities,
+    learnedAbilities: [],
+    autoCastAbilityId,
+    factions: def?.factions,
+    allianceByFaction: def?.allianceByFaction,
+    allianceByInstance: def?.allianceByInstance
+  });
+
+  const mob = {
     // identity
     id,                 // archetype id (from mobs.json key)
     instanceId,         // unique per-spawn instance key
     name: id,           // keep “name” as archetype id (rules use mob.id, not instance)
     displayName: def?.name || id,
     tags: Array.isArray(def?.tags) ? def.tags.slice() : [],
-
-
-    // world placement
-    worldX: Number(worldX) || 0,
-    y: y0,
-    w, h,
-
-    // motion state
-    vx: 0,
-    vy: 0,
-    onGround: (locomotionMode !== 'hover' && locomotionMode !== 'fly'),
-    facing: 1,
-
-    // animation bookkeeping (even though sprites aren’t wired yet)
-    animFrame: 0,
-    animTimer: 0,
-    lastMoveTime: performance.now(),
-    hasEverMoved: false,
 
     // locomotion + ai mode
     locomotionMode,     // 'ground' | 'hover' | 'fly' | 'burrow' (behavior added later)
@@ -8257,56 +18123,52 @@ function createMob(mobId, worldX, opts = {}) {
     // Anchor can be a fixed worldX (default: spawn), or a goalRef-like object (actor/object/section position).
     anchor: { type: 'worldX', x: Number(worldX) },
 
-    // Queue of target descriptors (see targetActorDescriptorFromActor)
-    targetQueue: [],
-    targetCurrentKey: null,
-
-    // targeting scheduling + resolved current target
-    __targetQueueDirty: false,
-    __targetResortAtMs: 0,
-    __targetActor: null,
-
-    // movement intent derived from targeting
-    __targetGoalActor: null,
-    __targetStopRangePx: null,
-    __targetPreferredAbilityId: null,
-
-    // runtime overrides applied by rules (setMobParam)
+    // runtime overrides applied by rules (actorParam/setActorParam)
     paramOverrides: Object.create(null),
-
-
-
-    // combat/stats (v2: mobs have stat records like NPCs)
-    stats: {
-      endurance: { base: end0, current: end0 },
-      fortitude: { base: fort0, current: fort0 },
-      hp: { base: hp0, current: hp0 }
-    },
 
     // contact/ability runtime
     contactNextTickAtMs: 0,
-    abilityNextAtMs: Object.create(null),
 
     // keep definition reference for later steps (hitboxes/abilities/drops)
     def
 
   };
+  Object.assign(mob, base);
+
+  // Mobs don't carry items yet, but keep ability composition consistent.
+  rebuildActorAbilities(mob);
+  return mob;
 }
 
 function spawnMob(mobId, atX, opts = {}) {
   const id = lc(mobId);
-  if (!id) return;
+  if (!id) return null;
   if (!mobDetails?.[id]) {
     console.warn('[mobs] spawnMob: unknown id', mobId);
-    return;
+    return null;
   }
   //if (isMobInWorldById(id)) return;
 
   // Prevent duplicates when restoring + when a spawnIf-only pending spawn fires on re-entry
   const wantInst = (opts && opts.instanceId != null) ? String(opts.instanceId) : null;
-  if (wantInst && mobs.some(m => m && String(m.instanceId) === wantInst)) return;
+  if (wantInst && mobs.some(m => m && String(m.instanceId) === wantInst)) return null;
+
+  const def = mobDetails?.[id] || null;
+  const instKey = wantInst || `${id}:${mobSpawnCounter + 1}`;
+  const rec = ensureMobRecord(instKey, id);
+  if (rec) {
+    initMobRegistryFromDefs(rec, id, currentAreaName, atX, def);
+  }
 
   const mob = createMob(id, atX, { instanceId: wantInst });
+  if (mob) {
+    const boundRec = ensureMobRecord(mob.instanceId, mob.id);
+    if (boundRec) bindMobPersistentFields(mob, boundRec);
+  }
+
+  // Add to list before AI mode emits movement events to avoid re-entrant spawn loops.
+  mobs.push(mob);
+
 
   // initial AI mode from section spawn (same idea as NPC “mode” in areas.json)
   const mode = lc(opts.mode || 'stationary');
@@ -8316,10 +18178,9 @@ function spawnMob(mobId, atX, opts = {}) {
     setNpcAiMode(mob, 'stationary', {});
   }
 
-  mobs.push(mob);
-
   // play spawn anim briefly (skip when restoring)
   if (!opts.noSpawnAnim) setActorTempAnim(mob, 'spawn', 520);
+  return mob;
 }
 
 
@@ -8344,10 +18205,40 @@ function spawnPredefinedMobs(sectionIndex, sectionStartX, sectionName, sectionDe
     // If we already restored this instance from registry, do not spawn again
     if (spawnedInstanceIds && spawnedInstanceIds.has(instanceId)) continue;
 
+    const def = mobDetails?.[mobId] || null;
+    const rec = ensureMobRecord(instanceId, mobId);
+    if (rec) initMobRegistryFromDefs(rec, mobId, areaName, atX, def);
+
+    if (m && Object.prototype.hasOwnProperty.call(m, 'autoCastRules') && rec) {
+      const raw = m.autoCastRules;
+      if (raw === 'default' || raw === 'disabled') {
+        rec.autoCastRulesMode = String(raw).toLowerCase();
+      } else if (Array.isArray(raw)) {
+        rec.aiAutoCastRules = raw;
+        rec.autoCastRulesMode = 'custom';
+      } else if (raw && typeof raw === 'object') {
+        const mode = String(raw.mode || raw.state || 'custom').toLowerCase();
+        if (mode === 'default' || mode === 'disabled') {
+          rec.autoCastRulesMode = mode;
+        } else {
+          if (Array.isArray(raw.rules)) rec.aiAutoCastRules = raw.rules;
+          rec.autoCastRulesMode = 'custom';
+        }
+      }
+    }
+
     const spawnWhen = normalizeTriggerWhen(m.spawnWhen);
     const spawnIf = m.spawnIf;
+    const despawnWhen = normalizeTriggerWhen(m.despawnWhen);
+    const despawnIf = m.despawnIf;
 
-    if ((spawnWhen && spawnWhen.length) || spawnIf) {
+    const hasSpawnWhen = !!(spawnWhen && spawnWhen.length);
+    const hasDespawnWhen = !!(despawnWhen && despawnWhen.length);
+    const hasSpawnIf = !!spawnIf;
+    const hasDespawnIf = !!despawnIf;
+    const hasAnyConditional = hasSpawnWhen || hasDespawnWhen || hasSpawnIf || hasDespawnIf;
+
+    if (hasAnyConditional) {
       pendingSpawns.push({
         kind: 'mob',
         mobId,
@@ -8355,8 +18246,16 @@ function spawnPredefinedMobs(sectionIndex, sectionStartX, sectionName, sectionDe
         mode: m.mode,
         spawnWhen,
         spawnIf,
+        despawnWhen,
+        despawnIf,
         instanceId
       });
+
+      // If there is no spawn trigger/state, spawn immediately but keep the spec for despawn.
+      if (!hasSpawnWhen && !hasSpawnIf) {
+        spawnMob(mobId, atX, { mode: m.mode, instanceId });
+      }
+
       continue;
     }
 
@@ -8378,6 +18277,8 @@ function populateMobsForCurrentArea() {
     // If you track "alive"/"defeated" in the registry, respect it
     if (rec.alive === false || rec.defeated === true) continue;
 
+    const def = mobDetails?.[lc(rec.mobId || rec.id || '')] || null;
+    if (def) initMobRegistryFromDefs(rec, rec.mobId || rec.id || null, currentAreaName, rec.worldX, def);
     const x = (typeof rec.worldX === 'number') ? rec.worldX : 0;
 
     // Restore with the same instanceId and no spawn animation
@@ -8398,29 +18299,18 @@ function populateMobsForCurrentArea() {
 
       if (rec.anchor && typeof rec.anchor === 'object') mob.anchor = rec.anchor;
 
-      if (Array.isArray(rec.targetQueue)) mob.targetQueue = rec.targetQueue.slice();
-      if (rec.targetCurrentKey != null) mob.targetCurrentKey = rec.targetCurrentKey;
+      if (Array.isArray(rec.attackTargetQueue)) mob.attackTargetQueue = rec.attackTargetQueue;
+      if (rec.attackTargetCurrentKey != null) mob.attackTargetCurrentKey = rec.attackTargetCurrentKey;
+      if (Array.isArray(rec.moveTargetQueue)) mob.moveTargetQueue = rec.moveTargetQueue;
+      if (rec.moveTargetCurrentKey != null) mob.moveTargetCurrentKey = rec.moveTargetCurrentKey;
 
       if (rec.paramOverrides && typeof rec.paramOverrides === 'object') {
-        mob.paramOverrides = { ...rec.paramOverrides };
+        mob.paramOverrides = rec.paramOverrides;
       }
-      if (Array.isArray(rec.tags)) mob.tags = rec.tags.slice();
+      if (Array.isArray(rec.tags)) mob.tags = rec.tags;
 
       if (rec.stats && typeof rec.stats === 'object') {
-        mob.stats = {
-          endurance: {
-            base: Number(rec.stats.endurance?.base ?? 0),
-            current: Number(rec.stats.endurance?.current ?? 0)
-          },
-          fortitude: {
-            base: Number(rec.stats.fortitude?.base ?? 0),
-            current: Number(rec.stats.fortitude?.current ?? 0)
-          },
-          hp: {
-            base: Number(rec.stats.hp?.base ?? 0),
-            current: Number(rec.stats.hp?.current ?? 0)
-          }
-        };
+        mob.stats = rec.stats;
       }
 
       // AI internals (if you stored them)
@@ -8433,9 +18323,16 @@ function populateMobsForCurrentArea() {
       if (rec.aiMoveTargetX != null) mob.aiMoveTargetX = rec.aiMoveTargetX;
 
       // Force a re-resolve of current target actor on next tick
-      mob.__targetQueueDirty = true;
-      mob.__targetActor = null;
-      mob.__targetResortAtMs = 0;
+      mob.__attackQueueDirty = true;
+      mob.__attackTargetActor = null;
+      mob.__attackResortAtMs = 0;
+
+      mob.__moveQueueDirty = true;
+      mob.__moveTargetActor = null;
+      mob.__moveResortAtMs = 0;
+
+      bindMobPersistentFields(mob, rec);
+
     }
 
     spawnedInstanceIds.add(String(inst));
@@ -8466,9 +18363,8 @@ function populateNPCsForCurrentArea() {
 for (const [name, rec] of Object.entries(npcRegistry)) {
   if (!rec.inParty && rec.area === currentAreaName && typeof rec.worldX === 'number') {
     spawnNpc(name, Math.max(2, Math.min(currentArea.lengthPx - player.w - 2, rec.worldX)));
-    // NEW: apply saved stats onto the newly spawned instance
     const spawned = npcs.find(n => n.name === name);
-  if (spawned) { spawned.stats = rec.stats; }
+    if (spawned) bindNpcPersistentFields(spawned, rec);
   }
 }
 
@@ -8506,6 +18402,20 @@ function isSpawnIfSatisfied(spawnIf, implicitNpcName, payload) {
   return evaluateRuleState({ state: stateArr }, payload);
 }
 
+function wouldObjectSpawnOnAreaLoad(obj, payload = null) {
+  if (!obj) return false;
+  const hasSpawnWhen = !!obj.spawnWhen;
+  const hasSpawnIf = !!obj.spawnIf;
+  const hasDespawnIf = !!obj.despawnIf;
+
+  // spawnWhen-only objects should NOT exist on initial area load.
+  if (hasSpawnWhen && !hasSpawnIf && !hasDespawnIf) return false;
+
+  const spawnIfOk = hasSpawnIf ? isSpawnIfSatisfied(obj.spawnIf, null, payload || {}) : true;
+  const despawnIfOk = hasDespawnIf ? isSpawnIfSatisfied(obj.despawnIf, null, payload || {}) : false;
+  return (spawnIfOk && !despawnIfOk);
+}
+
 function initConditionalSpawnsForCurrentArea() {
   if (!currentArea) return;
 
@@ -8523,75 +18433,171 @@ function initConditionalSpawnsForCurrentArea() {
     for (const obj of list) {
       if (!obj) continue;
 
-      const hasWhen = !!obj.spawnWhen;
-      const hasIf = !!obj.spawnIf;
+      const hasSpawnWhen = !!obj.spawnWhen;
+      const hasSpawnIf = !!obj.spawnIf;
+      const hasDespawnWhen = !!obj.despawnWhen;
+      const hasDespawnIf = !!obj.despawnIf;
 
-      if (!hasWhen && !hasIf) continue;
+      if (!hasSpawnWhen && !hasSpawnIf && !hasDespawnWhen && !hasDespawnIf) continue;
 
-      // Start hidden until spawned, unless it is spawnIf-only and already satisfied
-      obj._spawned = false;
+      obj._spawned = wouldObjectSpawnOnAreaLoad(obj, {});
 
       const whenArr = normalizeTriggerWhen(obj.spawnWhen);
-
-      if ((!whenArr || !whenArr.length) && hasIf) {
-        if (isSpawnIfSatisfied(obj.spawnIf, null, {})) {
-          obj._spawned = true;
-          continue;
-        }
-      }
+      const despawnWhenArr = normalizeTriggerWhen(obj.despawnWhen);
 
       pendingSpawns.push({
         kind: 'object',
         obj,
         spawnWhen: whenArr,
-        spawnIf: obj.spawnIf
+        spawnIf: obj.spawnIf,
+        despawnWhen: despawnWhenArr,
+        despawnIf: obj.despawnIf
       });
     }
   }
 
-  // 2) Immediately spawn any queued mob/NPC specs that are spawnIf-only and already satisfied
-  processPendingSpawns(null, {});
+  // 2) Immediately apply any spawnIf/despawnIf conditions that are already satisfied
+  processPendingSpawns(null, {}, { allowIfOnly: true });
 }
 
-function processPendingSpawns(eventName, payload) {
+function processPendingSpawns(eventName, payload, opts = null) {
   if (!pendingSpawns || pendingSpawns.length === 0) return;
+
+  const allowIfOnly = !!(opts && opts.allowIfOnly);
+  const hasEvent = !!eventName;
 
   for (let i = pendingSpawns.length - 1; i >= 0; i--) {
     const spec = pendingSpawns[i];
     if (!spec) { pendingSpawns.splice(i, 1); continue; }
 
-    const whenArr = Array.isArray(spec.spawnWhen) ? spec.spawnWhen : [];
-    if (whenArr.length) {
-      if (!eventName) continue;
-      let matched = false;
-      for (const w of whenArr) {
-        if (triggerMatches(w, eventName, payload || {})) { matched = true; break; }
+    const spawnWhenArr = Array.isArray(spec.spawnWhen) ? spec.spawnWhen : [];
+    const despawnWhenArr = Array.isArray(spec.despawnWhen) ? spec.despawnWhen : [];
+
+    let spawnWhenMatched = false;
+    if (spawnWhenArr.length) {
+      if (!hasEvent) {
+        spawnWhenMatched = false;
+      } else {
+        for (const w of spawnWhenArr) {
+          if (triggerMatches(w, eventName, payload || {})) { spawnWhenMatched = true; break; }
+        }
       }
-      if (!matched) continue;
     }
 
-    if (spec.spawnIf && !isSpawnIfSatisfied(spec.spawnIf, spec.name || null, payload || {})) {
-      continue;
+    let despawnWhenMatched = false;
+    if (despawnWhenArr.length) {
+      if (!hasEvent) {
+        despawnWhenMatched = false;
+      } else {
+        for (const w of despawnWhenArr) {
+          if (triggerMatches(w, eventName, payload || {})) { despawnWhenMatched = true; break; }
+        }
+      }
+    }
+
+    const hasSpawnIf = (spec.spawnIf != null);
+    const hasDespawnIf = (spec.despawnIf != null);
+    const hasAnyIf = hasSpawnIf || hasDespawnIf;
+
+    // If we only want event-driven evaluation, skip if there is no event and we don't need IF checks.
+    if (!hasEvent && !allowIfOnly) continue;
+    if (!hasEvent && !hasAnyIf) continue;
+
+    const spawnIfOk = hasSpawnIf ? isSpawnIfSatisfied(spec.spawnIf, spec.name || null, payload || {}) : true;
+    const despawnIfOk = hasDespawnIf ? isSpawnIfSatisfied(spec.despawnIf, spec.name || null, payload || {}) : false;
+    const wantsExistNow = (!hasSpawnIf || spawnIfOk) && (!hasDespawnIf || !despawnIfOk);
+
+
+    if (spec._blocked && (despawnWhenMatched || (hasDespawnIf && despawnIfOk))) {
+      spec._blocked = false;
     }
 
     if (spec.kind === 'object') {
-      if (spec.obj) spec.obj._spawned = true;
-      pendingSpawns.splice(i, 1);
+      const obj = spec.obj;
+      if (!obj) { pendingSpawns.splice(i, 1); continue; }
+
+      const isSpawned = (obj._spawned !== false);
+      const shouldDespawn = despawnWhenMatched || (hasDespawnIf && despawnIfOk);
+      const shouldSpawn =
+        !isSpawned &&
+        !spec._blocked &&
+        (
+          (spawnWhenArr.length ? (spawnWhenMatched && (!hasSpawnIf || spawnIfOk) && (!hasDespawnIf || !despawnIfOk)) : false) ||
+          (!spawnWhenArr.length && hasAnyIf && wantsExistNow)
+        );
+
+      if (isSpawned && shouldDespawn) {
+        obj._spawned = false;
+      } else if (!isSpawned && shouldSpawn) {
+        obj._spawned = true;
+      }
+
+      // Keep specs only if they have any conditional behavior
+      if (!spawnWhenArr.length && !despawnWhenArr.length && !hasAnyIf) {
+        pendingSpawns.splice(i, 1);
+      }
       continue;
     }
 
     if (spec.kind === 'mob') {
-      spawnMob(spec.mobId, spec.atX, { mode: spec.mode, instanceId: spec.instanceId });
-      currentArea.mobs = [...mobs];
-      pendingSpawns.splice(i, 1);
+      const wantInst = String(spec.instanceId || '');
+      const liveMob = wantInst ? mobs.find(m => m && String(m.instanceId) === wantInst) : null;
+      const isSpawned = !!liveMob;
+
+      const shouldDespawn = isSpawned && (despawnWhenMatched || (hasDespawnIf && despawnIfOk));
+      const shouldSpawn =
+        !isSpawned &&
+        !spec._blocked &&
+        (
+          (spawnWhenArr.length ? (spawnWhenMatched && (!hasSpawnIf || spawnIfOk) && (!hasDespawnIf || !despawnIfOk)) : false) ||
+          (!spawnWhenArr.length && hasAnyIf && wantsExistNow)
+        );
+
+      if (shouldDespawn && liveMob) {
+        despawnMobInstance(liveMob);
+        currentArea.mobs = [...mobs];
+      } else if (shouldSpawn) {
+        const mob = spawnMob(spec.mobId, spec.atX, { mode: spec.mode, instanceId: spec.instanceId });
+        if (mob) mob.__spawnSpec = spec;
+        currentArea.mobs = [...mobs];
+      }
+
+      // Keep specs only if they have any conditional behavior
+      if (!spawnWhenArr.length && !despawnWhenArr.length && !hasAnyIf) {
+        pendingSpawns.splice(i, 1);
+      }
       continue;
     }
 
-
     if (spec.kind === 'npc') {
-      spawnNpcFromSectionDef(spec.name, spec.atX, spec.c, spec.rec, spec.sectionStartX);
-      currentArea.npcs = [...npcs];
-      pendingSpawns.splice(i, 1);
+      const nameLc = lc(spec.name || '');
+      const inParty = party.some(p => p && lc(p.name) === nameLc);
+      if (inParty) continue;
+
+      const liveNpc = npcs.find(n => n && lc(n.name) === nameLc) || null;
+      const isSpawned = !!liveNpc;
+
+      const shouldDespawn = isSpawned && (despawnWhenMatched || (hasDespawnIf && despawnIfOk));
+      const shouldSpawn =
+        !isSpawned &&
+        !spec._blocked &&
+        (
+          (spawnWhenArr.length ? (spawnWhenMatched && (!hasSpawnIf || spawnIfOk) && (!hasDespawnIf || !despawnIfOk)) : false) ||
+          (!spawnWhenArr.length && hasAnyIf && wantsExistNow)
+        );
+
+      if (shouldDespawn && liveNpc) {
+        despawnNpcInstance(liveNpc);
+        currentArea.npcs = [...npcs];
+      } else if (shouldSpawn) {
+        spawnNpcFromSectionDef(spec.name, spec.atX, spec.c, spec.rec, spec.sectionStartX);
+        currentArea.npcs = [...npcs];
+      }
+
+      // Keep specs only if they have any conditional behavior
+      if (!spawnWhenArr.length && !despawnWhenArr.length && !hasAnyIf) {
+        pendingSpawns.splice(i, 1);
+      }
       continue;
     }
   }
@@ -8634,7 +18640,19 @@ function warmAreaAssets(areaName) {
     if (!list) return;
     for (const obj of list) {
       if (obj && obj.key && !obj.entry) {
-        obj.entry = loadObjectImage(obj.key);
+        const base = objectBaseFromKey(obj.key);
+        const def = base ? getObjectDef(base) : null;
+        const hasObstacle = !!(def && (def.blocker || def.gate));
+
+        if (hasObstacle && base) {
+          const suffixes = ['', '_closed', '_open', '_opening', '_closing'];
+          for (const sfx of suffixes) {
+            loadObjectImage(`${base}${sfx}`);
+          }
+          obj.entry = loadObjectImage(base);
+        } else {
+          obj.entry = loadObjectImage(obj.key);
+        }
       }
     }
   };
@@ -8644,6 +18662,15 @@ function warmAreaAssets(areaName) {
     // ground-locked overlays/objects (move with ground)
   warmObjects(area.groundBackObjects);
   warmObjects(area.groundForeObjects);
+
+  // --- World items (icons) ---
+  if (Array.isArray(area.worldItems)) {
+    for (const it of area.worldItems) {
+      if (!it || !it.itemId) continue;
+      const def = getItemDef(it.itemId);
+      __getItemIcon(it.itemId, def);
+    }
+  }
 }
 
 function warmAreaActorAssets(areaName) {
@@ -8753,14 +18780,26 @@ function warmAreaActorAssets(areaName) {
       if (!base) continue;
 
       // base + state variants used by blockers/interactions
-      const keys = [
-        base,
-        `${base}_open`,
-        `${base}_closed`,
-        `${base}_opening`,
-        `${base}_closing`,
-        `${base}_interact`
-      ];
+      const def = getObjectDef(base) || null;
+      const hasBlockerOrGate = !!(def?.blocker || def?.gate);
+      const hasInteract = !!(
+        (Array.isArray(def?.interact) && def.interact.length) ||
+        (Array.isArray(def?.interacts) && def.interacts.length) ||
+        (Array.isArray(def?.interactTags) && def.interactTags.length)
+      );
+
+      const keys = [base];
+      if (hasBlockerOrGate) {
+        keys.push(
+          `${base}_open`,
+          `${base}_closed`,
+          `${base}_opening`,
+          `${base}_closing`
+        );
+      }
+      if (hasInteract) {
+        keys.push(`${base}_interact`);
+      }
 
       for (const k of keys) {
         enqueueAssetWarm(`objImg:${k}`, () => loadObjectImage(k));
@@ -8819,6 +18858,8 @@ function buildAreaFromDefinition(areaName) {
           if (typeof it === 'string') return { name: it.trim(), height: defaultH };
           const spawnWhenRaw = it.spawnWhen ?? it.spawnwhen ?? null;
           const spawnIfRaw = it.spawnIf ?? it.spawnif ?? null;
+          const despawnWhenRaw = it.despawnWhen ?? it.despawnwhen ?? null;
+          const despawnIfRaw = it.despawnIf ?? it.despawnif ?? null;
 
           return {
             name: String(it.name || '').trim(),
@@ -8827,11 +18868,14 @@ function buildAreaFromDefinition(areaName) {
             position: (it.position != null && it.position !== '') ? Number(it.position) : undefined,
 
             // NEW: optional per-instance identity + gate starting state
-            id: (it.id != null && it.id !== '') ? String(it.id) : ((it.instanceId != null && it.instanceId !== '') ? String(it.instanceId) : null),
+            objectId: (it.id != null && it.id !== '') ? String(it.id) : ((it.instanceId != null && it.instanceId !== '') ? String(it.instanceId) : null),
             open: (it.open != null && it.open !== '') ? !!it.open : null,
+            portal: (it.portal != null && it.portal !== '') ? it.portal : null,
 
             spawnWhen: spawnWhenRaw || null,
             spawnIf: spawnIfRaw || null,
+            despawnWhen: despawnWhenRaw || null,
+            despawnIf: despawnIfRaw || null,
             _spawned: !(spawnWhenRaw || spawnIfRaw)
           };
 
@@ -8923,8 +18967,9 @@ function buildAreaFromDefinition(areaName) {
     const pos = Number(secDef.position || 0);
     const exits = normalizeExits(secDef.exits);
     const safePlaces = normalizeSafePlaces(secDef.safeplaces || secDef.safePlaces);
+    const items = normalizeItems(secDef.items);
 
-    positioned.set(secName, { name: secName, pos, groundKey: secDef.groundimage || defaultGroundKey, exits, safePlaces, raw: secDef });
+    positioned.set(secName, { name: secName, pos, groundKey: secDef.groundimage || defaultGroundKey, exits, safePlaces, items, raw: secDef });
   }
 
   // Prepare flat sections array (index 0..sectionCount-1)
@@ -8933,6 +18978,7 @@ function buildAreaFromDefinition(areaName) {
     groundKey: defaultGroundKey,
     exits: [],
     safePlaces: [],
+    items: [],
     timeOfDay: null
   }));
 
@@ -8946,6 +18992,7 @@ function buildAreaFromDefinition(areaName) {
         groundKey: sec.groundKey || defaultGroundKey,
         exits: sec.exits || [],
         safePlaces: sec.safePlaces || [],
+        items: sec.items || [],
         timeOfDay: (sec.raw && sec.raw.timeOfDay) ? sec.raw.timeOfDay : null
       };
 
@@ -8963,6 +19010,7 @@ function buildAreaFromDefinition(areaName) {
         groundKey: sec.groundKey || defaultGroundKey,
         exits: sec.exits || [],
         safePlaces: sec.safePlaces || [],
+        items: sec.items || [],
         timeOfDay: (sec.raw && sec.raw.timeOfDay) ? sec.raw.timeOfDay : null
       };
 
@@ -9009,6 +19057,32 @@ function buildAreaFromDefinition(areaName) {
     if (entry && entry.ready && entry.h > 0) ratio = (entry.w / entry.h);
 
     return Math.max(8, Math.floor(targetH * ratio));
+  }
+
+  function resolvePlacedObjectHeightPx(obj, key, defaultHeightFactor = 0.70) {
+    let base = null;
+    if (obj && obj.height != null) {
+      const pct = Number(obj.height);
+      if (isFinite(pct)) {
+        base = (HEIGHT / SCALE.objects) * (pct / 100);
+      }
+    }
+
+    if (base == null) {
+      const def = key ? getObjectDef(key) : null;
+      const h = Number(def?.animFramePx?.h);
+      if (isFinite(h)) base = h;
+    }
+
+    if (base == null) {
+      const entry = key ? loadObjectImage(key) : null;
+      if (entry && entry.ready && isFinite(entry.h)) base = Number(entry.h);
+    }
+
+    if (base == null) {
+      base = TILE_DRAW_HEIGHT() * defaultHeightFactor;
+    }
+    return base;
   }
 
   function clampLocal(v, a, b) {
@@ -9090,11 +19164,12 @@ function buildAreaFromDefinition(areaName) {
       const pick = list[Math.floor(Math.random() * list.length)]; // { name, height }
       //const entry = loadObjectImage(pick.name);
       const entry = null;
+      const heightPx = resolvePlacedObjectHeightPx(pick, pick.name, 0.55);
       outArr.push({
         worldX: x,
         key: pick.name,
         entry,
-        heightPx: pick.height, // assigned height
+        heightPx,
         yJitter,
         baseBelowTop
       });
@@ -9110,12 +19185,13 @@ function buildAreaFromDefinition(areaName) {
       const pick = list[Math.floor(Math.random() * list.length)]; // { name, height }
       //const entry = loadObjectImage(pick.name);
       const entry = null;
+      const heightPx = resolvePlacedObjectHeightPx(pick, pick.name, 0.70);
 
       outArr.push({
         worldX: x,
         key: pick.name,
         entry,
-        heightPx: pick.height,
+        heightPx,
         yJitter,
         baseBelowTop
       });
@@ -9199,6 +19275,7 @@ function buildAreaFromDefinition(areaName) {
     );
 
     for (const obj of backWithPosition) {
+      const heightPx = resolvePlacedObjectHeightPx(obj, obj.name, 0.55);
       backObjects.push({
         worldX: startX + obj.position,
         anchorToSection: true,
@@ -9206,17 +19283,21 @@ function buildAreaFromDefinition(areaName) {
         posLocal: obj.position,
         key: obj.name,
         entry: null,
-        heightPx: obj.height,
+        heightPx,
         yJitter: -8,
         baseBelowTop: 14,
 
         // NEW
-        instanceId: obj.id || null,
+        objectId: obj.objectId || null,
         startOpen: (obj.open != null) ? !!obj.open : null,
+        portal: obj.portal || null,
 
         spawnWhen: obj.spawnWhen || null,
         spawnIf: obj.spawnIf || null,
-        _spawned: (obj._spawned !== false)
+        despawnWhen: obj.despawnWhen || null,
+        despawnIf: obj.despawnIf || null,
+        _spawned: (obj._spawned !== false),
+        __needsId: true
       });
 
 
@@ -9229,6 +19310,7 @@ function buildAreaFromDefinition(areaName) {
     );
 
     for (const obj of foreWithPosition) {
+      const heightPx = resolvePlacedObjectHeightPx(obj, obj.name, 0.70);
       foreObjects.push({
         worldX: startX + obj.position,
         anchorToSection: true,
@@ -9236,17 +19318,21 @@ function buildAreaFromDefinition(areaName) {
         posLocal: obj.position,
         key: obj.name,
         entry: null,
-        heightPx: obj.height,
+        heightPx,
         yJitter: 0,
         baseBelowTop: 0,
 
         // NEW
-        instanceId: obj.id || null,
+        objectId: obj.objectId || null,
         startOpen: (obj.open != null) ? !!obj.open : null,
+        portal: obj.portal || null,
 
         spawnWhen: obj.spawnWhen || null,
         spawnIf: obj.spawnIf || null,
-        _spawned: (obj._spawned !== false)
+        despawnWhen: obj.despawnWhen || null,
+        despawnIf: obj.despawnIf || null,
+        _spawned: (obj._spawned !== false),
+        __needsId: true
       });
 
 
@@ -9259,6 +19345,7 @@ function buildAreaFromDefinition(areaName) {
     );
 
     for (const obj of groundBackWithPositionSection) {
+      const heightPx = resolvePlacedObjectHeightPx(obj, obj.name, 0.70);
       groundBackObjects.push({
         worldX: startX + obj.position,
         anchorToSection: true,
@@ -9266,23 +19353,27 @@ function buildAreaFromDefinition(areaName) {
         posLocal: obj.position,
         key: obj.name,
         entry: null,
-        heightPx: obj.height,
+        heightPx,
         yJitter: 0,
         baseBelowTop: 0,
 
         // NEW
-        instanceId: obj.id || null,
+        objectId: obj.objectId || null,
         startOpen: (obj.open != null) ? !!obj.open : null,
+        portal: obj.portal || null,
 
         spawnWhen: obj.spawnWhen || null,
         spawnIf: obj.spawnIf || null,
-        _spawned: (obj._spawned !== false)
+        despawnWhen: obj.despawnWhen || null,
+        despawnIf: obj.despawnIf || null,
+        _spawned: (obj._spawned !== false),
+        __needsId: true
       });
 
 
       addProtectedViewSpot(
         startX + obj.position,
-        estimateObjectDrawWidthPx(obj.name, obj.height, 0.70)
+        estimateObjectDrawWidthPx(obj.name, heightPx, 0.70)
       );
 
     }
@@ -9293,22 +19384,30 @@ function buildAreaFromDefinition(areaName) {
     );
 
     for (const obj of groundBackWithPositionArea) {
+      const heightPx = resolvePlacedObjectHeightPx(obj, obj.name, 0.70);
       groundBackObjects.push({
         worldX: obj.position,
         key: obj.name,
         entry: null,
-        heightPx: obj.height,
+        heightPx,
         yJitter: 0,
         baseBelowTop: 0,
 
         // NEW
-        instanceId: obj.id || null,
-        startOpen: (obj.open != null) ? !!obj.open : null
+        objectId: obj.objectId || null,
+        startOpen: (obj.open != null) ? !!obj.open : null,
+        portal: obj.portal || null,
+        spawnWhen: obj.spawnWhen || null,
+        spawnIf: obj.spawnIf || null,
+        despawnWhen: obj.despawnWhen || null,
+        despawnIf: obj.despawnIf || null,
+        _spawned: (obj._spawned !== false),
+        __needsId: true
       });
 
       addProtectedViewSpot(
         obj.position,
-        estimateObjectDrawWidthPx(obj.name, obj.height, 0.70)
+        estimateObjectDrawWidthPx(obj.name, heightPx, 0.70)
       );
 
     }
@@ -9321,6 +19420,7 @@ function buildAreaFromDefinition(areaName) {
     );
 
     for (const obj of groundForeWithPositionSection) {
+      const heightPx = resolvePlacedObjectHeightPx(obj, obj.name, 0.70);
       groundForeObjects.push({
         worldX: startX + obj.position,
         anchorToSection: true,
@@ -9328,50 +19428,30 @@ function buildAreaFromDefinition(areaName) {
         posLocal: obj.position,
         key: obj.name,
         entry: null,
-        heightPx: obj.height,
+        heightPx,
         yJitter: 0,
         baseBelowTop: 0,
 
         // NEW
-        instanceId: obj.id || null,
+        objectId: obj.objectId || null,
         startOpen: (obj.open != null) ? !!obj.open : null,
+        portal: obj.portal || null,
 
         spawnWhen: obj.spawnWhen || null,
         spawnIf: obj.spawnIf || null,
-        _spawned: (obj._spawned !== false)
+        despawnWhen: obj.despawnWhen || null,
+        despawnIf: obj.despawnIf || null,
+        _spawned: (obj._spawned !== false),
+        __needsId: true
       });
 
 
       addProtectedViewSpot(
         startX + obj.position,
-        estimateObjectDrawWidthPx(obj.name, obj.height, 0.70)
+        estimateObjectDrawWidthPx(obj.name, heightPx, 0.70)
       );
 
     }
-
-    // Area-defined positions are absolute within the whole area
-    if (i === 0) {
-      const groundBackWithPositionArea = (areaGroundBackObjList || []).filter(o =>
-        o && typeof o.position === 'number'
-      );
-
-      for (const obj of groundBackWithPositionArea) {
-        groundBackObjects.push({
-          worldX: obj.position,
-          key: obj.name,
-          entry: null,
-          heightPx: obj.height,
-          yJitter: 0,
-          baseBelowTop: 0,
-
-          // NEW
-          instanceId: obj.id || null,
-          startOpen: (obj.open != null) ? !!obj.open : null
-        });
-      }
-
-    }
-
 
     // --- BACKGROUND OBJECTS (behind ground) ---
     // 1) Density-defined: spawn Poisson(lambda) of that exact object
@@ -9381,11 +19461,12 @@ function buildAreaFromDefinition(areaName) {
         //const entry = loadObjectImage(obj.name);
         const entry = null;
         const x = startX + Math.random() * (endX - startX);
+        const heightPx = resolvePlacedObjectHeightPx(obj, obj.name, 0.55);
         backObjects.push({
           worldX: x,
           key: obj.name,
           entry,
-          heightPx: obj.height,
+          heightPx,
           yJitter: -8,
           baseBelowTop: 14
         });
@@ -9399,11 +19480,12 @@ function buildAreaFromDefinition(areaName) {
         //const entry = loadObjectImage(pick.name);
         const entry = null;
         const x = startX + Math.random() * (endX - startX);
+        const heightPx = resolvePlacedObjectHeightPx(pick, pick.name, 0.55);
         backObjects.push({
           worldX: x,
           key: pick.name,
           entry,
-          heightPx: pick.height,
+          heightPx,
           yJitter: -8,
           baseBelowTop: 14
         });
@@ -9417,13 +19499,14 @@ function buildAreaFromDefinition(areaName) {
       for (let t = 0; t < k; t++) {
         //const entry = loadObjectImage(obj.name);
         const entry = null;
-        const x = pickForegroundWorldXAvoidingProtected(obj.name, obj.height);
+        const heightPx = resolvePlacedObjectHeightPx(obj, obj.name, 0.70);
+        const x = pickForegroundWorldXAvoidingProtected(obj.name, heightPx);
         foreObjects.push({
           worldX: x,
           key: obj.name,
           random: true,
           entry,
-          heightPx: obj.height,
+          heightPx,
           yJitter: 0,
           baseBelowTop: 0
         });
@@ -9436,13 +19519,14 @@ function buildAreaFromDefinition(areaName) {
         const pick = foreNoDensity[Math.floor(Math.random() * foreNoDensity.length)];
         //const entry = loadObjectImage(pick.name);
         const entry = null;
-        const x = pickForegroundWorldXAvoidingProtected(pick.name, pick.height);
+        const heightPx = resolvePlacedObjectHeightPx(pick, pick.name, 0.70);
+        const x = pickForegroundWorldXAvoidingProtected(pick.name, heightPx);
         foreObjects.push({
           worldX: x,
           random: true,
           key: pick.name,
           entry,
-          heightPx: pick.height,
+          heightPx,
           yJitter: 0,
           baseBelowTop: 0
         });
@@ -9455,11 +19539,12 @@ function buildAreaFromDefinition(areaName) {
       for (let t = 0; t < k; t++) {
         const entry = null;
         const x = startX + Math.random() * (endX - startX);
+        const heightPx = resolvePlacedObjectHeightPx(obj, obj.name, 0.70);
         groundBackObjects.push({
           worldX: x,
           key: obj.name,
           entry,
-          heightPx: obj.height,
+          heightPx,
           yJitter: 0,
           baseBelowTop: 0
         });
@@ -9471,11 +19556,12 @@ function buildAreaFromDefinition(areaName) {
         const pick = groundBackNoDensity[Math.floor(Math.random() * groundBackNoDensity.length)];
         const entry = null;
         const x = startX + Math.random() * (endX - startX);
+        const heightPx = resolvePlacedObjectHeightPx(pick, pick.name, 0.70);
         groundBackObjects.push({
           worldX: x,
           key: pick.name,
           entry,
-          heightPx: pick.height,
+          heightPx,
           yJitter: 0,
           baseBelowTop: 0
         });
@@ -9488,11 +19574,12 @@ function buildAreaFromDefinition(areaName) {
       for (let t = 0; t < k; t++) {
         const entry = null;
         const x = startX + Math.random() * (endX - startX);
+        const heightPx = resolvePlacedObjectHeightPx(obj, obj.name, 0.70);
         groundForeObjects.push({
           worldX: x,
           key: obj.name,
           entry,
-          heightPx: obj.height,
+          heightPx,
           yJitter: 0,
           baseBelowTop: 0
         });
@@ -9508,7 +19595,7 @@ function buildAreaFromDefinition(areaName) {
           worldX: x,
           key: pick.name,
           entry,
-          heightPx: pick.height,
+          heightPx: resolvePlacedObjectHeightPx(pick, pick.name, 0.70),
           yJitter: 0,
           baseBelowTop: 0
         });
@@ -9520,6 +19607,55 @@ function buildAreaFromDefinition(areaName) {
 
 
 
+
+  function __ensureSectionObjectIds(list) {
+    if (!Array.isArray(list) || list.length === 0) return;
+
+    const bySection = new Map(); // idx -> { used:Set, counters:Map }
+    const getRec = (idx) => {
+      if (!bySection.has(idx)) {
+        bySection.set(idx, { used: new Set(), counters: new Map() });
+      }
+      return bySection.get(idx);
+    };
+
+    for (const obj of list) {
+      if (!obj || (!obj.__needsId && !obj.portal)) continue;
+      const idx = (typeof obj.sectionIndex === 'number')
+        ? obj.sectionIndex
+        : Math.floor((Number(obj.worldX || 0)) / sectionTileWidth);
+      obj.sectionIndex = idx;
+      if (!isFinite(idx) || idx < 0) continue;
+      if (obj.objectId) getRec(idx).used.add(String(obj.objectId));
+    }
+
+    for (const obj of list) {
+      if (!obj || (!obj.__needsId && !obj.portal)) continue;
+      if (obj.objectId) continue;
+      const idx = (typeof obj.sectionIndex === 'number')
+        ? obj.sectionIndex
+        : Math.floor((Number(obj.worldX || 0)) / sectionTileWidth);
+      obj.sectionIndex = idx;
+      if (!isFinite(idx) || idx < 0) continue;
+
+      const base = objectBaseFromKey(obj.key || obj.name || obj.filename) || 'obj';
+      const rec = getRec(idx);
+      let n = rec.counters.get(base) || 1;
+      let candidate = `${base}_${n}`;
+      while (rec.used.has(candidate)) {
+        n += 1;
+        candidate = `${base}_${n}`;
+      }
+      rec.counters.set(base, n + 1);
+      rec.used.add(candidate);
+      obj.objectId = candidate;
+    }
+  }
+
+  __ensureSectionObjectIds(backObjects);
+  __ensureSectionObjectIds(foreObjects);
+  __ensureSectionObjectIds(groundBackObjects);
+  __ensureSectionObjectIds(groundForeObjects);
 
 
   // Build worldExits absolute positions
@@ -9557,6 +19693,46 @@ function buildAreaFromDefinition(areaName) {
     }
   }
 
+  // Build worldItems absolute positions (centered on posLocal)
+  const worldItems = [];
+  const worldItemByKey = new Map();
+  for (let i = 0; i < sections.length; i++) {
+    const section = sections[i];
+    const startX = i * sectionTileWidth;
+    const items = Array.isArray(section.items) ? section.items : [];
+
+    for (let j = 0; j < items.length; j++) {
+      const it = items[j];
+      const itemId = lc(it?.itemId || '');
+      if (!itemId) continue;
+      if (!getItemDef(itemId)) continue;
+
+      const instanceId = worldItemInstanceId(areaName, i, itemId, it.instanceId, j);
+      if (!instanceId) continue;
+      const instanceKey = `item:${instanceId}`;
+
+      const pickedKey = worldItemPickedFlagKey(instanceKey);
+      const picked = !!(pickedKey && getFlag('global', pickedKey));
+
+      if (picked) continue;
+
+      const entry = {
+        itemId,
+        instanceKey,
+        instanceId,
+        qty: (it.qty != null) ? Math.max(1, Math.floor(Number(it.qty))) : 1,
+        sectionIndex: i,
+        posLocal: Number(it.posLocal) || 0,
+        worldX: startX + (Number(it.posLocal) || 0),
+        _picked: false,
+        _drawIndex: worldItems.length
+      };
+
+      worldItems.push(entry);
+      worldItemByKey.set(instanceKey, entry);
+    }
+  }
+
 
   // Minimal scenery per area (done once because we cache the build)
   resetSceneryForArea(areaLengthPx);
@@ -9574,6 +19750,8 @@ function buildAreaFromDefinition(areaName) {
     raw: def,
     exitsWorld,
     safePlacesWorld,
+    worldItems,
+    worldItemByKey,
     skyEntry,
     distantEntries,
     backgroundEntries,
@@ -9659,14 +19837,6 @@ function buildAndEnterArea(areaName, spawnEdge = 'left') {
   queuedDialogPrompts.length = 0;
   activeDialogPrompts.length = 0;
 
-  if (window.__traceRulesReasons) {
-    console.log('[PromptQueue] build active', {
-      queuedLen: queuedDialogPrompts.length,
-      firedLen: firedDialogTriggers.size,
-      party: party.map(n => n.name),
-      npcs: npcs.map(n => n.name)
-    });
-  }
 
 
   if (!area) return;
@@ -9688,8 +19858,10 @@ function buildAndEnterArea(areaName, spawnEdge = 'left') {
   placePlayerAtAreaEdge(currentArea, spawnEdge);
 
 
-  showAreaBanner(areaName);         // show name of area when entering
-  beginLoadingForCurrentArea(`Loading ${areaName}...`);
+  const areaRegion = area?.raw?.region ? String(area.raw.region).trim() : '';
+  const areaDisplayName = area?.raw?.name ? String(area.raw.name).trim() : String(areaName || '').trim();
+  const loadingLabel = areaRegion ? `${areaRegion} - ${areaDisplayName}` : areaDisplayName || `Loading ${areaName}...`;
+  beginLoadingForCurrentArea(loadingLabel);
 
   // Non-blocking: preload portraits + animations for anything referenced by this area.
   startBackgroundPreloadForArea(areaName);
@@ -9699,17 +19871,28 @@ function buildAndEnterArea(areaName, spawnEdge = 'left') {
   if (fromArea) {
     emitGameEvent('area_leave', { fromArea, toArea: areaName, area: fromArea, from: pendingVerticalTransferFrom ?? from, npc: 'Player' });
   }
-  // NEW: area_enter event
-  emitGameEvent('area_enter', { fromArea, toArea: areaName, area: areaName, edge: spawnEdge, from: pendingVerticalTransferFrom ?? from, npc: 'Player' });
+  // Defer area_enter until after load gate so spawnWhen/rules are registered.
+  __pendingAreaEnterEvents = [];
+  __pendingAreaEnterEvents.push({
+    fromArea,
+    toArea: areaName,
+    area: areaName,
+    edge: spawnEdge,
+    from: pendingVerticalTransferFrom ?? from,
+    npc: 'Player'
+  });
 
-  // Mirror area enter/leave for party members (same event names; includes npc)
+  // Mirror area enter for party members (same event names; includes npc)
   for (const member of party) {
     if (!member || !member.name) continue;
-
-    if (fromArea) {
-      emitGameEvent('area_leave', { fromArea, toArea: areaName, area: fromArea, from: pendingVerticalTransferFrom ?? from, npc: member.name });
-    }
-    emitGameEvent('area_enter', { fromArea, toArea: areaName, area: areaName, edge: spawnEdge, from: pendingVerticalTransferFrom ?? from, npc: member.name });
+    __pendingAreaEnterEvents.push({
+      fromArea,
+      toArea: areaName,
+      area: areaName,
+      edge: spawnEdge,
+      from: pendingVerticalTransferFrom ?? from,
+      npc: member.name
+    });
   }
 
 }
@@ -9733,15 +19916,14 @@ function transferToAdjacentArea(direction) {
     return;
   }
 
-  startFadeTransfer(() => {
-    snapshotNPCsToRegistry();                 // persist NPCs
-    snapshotMobsToRegistry({ stripPlayerTargets: true }); // persist mobs + drop player target
-    const spawnEdge = (direction === 'left') ? 'right' : 'left';
-    buildAndEnterArea(nextName, spawnEdge);
-    carryPartyWithPlayer(prevX, player.worldX);
-    nudgePartyBehind(spawnEdge);
-  }
-  );
+  const spawnEdge = (direction === 'left') ? 'right' : 'left';
+  startAreaTransfer({
+    areaName: nextName,
+    spawnEdge,
+    prevX,
+    nudgeParty: true,
+    nudgePartyFrom: spawnEdge
+  });
 
 
 }
@@ -9781,6 +19963,74 @@ function scatterPartyNearPlayer(maxDx = 500) {
 }
 
 // ===== Exit interaction & resolution =====
+function startAreaTransfer(opts) {
+  const destAreaName = String(opts?.areaName || '').trim();
+  if (!destAreaName) return false;
+
+  const destWorldX = (opts && isFinite(opts.worldX)) ? Number(opts.worldX) : null;
+  const spawnEdge = String(opts?.spawnEdge || 'left');
+  const prevX = (opts && isFinite(opts.prevX)) ? Number(opts.prevX) : null;
+
+  const setFrom = (opts && typeof opts.fromDirection === 'string') ? opts.fromDirection : null;
+  const nudgeFrom = String(opts?.nudgePartyFrom || spawnEdge);
+  const doNudge = (opts?.nudgeParty === true);
+  const doCarry = (opts?.carryParty !== false);
+  const snapPartyToPlayer = (opts?.snapPartyToPlayer === true);
+  const skipBuildIfSameArea = (opts?.skipBuildIfSameArea !== false);
+
+  startFadeTransfer(() => {
+    snapshotNPCsToRegistry();                 // persist NPCs
+    snapshotMobsToRegistry({ stripPlayerTargets: true }); // persist mobs + drop player target
+
+    if (setFrom) pendingVerticalTransferFrom = setFrom;
+
+    const sameArea = (destAreaName === currentAreaName);
+    if (!sameArea || !skipBuildIfSameArea) {
+      buildAndEnterArea(destAreaName, spawnEdge);
+    }
+
+    if (destWorldX != null) {
+      const clamped = Math.max(2, Math.min(currentArea.lengthPx - player.w - 2, destWorldX));
+      player.worldX = clamped;
+    }
+
+    player.vx = 0;
+    player.vy = 0;
+    player.onGround = true;
+    player.y = groundY - player.h;
+    resetActorTeleportState(player);
+    cameraX = Math.max(0, Math.min(player.worldX - canvas.width * 0.5, Math.max(0, currentArea.lengthPx - canvas.width)));
+
+    if (doCarry && prevX != null) {
+      carryPartyWithPlayer(prevX, player.worldX);
+    }
+    if (snapPartyToPlayer) {
+      for (const m of party) {
+        if (!m) continue;
+        m.worldX = player.worldX;
+        m.vx = 0;
+        m.vy = 0;
+        m.y = groundY - m.h - 8;
+        resetActorTeleportState(m);
+      }
+    }
+    if (doNudge) {
+      nudgePartyBehind(nudgeFrom);
+    }
+
+    // Keep live party actors tied to the actual destination area (not currentAreaName fallback).
+    for (const m of party) {
+      if (!m || !m.name) continue;
+      m.area = destAreaName;
+      const rec = ensureNpcRecord(m.name);
+      rec.area = destAreaName;
+      if (typeof m.worldX === 'number') rec.worldX = m.worldX;
+    }
+  });
+
+  return true;
+}
+
 function parseTargetExitString(s) {
   if (!s) return { area: null, section: null, exitId: null };
   const parts = String(s).split('.');
@@ -9832,6 +20082,226 @@ function findExitWorldPosition(target) {
   return { areaName: target.area, worldX: destX };
 }
 
+function _isNumericTargetPart(s) {
+  if (s == null) return false;
+  const str = String(s).trim();
+  if (!str) return false;
+  const n = Number(str);
+  return isFinite(n) && String(n) === str;
+}
+
+function _areaExists(areaName) {
+  return !!(areasData && areasData[areaName]);
+}
+
+function _sectionExists(areaName, sectionName) {
+  if (!areaName || !sectionName) return false;
+  const def = areasData && areasData[areaName];
+  return !!(def && def.sections && Object.prototype.hasOwnProperty.call(def.sections, sectionName));
+}
+
+function _getFirstSectionName(areaName) {
+  const def = areasData && areasData[areaName];
+  if (!def || !def.sections) return null;
+
+  let best = null;
+  let bestPos = Infinity;
+
+  for (const [name, s] of Object.entries(def.sections)) {
+    if (!name) continue;
+    const pos = Number(s?.position || 0);
+    if (pos > 0 && pos < bestPos) {
+      bestPos = pos;
+      best = name;
+    }
+  }
+
+  if (best) return best;
+
+  const keys = Object.keys(def.sections);
+  return keys.length ? keys[0] : null;
+}
+
+function _sectionStartWorldXForArea(areaName, sectionName) {
+  if (!areaName || !sectionName) return null;
+  const built = buildAreaFromDefinition(areaName);
+  if (!built) return null;
+
+  const idx = built.sections.findIndex(s => s && s.name === sectionName);
+  if (idx < 0) return null;
+
+  const w = Number(built.sectionTileWidth);
+  if (!isFinite(w) || w <= 0) return null;
+
+  return idx * w;
+}
+
+function _sectionStartWorldXForAreaIndex(areaName, sectionIndex) {
+  if (!areaName) return null;
+  const built = buildAreaFromDefinition(areaName);
+  if (!built) return null;
+
+  const w = Number(built.sectionTileWidth);
+  if (!isFinite(w) || w <= 0) return null;
+
+  const idx = Math.max(0, Math.floor(Number(sectionIndex) || 0));
+  return idx * w;
+}
+
+function _sectionNameForWorldXInArea(areaObj, worldX) {
+  if (!areaObj || !Array.isArray(areaObj.sections)) return null;
+  const w = Number(areaObj.sectionTileWidth);
+  if (!isFinite(w) || w <= 0) return null;
+  const idx = Math.max(0, Math.floor(Number(worldX || 0) / w));
+  return areaObj.sections[idx]?.name || null;
+}
+
+function _findObjectInstanceInArea(areaName, objectId, sectionName = null, opts = null) {
+  if (!areaName || !objectId) return null;
+  const built = buildAreaFromDefinition(areaName);
+  if (!built) return null;
+
+  const includeDespawned = !!(opts && opts.includeDespawned);
+  const includeObject = !!(opts && opts.includeObject);
+
+  const objectBuckets = [
+    { layer: 'back',   list: built.backObjects },
+    { layer: 'fore',   list: built.foreObjects },
+    { layer: 'gback',  list: built.groundBackObjects },
+    { layer: 'gfore',  list: built.groundForeObjects }
+  ];
+
+  for (const bucket of objectBuckets) {
+    const list = bucket.list;
+    if (!Array.isArray(list)) continue;
+
+    for (let i = 0; i < list.length; i++) {
+      const o = list[i];
+      if (!o) continue;
+      if (!includeDespawned && o._spawned === false) continue;
+
+      const raw = String(o.key || o.name || o.filename || '').trim();
+      if (!raw) continue;
+      const base = raw.replace(/\.[^/.]+$/, '').trim();
+      if (!base) continue;
+
+      const instanceId = _objectInstanceIdForBucket(o, bucket.layer, base, i);
+      const objId = (o.objectId != null && o.objectId !== '') ? String(o.objectId)
+        : ((o.id != null && o.id !== '') ? String(o.id) : null);
+      if (!objId) continue;
+      if (String(objId) !== String(objectId)) continue;
+
+      let secName = null;
+      if (typeof o.sectionIndex === 'number') {
+        secName = built.sections[o.sectionIndex]?.name || null;
+      } else {
+        secName = _sectionNameForWorldXInArea(built, o.worldX);
+      }
+      if (sectionName && secName !== sectionName) continue;
+
+      return {
+        areaName,
+        worldX: Number(o.worldX || 0),
+        instanceKey: `object:${instanceId}`,
+        sectionName: secName,
+        obj: includeObject ? o : undefined
+      };
+    }
+  }
+
+  return null;
+}
+
+function resolvePortalTarget(targetRaw) {
+  const raw = String(targetRaw || '').trim();
+  if (!raw) return null;
+
+  const parts = raw.split('.').map(p => String(p || '').trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+
+  const curArea = String(currentAreaName || '').trim();
+
+  const resolveObjectTarget = (areaName, sectionName, objectId) => {
+    const found = _findObjectInstanceInArea(areaName, objectId, sectionName, { includeDespawned: true, includeObject: true });
+    if (!found) return null;
+    if (found.obj && found.obj._spawned === false) {
+      const payload = { area: found.areaName, section: found.sectionName };
+      const ok = wouldObjectSpawnOnAreaLoad(found.obj, payload);
+      if (!ok) return null;
+    }
+    return { areaName: found.areaName, worldX: found.worldX, instanceKey: found.instanceKey };
+  };
+
+  if (parts.length === 1) {
+    const objectId = parts[0];
+    const foundHere = resolveObjectTarget(curArea, null, objectId);
+    if (foundHere) return foundHere;
+
+    const keys = Object.keys(areasData || {});
+    for (const a of keys) {
+      if (a === curArea) continue;
+      const found = resolveObjectTarget(a, null, objectId);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  if (parts.length === 2) {
+    const [p1, p2] = parts;
+
+    if (_areaExists(p1) && _sectionExists(p1, p2)) {
+      const start = _sectionStartWorldXForArea(p1, p2);
+      if (start == null) return null;
+      return { areaName: p1, worldX: start + 0 };
+    }
+
+    if (_isNumericTargetPart(p2)) {
+      const xLocal = Number(p2);
+      if (_areaExists(p1)) {
+        const sec = _getFirstSectionName(p1);
+        const start = sec
+          ? _sectionStartWorldXForArea(p1, sec)
+          : _sectionStartWorldXForAreaIndex(p1, 0);
+        if (start == null) return null;
+        return { areaName: p1, worldX: start + xLocal };
+      }
+
+      if (curArea && _sectionExists(curArea, p1)) {
+        const start = _sectionStartWorldXForArea(curArea, p1);
+        if (start == null) return null;
+        return { areaName: curArea, worldX: start + xLocal };
+      }
+    }
+
+    if (_areaExists(p1)) {
+      const found = resolveObjectTarget(p1, null, p2);
+      if (found) return found;
+    }
+
+    if (curArea && _sectionExists(curArea, p1)) {
+      const found = resolveObjectTarget(curArea, p1, p2);
+      if (found) return found;
+    }
+
+    return null;
+  }
+
+  if (parts.length === 3) {
+    const [areaName, sectionName, third] = parts;
+    if (!_areaExists(areaName) || !_sectionExists(areaName, sectionName)) return null;
+
+    if (_isNumericTargetPart(third)) {
+      const start = _sectionStartWorldXForArea(areaName, sectionName);
+      if (start == null) return null;
+      return { areaName, worldX: start + Number(third) };
+    }
+
+    return resolveObjectTarget(areaName, sectionName, third);
+  }
+
+  return null;
+}
+
 function tryUseExit(exitObj) {
   // exitObj has: direction ('up'|'down'), target (string or null)
   const needKey = exitObj.direction === 'up' ? 'ArrowUp' : 'ArrowDown';
@@ -9853,26 +20323,23 @@ function tryUseExit(exitObj) {
   emitGameEvent('exit_use', {
     area: currentAreaName,
     section: getSectionNameForX(player.worldX),
+    sectionIndex: exitObj.sectionIndex,
+    exitId: exitObj.id,
     direction: exitObj.direction,
     target: exitObj.target,
     toArea: dest.areaName
   });
 
-  startFadeTransfer(() => {
-    snapshotNPCsToRegistry();                 // persist NPCs
-    snapshotMobsToRegistry({ stripPlayerTargets: true }); // persist mobs + drop player target
-    // record vertical transfer origin for upcoming events
-    if (exitObj.direction === 'up') pendingVerticalTransferFrom = 'down';
-    else if (exitObj.direction === 'down') pendingVerticalTransferFrom = 'up';
-
-    buildAndEnterArea(dest.areaName, 'left'); // target area built
-    player.worldX = Math.max(2, Math.min(currentArea.lengthPx - player.w - 2, dest.worldX || 2));
-    player.vx = 0; player.vy = 0; player.onGround = true; player.y = groundY - player.h;
-    cameraX = Math.max(0, Math.min(player.worldX - canvas.width * 0.5, Math.max(0, currentArea.lengthPx - canvas.width)));
-
-    // Party comes along + nudge behind (arriving from left edge is a safe default here)
-    carryPartyWithPlayer(prevX, player.worldX);
-    nudgePartyBehind('left');
+  startAreaTransfer({
+    areaName: dest.areaName,
+    worldX: dest.worldX,
+    spawnEdge: 'left',
+    prevX,
+    fromDirection: (exitObj.direction === 'up') ? 'down'
+      : (exitObj.direction === 'down') ? 'up'
+      : null,
+    nudgeParty: true,
+    nudgePartyFrom: 'left'
   });
 }
 
@@ -10133,7 +20600,7 @@ function setNpcAiMode(npc, modeRaw, opts = {}) {
 
     // Anchor is: spawn point OR last position before switching to waiting
     npc.aiAnchorX = (opts.anchorX !== undefined && opts.anchorX !== null) ? Number(opts.anchorX) : Number(npc.worldX);
-    npc.aiNextDecisionAtMs = performance.now(); // decide immediately
+    npc.aiNextDecisionAtMs = getGameNowMs(); // decide immediately
     npc.aiPhase = 'idle'; // 'idle' or 'move'
     npc.aiMoveTargetX = null;
 
@@ -10188,11 +20655,12 @@ function chooseWaitingTargetX(npc, cfg) {
   return anchor + offset;
 }
 
-function updateWorldNpcAutonomy(npc, dt, activeObjectBlockers) {
+function updateWorldNpcAutonomy(npc, dt, activeObjectBlockers, nowMs) {
   if (!npc) return;
+  const now = (nowMs == null) ? getGameNowMs() : Number(nowMs);
 
-  // Freeze autonomous movement during conversation/menu/action-lock
-  const worldLocked = inConversation || inMenu || (inActionPhrase && activeAction?.lockPlayer);
+  // Freeze autonomous movement only when world time is frozen
+  const worldLocked = shouldFreezeWorldTime();
   if (worldLocked) {
     npc.vx = 0;
     return;
@@ -10200,7 +20668,6 @@ function updateWorldNpcAutonomy(npc, dt, activeObjectBlockers) {
 
   // Stop-moving lock (abilities/attacks)
   {
-    const now = performance.now();
     const until = Number(npc.__stopMoveUntilMs || 0);
     if (isFinite(until) && until > now) {
       npc.vx = 0;
@@ -10211,11 +20678,9 @@ function updateWorldNpcAutonomy(npc, dt, activeObjectBlockers) {
     }
   }
 
-  // Targeting update (may force aiMode/goal)
-  {
-    const now = performance.now();
-    updateActorTargeting(npc, now);
-  }
+  // Targeting update (attack + movement)
+  updateActorTargeting(npc, now, 'attack');
+  updateActorTargeting(npc, now, 'move');
 
   const cfg = getNpcAiConfig(npc.name);
 
@@ -10229,8 +20694,6 @@ function updateWorldNpcAutonomy(npc, dt, activeObjectBlockers) {
   }
 
   if (mode === 'waiting') {
-    const now = performance.now();
-
     if (!isFinite(npc.aiAnchorX)) npc.aiAnchorX = npc.worldX;
     if (!npc.aiPhase) npc.aiPhase = 'idle';
 
@@ -10275,8 +20738,8 @@ function updateWorldNpcAutonomy(npc, dt, activeObjectBlockers) {
       } else {
         npc.worldX += step;
         npc.vx = step / dt;
-        npc.facing = Math.sign(dx) || npc.facing || 1;
-        npc.lastMoveTime = performance.now();
+        // Facing resolved centrally after movement updates.
+        npc.lastMoveTime = now;
         npc.hasEverMoved = true;
       }
 
@@ -10298,10 +20761,10 @@ function updateWorldNpcAutonomy(npc, dt, activeObjectBlockers) {
 
     // Dynamic targeting goal: chase the current target actor (if present)
     let goalX = Number(npc.aiGoalX);
-    let stopRangePx = Number(npc.__targetStopRangePx);
+    let stopRangePx = Number(npc.__moveStopRangePx);
 
-    if (npc.__targetGoalActor) {
-      const a = npc.__targetGoalActor;
+    if (npc.__moveTargetActor) {
+      const a = npc.__moveTargetActor;
       goalX = actorCenterX(a) - (Number(npc.w) || 0) * 0.5;
       if (!isFinite(stopRangePx) || stopRangePx <= 0) stopRangePx = 0;
     } else {
@@ -10334,9 +20797,12 @@ function updateWorldNpcAutonomy(npc, dt, activeObjectBlockers) {
       });
     }
 
-    // If at goal and the target is still there, do not drift
+    // If at goal and the target is still there, do not drift.
+    // When stopRange is used, hold position instead of snapping to goalX.
     if (atGoalNow) {
-      npc.worldX = goalX;
+      if (!(isFinite(stopRangePx) && stopRangePx > 0)) {
+        npc.worldX = goalX;
+      }
       npc.vx = 0;
       npc.y = groundY - npc.h - 8;
 
@@ -10351,8 +20817,8 @@ function updateWorldNpcAutonomy(npc, dt, activeObjectBlockers) {
     } else {
       npc.worldX += step;
       npc.vx = step / dt;
-      npc.facing = Math.sign(dx) || npc.facing || 1;
-      npc.lastMoveTime = performance.now();
+      // Facing resolved centrally after movement updates.
+      npc.lastMoveTime = now;
       npc.hasEverMoved = true;
     }
 
@@ -10406,6 +20872,16 @@ function actorCenterX(a) {
 
 function mobCenterX(m) {
   return (Number(m?.worldX) || 0) + (Number(m?.w) || 0) * 0.5;
+}
+
+function targetKindForActor(a) {
+  if (!a) return '';
+  if (a.kind === 'object' || a._targetKind === 'object') return 'object';
+  if (a === player) return 'player';
+  if (party.includes(a)) return 'party';
+  if (npcs.includes(a)) return 'npc';
+  if (mobs.includes(a)) return 'mob';
+  return '';
 }
 
 function targetKeyFromDescriptor(td) {
@@ -10475,10 +20951,15 @@ function isActorUnconscious(a) {
 }
 
 
+function normalizeTargetKindList(raw) {
+  if (!raw) return [];
+  const list = Array.isArray(raw) ? raw : [raw];
+  return list.map(x => lc(String(x || '').trim())).filter(Boolean);
+}
+
 function normalizeTargetingDef(def) {
   if (!def || typeof def !== 'object') return null;
 
-  const add = (def.add && typeof def.add === 'object') ? def.add : Object.create(null);
   const remove = (def.remove && typeof def.remove === 'object') ? def.remove : Object.create(null);
   const action = (def.action && typeof def.action === 'object') ? def.action : Object.create(null);
   const onEmpty = (def.onEmpty && typeof def.onEmpty === 'object') ? def.onEmpty : Object.create(null);
@@ -10486,8 +20967,22 @@ function normalizeTargetingDef(def) {
   const sort = Array.isArray(def.sort) ? def.sort : (Array.isArray(def.prioritize) ? def.prioritize : []);
   const resort = (def.resort && typeof def.resort === 'object') ? def.resort : Object.create(null);
 
+  let priority = normalizeTargetKindList(def.priority);
+  let allowed = normalizeTargetKindList(def.allowed);
+  let excluded = normalizeTargetKindList(def.excluded);
+  if (priority.length && !allowed.length) allowed = [...priority];
+  if (allowed.length && !priority.length) priority = [...allowed];
+
+  const withinPx = Number(def.withinPx ?? def.rangePx ?? def.range ?? 0);
+
   return {
-    add,
+    priority,
+    allowed,
+    excluded,
+    withinPx: (isFinite(withinPx) && withinPx > 0) ? withinPx : null,
+    area: def.area || null,
+    section: def.section || null,
+    fixedTarget: lc(def.fixedTarget || ''),
     remove,
     sort,
     resort,
@@ -10496,11 +20991,375 @@ function normalizeTargetingDef(def) {
   };
 }
 
-function getActorTargetingRaw(actor) {
+function getAbilityTargetingDef(ability) {
+  if (!ability || typeof ability !== 'object') return null;
+  return normalizeTargetingDef(ability.targeting || null);
+}
+
+function getAbilityRangePx(ability, tdef) {
+  const raw =
+    (tdef && tdef.withinPx != null && isFinite(tdef.withinPx)) ? tdef.withinPx
+    : (tdef && (tdef.rangePx ?? tdef.range) != null) ? (tdef.rangePx ?? tdef.range)
+    : (ability?.rangePx ?? ability?.range);
+  const v = Number(raw);
+  return (isFinite(v) && v > 0) ? v : null;
+}
+
+function getActorAutoCastRules(actor) {
   if (!actor) return null;
-  // mobs: targeting lives on def; NPCs: targeting lives on the runtime actor
-  if (actor.def && typeof actor.def === 'object') return actor.def.targeting || null;
-  return actor.targeting || null;
+  const mode = String(actor.autoCastRulesMode || 'default').toLowerCase();
+  if (mode === 'disabled') return [];
+  if (mode === 'custom') return Array.isArray(actor.aiAutoCastRules) ? actor.aiAutoCastRules : [];
+  // default
+  if (Array.isArray(actor.aiAutoCastRulesDefault)) return actor.aiAutoCastRulesDefault;
+  if (actor.def && actor.def.ai && Array.isArray(actor.def.ai.autoCastRules)) return actor.def.ai.autoCastRules;
+  if (Array.isArray(actor.aiAutoCastRules)) return actor.aiAutoCastRules;
+  return null;
+}
+
+function resolveActorAbilityById(actor, abilityId) {
+  if (!actor || !abilityId) return null;
+  const want = lc(abilityId);
+  const list = Array.isArray(actor.abilities) ? actor.abilities : [];
+  return list.find(a => a && lc(a.id || a.name || '') === want) || null;
+}
+
+function actorParamValue(actor, key) {
+  if (!actor || !key) return undefined;
+  const kind = getActorKind(actor);
+  if (kind === 'mob') return getEffectiveMobParam(actor, key);
+  return getEffectiveActorParam(actor, key);
+}
+
+function checkAutoCastRuleCondition(actor, rule, nowMs) {
+  if (!actor || !rule) return false;
+  const when = rule.when || rule.if || rule.condition || rule.cond || null;
+  if (!when || typeof when !== 'object') return false;
+
+  if (when.else === true) return true;
+
+  if (when.actorParam && typeof when.actorParam === 'object') {
+    const key = String(when.actorParam.key || when.actorParam.param || '');
+    const op = lc(when.actorParam.op || when.actorParam.compare || 'eq');
+    const want = when.actorParam.value;
+    if (!key) return false;
+    const actual = actorParamValue(actor, key);
+    if (op === 'exists') return actual !== undefined;
+    if (op === 'notexists') return actual === undefined;
+    if (op === 'lt' || op === 'lte' || op === 'gt' || op === 'gte') {
+      const left = Number(actual);
+      const right = Number(want);
+      return numCompare(left, op, right);
+    }
+    if (op === 'neq') return actual !== want;
+    return actual === want;
+  }
+
+  if (when.eligibleTargetWithinPx != null) {
+    const withinPx = Number(when.eligibleTargetWithinPx ?? when.distancePx ?? when.withinPx ?? 0);
+    if (!isFinite(withinPx) || withinPx <= 0) return false;
+
+    const abId = String(rule.ability || rule.abilityId || '');
+    if (!abId) return false;
+    const ability = resolveActorAbilityById(actor, abId);
+    if (!ability) return false;
+
+    const tdef = getAbilityTargetingDef(ability);
+    if (!tdef) return false;
+
+    const candidates = __getTargetCandidates(actor, tdef, {
+      priorityOnly: false,
+      rangePx: withinPx
+    });
+    return candidates.length > 0;
+  }
+
+  function __getActorStatValueFromActor(a, statKey, field) {
+    if (!a || !statKey) return null;
+    const stat = lc(statKey);
+    const f = lc(field || 'current');
+
+    if (a === player) {
+      const rec = player.stats?.[stat];
+      if (!rec) return null;
+      if (f === 'base' || f === 'max') return Number(rec.base ?? rec.max ?? 0);
+      return Number(rec.current ?? rec.value ?? 0);
+    }
+
+    if (a.stats && typeof a.stats === 'object') {
+      const rec = a.stats[stat];
+      if (rec && typeof rec === 'object') {
+        if (f === 'base' || f === 'max') return Number(rec.base ?? rec.max ?? 0);
+        return Number(rec.current ?? rec.value ?? 0);
+      }
+      if (typeof rec === 'number') return Number(rec);
+    }
+
+    if (a.name) return getActorStatValue(a.name, stat, f);
+    return null;
+  }
+
+  function __compareActorStat(a, cond) {
+    if (!cond || typeof cond !== 'object') return false;
+    const stat = cond.stat;
+    const field = cond.field || 'current';
+    const op = cond.op || cond.compare || 'eq';
+
+    const left = __getActorStatValueFromActor(a, stat, field);
+    if (!isFinite(left)) return false;
+
+    let rhs = null;
+    if (cond.rhs && typeof cond.rhs === 'object') {
+      if (cond.rhs.field) {
+        const rhsStat = cond.rhs.stat || stat;
+        rhs = __getActorStatValueFromActor(a, rhsStat, cond.rhs.field);
+      } else if ('value' in cond.rhs) {
+        rhs = Number(cond.rhs.value);
+      }
+    } else if ('rhs' in cond) {
+      rhs = Number(cond.rhs);
+    } else if ('value' in cond) {
+      rhs = Number(cond.value);
+    }
+
+    if (!isFinite(rhs)) return false;
+    return numCompare(left, op, rhs);
+  }
+
+  function __getEligibleTargetsForAutoCast() {
+    const abId = String(rule.ability || rule.abilityId || '');
+    if (!abId) return null;
+    const ability = resolveActorAbilityById(actor, abId);
+    if (!ability) return null;
+
+    const tdef = getAbilityTargetingDef(ability);
+    if (!tdef) return null;
+
+    const rangePx = getAbilityRangePx(ability, tdef);
+    return __getTargetCandidates(actor, tdef, {
+      priorityOnly: false,
+      rangePx
+    });
+  }
+
+  if (when.eligibleTargetInAbilityRangeStat && typeof when.eligibleTargetInAbilityRangeStat === 'object') {
+    const candidates = __getEligibleTargetsForAutoCast();
+    if (!candidates || candidates.length === 0) return false;
+    return candidates.some(a => __compareActorStat(a, when.eligibleTargetInAbilityRangeStat));
+  }
+
+  if (when.allEligibleTargetsInAbilityRangeStat && typeof when.allEligibleTargetsInAbilityRangeStat === 'object') {
+    const candidates = __getEligibleTargetsForAutoCast();
+    if (!candidates || candidates.length === 0) return true;
+    return candidates.every(a => __compareActorStat(a, when.allEligibleTargetsInAbilityRangeStat));
+  }
+
+  if (when.eligibleTargetInAbilityRange === true) {
+    const abId = String(rule.ability || rule.abilityId || '');
+    if (!abId) return false;
+    const ability = resolveActorAbilityById(actor, abId);
+    if (!ability) return false;
+
+    const tdef = getAbilityTargetingDef(ability);
+    if (!tdef) return false;
+
+    const rangePx = getAbilityRangePx(ability, tdef);
+    const candidates = __getTargetCandidates(actor, tdef, {
+      priorityOnly: false,
+      rangePx
+    });
+    return candidates.length > 0;
+  }
+
+  return false;
+}
+
+function applyAutoCastRules(actor, nowMs) {
+  const rules = getActorAutoCastRules(actor);
+  if (!Array.isArray(rules) || rules.length === 0) return null;
+
+  const lockInfo = actor && actor.__autoCastLock;
+  if (lockInfo && lockInfo.abilityId) {
+    if (lockInfo.until && typeof lockInfo.until === 'object') {
+      const shouldUnlock = checkAutoCastRuleCondition(actor, { when: lockInfo.until, ability: lockInfo.abilityId }, nowMs);
+      if (shouldUnlock) {
+        actor.__autoCastLock = null;
+      } else {
+        applyActorParam(actor, 'autoCastAbilityId', lockInfo.abilityId);
+        return lockInfo.sortOverride || null;
+      }
+    } else {
+      applyActorParam(actor, 'autoCastAbilityId', lockInfo.abilityId);
+      return lockInfo.sortOverride || null;
+    }
+  }
+
+  let matched = false;
+  let sortOverride = null;
+  let abilityId = null;
+  let lockUntil = null;
+
+  for (const rule of rules) {
+    if (!rule) continue;
+    const when = rule.when || rule.if || rule.condition || rule.cond || null;
+    if (!when || typeof when !== 'object') continue;
+
+    if (when.else === true) {
+      if (matched) continue;
+      abilityId = String(rule.ability || rule.abilityId || '');
+      sortOverride = Array.isArray(rule.sort) ? rule.sort : null;
+      lockUntil = rule.lockUntil || null;
+      matched = true;
+      break;
+    }
+
+    if (checkAutoCastRuleCondition(actor, rule, nowMs)) {
+      abilityId = String(rule.ability || rule.abilityId || '');
+      sortOverride = Array.isArray(rule.sort) ? rule.sort : null;
+      lockUntil = rule.lockUntil || null;
+      matched = true;
+      break;
+    }
+  }
+
+  if (!matched) return null;
+
+  if (abilityId) {
+    applyActorParam(actor, 'autoCastAbilityId', abilityId);
+    if (lockUntil && typeof lockUntil === 'object') {
+      actor.__autoCastLock = {
+        abilityId,
+        until: lockUntil,
+        sortOverride
+      };
+    }
+  }
+
+  return sortOverride;
+}
+
+function __getSortStatValue(actor, statKeyRaw) {
+  if (!actor) return null;
+  const statKey = lc(statKeyRaw || '');
+  if (!statKey) return null;
+
+  const def = getStatDef(statKey);
+  if (def) {
+    if (def.type === 'depletable') {
+      const v = Number(actor?.stats?.[statKey]?.current);
+      if (isFinite(v)) return v;
+    } else {
+      const v = Number(getStatEffectiveValue(actor, statKey));
+      if (isFinite(v)) return v;
+    }
+  } else {
+    const v = Number(actor?.stats?.[statKey]?.current);
+    if (isFinite(v)) return v;
+  }
+
+  // Mobs use HP; map stamina/composure to hp for sorting parity
+  if ((statKey === 'stamina' || statKey === 'composure') && actor?.stats?.hp) {
+    const hp = Number(actor?.stats?.hp?.current);
+    if (isFinite(hp)) return hp;
+  }
+
+  return null;
+}
+
+function __compareWithSortRules(a, b, rules, src) {
+  if (!Array.isArray(rules) || rules.length === 0) return 0;
+  for (const rule of rules) {
+    if (!rule || typeof rule !== 'object') continue;
+    const by = lc(rule.by || '');
+    if (!by) continue;
+
+    let va = null;
+    let vb = null;
+
+    if (by === 'distance') {
+      const ax = actorCenterX(a);
+      const bx = actorCenterX(b);
+      const sx = actorCenterX(src);
+      va = Math.abs(ax - sx);
+      vb = Math.abs(bx - sx);
+    } else {
+      va = __getSortStatValue(a, by);
+      vb = __getSortStatValue(b, by);
+    }
+
+    const hasA = isFinite(va);
+    const hasB = isFinite(vb);
+    if (!hasA && !hasB) continue;
+    if (hasA && !hasB) return -1;
+    if (!hasA && hasB) return 1;
+
+    if (va === vb) continue;
+    const order = lc(rule.order || 'asc');
+    return order === 'desc' ? (vb - va) : (va - vb);
+  }
+  return 0;
+}
+
+function sortTargetsByKindPriority(candidates, tdef, actor, getKindFn = null) {
+  if (!Array.isArray(candidates) || candidates.length <= 1) return candidates;
+  const priority = Array.isArray(tdef?.priority) ? tdef.priority : [];
+  const allowed = Array.isArray(tdef?.allowed) ? tdef.allowed : [];
+  const prioritySet = new Set(priority.map(lc));
+  const allowedSet = new Set(allowed.map(lc));
+
+  let targetOrder = null;
+  if (actor && Array.isArray(actor.attackTargetQueue) && actor.attackTargetQueue.length) {
+    targetOrder = new Map();
+    for (let i = 0; i < actor.attackTargetQueue.length; i++) {
+      const k = targetKeyFromDescriptor(actor.attackTargetQueue[i]);
+      if (k) targetOrder.set(k, i);
+    }
+  }
+
+  candidates.sort((a, b) => {
+    const ka = getKindFn ? getKindFn(a) : targetKindForActor(a);
+    const kb = getKindFn ? getKindFn(b) : targetKindForActor(b);
+    const aIsPriority = prioritySet.has(ka);
+    const bIsPriority = prioritySet.has(kb);
+    if (aIsPriority !== bIsPriority) return aIsPriority ? -1 : 1;
+
+    const sortCmp = __compareWithSortRules(a, b, tdef?.sort || null, actor);
+    if (sortCmp !== 0) return sortCmp;
+
+    // If both are in allowed but not priority, keep them below priority and sorted by rules.
+    const aIsAllowed = allowedSet.has(ka);
+    const bIsAllowed = allowedSet.has(kb);
+    if (aIsAllowed !== bIsAllowed) return aIsAllowed ? -1 : 1;
+
+    if (targetOrder) {
+      const ta = targetKeyFromDescriptor(targetActorDescriptorFromActor(a));
+      const tb = targetKeyFromDescriptor(targetActorDescriptorFromActor(b));
+      const ia = targetOrder.has(ta) ? targetOrder.get(ta) : 9999;
+      const ib = targetOrder.has(tb) ? targetOrder.get(tb) : 9999;
+      if (ia !== ib) return ia - ib;
+    }
+
+    return 0;
+  });
+
+  return candidates;
+}
+
+function getActorTargetingRaw(actor, channel = 'attack') {
+  if (!actor) return null;
+  const wantMove = (lc(channel) === 'move' || lc(channel) === 'movement');
+
+  // Mobs: targeting lives on def.ai
+  if (actor.def && typeof actor.def === 'object') {
+    const ai = actor.def.ai || null;
+    if (!ai || typeof ai !== 'object') return null;
+    if (wantMove) return ai.movementTargeting || ai.targeting || null;
+    return ai.targeting || null;
+  }
+
+  // NPCs: targeting lives on runtime actor fields (from characters.json ai block)
+  if (wantMove) return actor.aiMovementTargeting || actor.aiTargeting || null;
+  return actor.aiTargeting || null;
 }
 
 function resolveActorAnchorWorldX(actor) {
@@ -10528,18 +21387,22 @@ function resolveMobAnchorWorldX(mob) {
   return Number(mob?.worldX) || 0;
 }
 
-function passesAddCriteria(src, actor, add) {
+function passesTargetingFilters(src, actor, tdef) {
   if (!src || !actor) return false;
 
+  // Mobs should never add targets that are in safeplaces.
+  // (NPC targeting must still be able to include safeplace actors.)
+  if (src.def && actor._inSafeplace) return false;
+
   // area/section filters (optional)
-  if (add.area) {
-    const wantArea = lc(add.area);
+  if (tdef?.area) {
+    const wantArea = lc(tdef.area);
     if (wantArea !== 'currentarea' && wantArea !== lc(currentAreaName)) return false;
   }
 
-  if (add.section) {
+  if (tdef?.section) {
     const actorSec = getSectionNameForX(actor.worldX);
-    const wantRaw = lc(add.section);
+    const wantRaw = lc(tdef.section);
 
     // Special scopes (source-relative)
     let wantSec = null;
@@ -10553,14 +21416,14 @@ function passesAddCriteria(src, actor, add) {
       wantSec = null;
     } else {
       // literal section name
-      wantSec = add.section;
+      wantSec = tdef.section;
     }
 
     if (wantSec != null && lc(actorSec) !== lc(wantSec)) return false;
   }
 
   // distance filter (optional)
-  const withinPx = Number(add.withinPx ?? add.rangePx ?? add.withinRangePx);
+  const withinPx = Number(tdef?.withinPx ?? 0);
   if (isFinite(withinPx) && withinPx > 0) {
     const dx = Math.abs(actorCenterX(actor) - actorCenterX(src));
     if (dx > withinPx) return false;
@@ -10570,17 +21433,27 @@ function passesAddCriteria(src, actor, add) {
 }
 
 
-function shouldRemoveTarget(src, actor, remove, add) {
+function shouldRemoveTarget(src, actor, remove, tdef) {
   if (!src || !actor) return true;
+
+  // Mobs should always drop safeplace actors from their target lists.
+  // (NPCs can still target safeplace actors for healing, etc.)
+  if (src.def && actor._inSafeplace) return true;
 
   if (remove.unconscious) {
     if (isActorUnconscious(actor)) return true;
   }
 
-  // If add.section is set, a common removal rule is "leave that section"
-  if (remove.leaveSection && add && add.section) {
+  if (remove.leaveArea) {
+    const srcArea = (src && src.area) ? String(src.area) : String(currentAreaName);
+    const actorArea = (actor && actor.area) ? String(actor.area) : String(currentAreaName);
+    if (srcArea && actorArea && srcArea !== actorArea) return true;
+  }
+
+  // If section is set, a common removal rule is "leave that section"
+  if (remove.leaveSection && tdef && tdef.section) {
     const actorSec = getSectionNameForX(actor.worldX);
-    const wantRaw = lc(add.section);
+    const wantRaw = lc(tdef.section);
 
     let wantSec = null;
     if (wantRaw === 'currentsection') {
@@ -10591,7 +21464,7 @@ function shouldRemoveTarget(src, actor, remove, add) {
     } else if (wantRaw === 'currentarea') {
       wantSec = null; // no section restriction
     } else {
-      wantSec = add.section; // literal section name
+      wantSec = tdef.section; // literal section name
     }
 
     if (wantSec != null && lc(actorSec) !== lc(wantSec)) return true;
@@ -10620,6 +21493,12 @@ function sortValueForRule(rule, src, actor) {
     return v;
   }
 
+  // Default: treat "by" as a stat key (e.g. "stamina")
+  if (by) {
+    const v = Number(actor?.stats?.[by]?.current ?? 0);
+    return v;
+  }
+
   if (by === 'lastdamager' || by === 'last_damager') {
     const k = targetKeyFromDescriptor(targetActorDescriptorFromActor(actor));
     return (src && src.__lastDamagedByKey && src.__lastDamagedByKey === k) ? -1 : 0;
@@ -10639,61 +21518,76 @@ function compareBySortRules(sortRules, src, aActor, bActor) {
   return 0;
 }
 
-function updateActorTargeting(actor, nowMs) {
-  const tdefRaw = getActorTargetingRaw(actor);
+function updateActorTargeting(actor, nowMs, channel = 'attack') {
+  const tdefRaw = getActorTargetingRaw(actor, channel);
   const tdef = normalizeTargetingDef(tdefRaw);
   if (!tdef) return;
 
-  if (!Array.isArray(actor.targetQueue)) actor.targetQueue = [];
+  const wantMove = (lc(channel) === 'move' || lc(channel) === 'movement');
+  const queueKey = wantMove ? 'moveTargetQueue' : 'attackTargetQueue';
+  const currentKeyKey = wantMove ? 'moveTargetCurrentKey' : 'attackTargetCurrentKey';
+  const actorKey = wantMove ? '__moveTargetActor' : '__attackTargetActor';
+  const stopRangeKey = wantMove ? '__moveStopRangePx' : '__attackStopRangePx';
+  const resortAtKey = wantMove ? '__moveResortAtMs' : '__attackResortAtMs';
+  const preferredKey = wantMove ? null : '__attackPreferredAbilityId';
 
-  const add = tdef.add || Object.create(null);
+  // Attack-only: allow auto-cast rules to override sort for this tick.
+  let sortOverride = null;
+  if (!wantMove) {
+    sortOverride = applyAutoCastRules(actor, nowMs);
+  }
+
+  if (!Array.isArray(actor[queueKey])) actor[queueKey] = [];
+
   const remove = tdef.remove || Object.create(null);
+  const coverList = __getCoverRectsForCurrentArea();
 
   // Candidate pool: player + party + world NPCs + mobs (all optional)
-  const pool = [];
-  const includePlayer = (add.includePlayer !== undefined) ? !!add.includePlayer : true;
-  const includeParty = (add.includeParty !== undefined) ? !!add.includeParty : true;
-  const includeWorldNPCs = (add.includeWorldNPCs !== undefined) ? !!add.includeWorldNPCs : false;
-  const includeMobs = (add.includeMobs !== undefined) ? !!add.includeMobs : false;
+  const poolBuilt = __buildTargetPoolFromKinds(Array.from(new Set([...(tdef.priority || []), ...(tdef.allowed || [])])), actor);
+  const pool = poolBuilt.pool;
+  const relationMap = poolBuilt.relationMap;
+  const kinds = Array.from(new Set([...(tdef.priority || []), ...(tdef.allowed || [])]));
+  const hasKinds = kinds.length > 0;
 
-  if (includePlayer) pool.push(player);
-  if (includeParty) {
-    for (const p of party) pool.push(p);
-  }
-  if (includeWorldNPCs) {
-    for (const n of npcs) pool.push(n);
-  }
-  if (includeMobs) {
-    for (const m of mobs) {
-      if (!m) continue;
-      if (m === actor) continue; // no self-target
-      pool.push(m);
-    }
+  if (!hasKinds) {
+    if (actor[queueKey].length) actor[queueKey].length = 0;
+    actor[currentKeyKey] = null;
   }
 
-  const prevKeys = new Set(actor.targetQueue.map(targetKeyFromDescriptor));
+  const prevKeys = new Set(actor[queueKey].map(targetKeyFromDescriptor));
   let changed = false;
+  const getKind = (a) => {
+    if (!a) return '';
+    if (a === actor) return 'self';
+    if (relationMap && relationMap.has(a)) return relationMap.get(a);
+    return targetKindForActor(a);
+  };
 
   // Add pass
   for (const a of pool) {
     if (!a) continue;
-    if (!passesAddCriteria(actor, a, add)) continue;
+    if (tdef?.excluded && tdef.excluded.length) {
+      const k = getKind(a);
+      if (tdef.excluded.includes(k)) continue;
+    }
+    if (a !== actor && isTargetCovered(a, coverList)) continue;
+    if (!passesTargetingFilters(actor, a, tdef)) continue;
 
     const td = targetActorDescriptorFromActor(a);
     const k = targetKeyFromDescriptor(td);
     if (!k || prevKeys.has(k)) continue;
 
-    actor.targetQueue.push(td);
+    actor[queueKey].push(td);
     prevKeys.add(k);
     changed = true;
   }
 
   // Remove pass
-  for (let i = actor.targetQueue.length - 1; i >= 0; i--) {
-    const td = actor.targetQueue[i];
+  for (let i = actor[queueKey].length - 1; i >= 0; i--) {
+    const td = actor[queueKey][i];
     const a = resolveActorFromTargetDescriptor(td);
-    if (!a || shouldRemoveTarget(actor, a, remove, add)) {
-      actor.targetQueue.splice(i, 1);
+    if (!a || (a !== actor && isTargetCovered(a, coverList)) || shouldRemoveTarget(actor, a, remove, tdef)) {
+      actor[queueKey].splice(i, 1);
       changed = true;
     }
   }
@@ -10702,17 +21596,17 @@ function updateActorTargeting(actor, nowMs) {
   const resortWhen = lc(tdef.resort?.when || 'drop'); // 'drop'|'onchange'|'interval'|'always'
   const everyMs = Math.max(50, Number(tdef.resort?.everyMs ?? tdef.resort?.ms ?? 0) || 0);
 
-  const currentKey = String(actor.targetCurrentKey || '');
-  const stillHasCurrent = currentKey && actor.targetQueue.some(td => targetKeyFromDescriptor(td) === currentKey);
+  const currentKey = String(actor[currentKeyKey] || '');
+  const stillHasCurrent = currentKey && actor[queueKey].some(td => targetKeyFromDescriptor(td) === currentKey);
 
   let doResort = false;
   if (resortWhen === 'always') doResort = true;
   else if (resortWhen === 'onchange') doResort = changed;
   else if (resortWhen === 'interval') {
-    if (!isFinite(actor.__targetResortAtMs) || actor.__targetResortAtMs <= 0) actor.__targetResortAtMs = nowMs;
-    if (nowMs >= actor.__targetResortAtMs) {
+    if (!isFinite(actor[resortAtKey]) || actor[resortAtKey] <= 0) actor[resortAtKey] = nowMs;
+    if (nowMs >= actor[resortAtKey]) {
       doResort = true;
-      actor.__targetResortAtMs = nowMs + everyMs;
+      actor[resortAtKey] = nowMs + everyMs;
     }
   } else {
     // default 'drop': only when current disappears
@@ -10721,9 +21615,9 @@ function updateActorTargeting(actor, nowMs) {
 
   // Resort + pick current
   if (doResort) {
-    const sortRules = Array.isArray(tdef.sort) ? tdef.sort : [];
+    const sortRules = Array.isArray(sortOverride) ? sortOverride : (Array.isArray(tdef.sort) ? tdef.sort : []);
     if (sortRules.length) {
-      actor.targetQueue.sort((aTd, bTd) => {
+      actor[queueKey].sort((aTd, bTd) => {
         const aActor = resolveActorFromTargetDescriptor(aTd);
         const bActor = resolveActorFromTargetDescriptor(bTd);
         if (!aActor && !bActor) return 0;
@@ -10733,33 +21627,81 @@ function updateActorTargeting(actor, nowMs) {
       });
     }
 
-    const first = actor.targetQueue.length ? actor.targetQueue[0] : null;
-    actor.targetCurrentKey = first ? targetKeyFromDescriptor(first) : null;
+    const first = actor[queueKey].length ? actor[queueKey][0] : null;
+    actor[currentKeyKey] = first ? targetKeyFromDescriptor(first) : null;
+  }
+
+  // Manual target hold (for auto-cast): keep forced target at the front (attack-only)
+  if (!wantMove) {
+    const forcedKey = String(actor.__forcedTargetKey || '');
+    if (forcedKey) {
+      const forcedAbility = lc(actor.__forcedTargetAbilityId || '');
+      const autoId = lc(actor.autoCastAbilityId || '');
+
+      if (!forcedAbility || forcedAbility !== autoId) {
+        actor.__forcedTargetKey = null;
+        actor.__forcedTargetAbilityId = null;
+      } else {
+        const idx = actor[queueKey].findIndex(td => targetKeyFromDescriptor(td) === forcedKey);
+        if (idx >= 0) {
+          const td = actor[queueKey].splice(idx, 1)[0];
+          actor[queueKey].unshift(td);
+          actor[currentKeyKey] = forcedKey;
+        } else {
+          actor.__forcedTargetKey = null;
+          actor.__forcedTargetAbilityId = null;
+        }
+      }
+    }
   }
 
   // Resolve current actor + derive action intent
-  const curTd = actor.targetQueue.length ? actor.targetQueue[0] : null;
+  const curTd = actor[queueKey].length ? actor[queueKey][0] : null;
   const curActor = curTd ? resolveActorFromTargetDescriptor(curTd) : null;
-  actor.__targetActor = curActor;
+  actor[actorKey] = curActor;
 
-  // Action intent
+  // Action intent (movement channel only)
   if (curActor) {
     const action = tdef.action || Object.create(null);
     const stopRangePx = Number(action.stopRangePx ?? action.preferredRangePx ?? 0);
-    actor.__targetGoalActor = curActor;
-    actor.__targetStopRangePx = (isFinite(stopRangePx) && stopRangePx > 0) ? stopRangePx : null;
+    actor[stopRangeKey] = (isFinite(stopRangePx) && stopRangePx > 0) ? stopRangePx : null;
 
-    const prefAbility = lc(action.abilityId || '');
-    actor.__targetPreferredAbilityId = prefAbility || null;
+    if (preferredKey) actor[preferredKey] = null;
 
-    // Only force aiMode for non-following actors (party followers should not have their aiMode hijacked here)
-    if (!actor.isFollowing) actor.aiMode = 'moving';
+    if (wantMove) {
+      // Only force aiMode for non-following actors (party followers should not have their aiMode hijacked here)
+      // NPCs default to NOT chasing unless explicitly enabled; mobs default to chasing.
+      const chaseTarget = actor.def ? (action.chaseTarget !== false) : (action.chaseTarget === true);
+      if (!actor.isFollowing && chaseTarget) actor.aiMode = 'moving';
+
+      // Mobs: any active target cancels "return to anchor" state
+      if (actor.def) actor.__returnToAnchor = false;
+    }
   } else {
-    actor.__targetGoalActor = null;
-    actor.__targetStopRangePx = null;
-    actor.__targetPreferredAbilityId = null;
+    actor[stopRangeKey] = null;
+    if (preferredKey) actor[preferredKey] = null;
+
+    if (!wantMove) return;
 
     const emptyType = lc(tdef.onEmpty?.type || 'idle');
+
+    // Mobs: enforce onEmpty rules only for mobs (NPCs keep existing behavior)
+    if (actor.def && !actor.isFollowing) {
+      if ((emptyType === 'returntoanchor' || emptyType === 'return_to_anchor')) {
+        const ax = resolveActorAnchorWorldX(actor);
+        actor.__returnToAnchor = true;
+        actor.aiMode = 'moving';
+        actor.aiGoalX = Number(ax);
+      } else {
+        // No return-to-anchor: anchor resets to current position and wait
+        actor.__returnToAnchor = false;
+        actor.anchor = { type: 'worldX', x: Number(actor.worldX) };
+        setNpcAiMode(actor, 'waiting', { anchorX: actor.worldX });
+      }
+      return;
+    }
+
+    // NPCs: keep existing behavior
     if ((emptyType === 'returntoanchor' || emptyType === 'return_to_anchor') && !actor.isFollowing) {
       const ax = resolveActorAnchorWorldX(actor);
       actor.aiMode = 'moving';
@@ -10780,6 +21722,23 @@ function getByDotPath(obj, path) {
   return cur;
 }
 
+function deleteByDotPath(obj, path) {
+  if (!obj || !path) return false;
+  const parts = String(path).split('.').map(s => s.trim()).filter(Boolean);
+  if (!parts.length) return false;
+
+  let cur = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const p = parts[i];
+    if (!cur[p] || typeof cur[p] !== 'object') return false;
+    cur = cur[p];
+  }
+  const last = parts[parts.length - 1];
+  if (!(last in cur)) return false;
+  delete cur[last];
+  return true;
+}
+
 function setByDotPath(obj, path, value) {
   if (!obj || !path) return false;
   const parts = String(path).split('.').map(s => s.trim()).filter(Boolean);
@@ -10795,6 +21754,112 @@ function setByDotPath(obj, path, value) {
   return true;
 }
 
+function normalizeActorSpec(s, payload) {
+  if (!s || typeof s !== 'object') return null;
+
+  let spec = null;
+  const actorField = s.actor ?? s.target ?? s.subject;
+
+  if (actorField && typeof actorField === 'object' && actorField.kind) {
+    spec = { ...actorField };
+  } else if (typeof actorField === 'string') {
+    const v = lc(actorField);
+    if (v === 'player') spec = { kind: 'player' };
+    else if (v === '@target' || v === '@self') spec = { kind: v };
+    else spec = { kind: 'npc', name: actorField };
+  }
+
+  if (!spec) {
+    if (s.mob || s.mobId || s.id) {
+      spec = { kind: 'mob', id: String(s.mob || s.mobId || s.id || '') };
+    } else if (s.npc) {
+      spec = { kind: 'npc', name: String(s.npc) };
+    } else if (s.player) {
+      spec = { kind: 'player' };
+    }
+  }
+
+  if (spec && spec.kind && (spec.kind === 'mob' || spec.kind === 'npc')) {
+    const inst = String(s.instanceId || s.instance || spec.instanceId || '');
+    if (inst) spec.instanceId = inst;
+  }
+
+  if (spec && typeof spec.instanceId === 'string') {
+    const v = lc(spec.instanceId);
+    if (v === '@event' || v === '@payload') {
+      spec.instanceId = String(payload?.mobInstanceId || '');
+    }
+  }
+
+  return spec;
+}
+
+function resolveActorsFromSpec(spec, payload) {
+  if (!spec) return [];
+
+  const k = lc(spec.kind || '');
+
+  if (k === '@target') {
+    const td = payload?.targetActor;
+    const a = td ? resolveActorFromTargetDescriptor(td) : null;
+    return a ? [a] : [];
+  }
+
+  if (k === '@self') {
+    const sd = payload?.sourceActor;
+    const a = sd ? resolveActorFromTargetDescriptor(sd) : null;
+    return a ? [a] : [];
+  }
+
+  if (k === 'player') return [player];
+
+  if (k === 'npc') {
+    const name = String(spec.name || spec.id || '').trim();
+    if (!name) return [];
+    const want = lc(name);
+    const out = [];
+    for (const p of party) if (p && lc(p.name) === want) out.push(p);
+    for (const n of npcs) if (n && lc(n.name) === want) out.push(n);
+    return out;
+  }
+
+  if (k === 'mob') {
+    const wantId = lc(spec.id || '');
+    const wantInst = String(spec.instanceId || '');
+    const out = [];
+    for (const m of mobs) {
+      if (!m) continue;
+      if (wantId && lc(m.id) !== wantId) continue;
+      if (wantInst && String(m.instanceId) !== wantInst) continue;
+      out.push(m);
+    }
+    return out;
+  }
+
+  return [];
+}
+
+function getEffectiveActorParam(actor, key) {
+  if (!actor || !key) return undefined;
+  const k = String(key);
+
+  if (k === 'autoCastAbilityId') return actor.autoCastAbilityId;
+  if (k === 'mode' || k === 'aiMode') return actor.aiMode;
+  if (k === 'goalX' || k === 'aiGoalX') return actor.aiGoalX;
+
+  // stat-style access (hp/stamina/composure/etc)
+  if (actor.stats && actor.stats[k]) {
+    const def = getStatDef(k);
+    if (def && def.type === 'depletable') {
+      return Number(actor.stats[k].current);
+    }
+    const v = getStatEffectiveValue(actor, k);
+    if (isFinite(v)) return Number(v);
+  }
+
+  return getByDotPath(actor, k);
+}
+
 function getEffectiveMobParam(mob, key) {
   if (!mob || !key) return undefined;
 
@@ -10805,6 +21870,16 @@ function getEffectiveMobParam(mob, key) {
   if (k === 'goalX' || k === 'aiGoalX') return mob.aiGoalX;
   if (k === 'locomotionMode') return mob.locomotionMode;
   if (k === 'hp') return Number(mob?.stats?.hp?.current ?? 0);
+  if (k === 'autoCastAbilityId') return mob.autoCastAbilityId;
+
+  if (mob.stats && mob.stats[k]) {
+    const def = getStatDef(k);
+    if (def && def.type === 'depletable') {
+      return Number(mob.stats[k].current);
+    }
+    const v = getStatEffectiveValue(mob, k);
+    if (isFinite(v)) return Number(v);
+  }
 
   // Override-first, then def
   const fromOverride = getByDotPath(mob.paramOverrides, k);
@@ -10817,6 +21892,60 @@ function applyMobParam(mob, key, value) {
   if (!mob || !key) return false;
 
   const k = String(key);
+  if (k === 'section' || k === 'sectionX') {
+    if (!mob.sectionParams) mob.sectionParams = { section: null, sectionX: 0 };
+    if (k === 'section') {
+      mob.sectionParams.section = (value != null) ? String(value) : null;
+      if (mob.sectionParams.sectionX == null) mob.sectionParams.sectionX = 0;
+    } else {
+      const n = Number(value);
+      if (!isFinite(n)) return false;
+      mob.sectionParams.sectionX = n;
+    }
+
+    const sec = mob.sectionParams.section;
+    if (sec) {
+      const startX = _sectionStartWorldXForArea(currentAreaName, sec);
+      if (!isFinite(startX)) return false;
+      const local = Number(mob.sectionParams.sectionX || 0);
+      mob.worldX = startX + local;
+      return true;
+    }
+  }
+
+  if (k === 'autoCastRules') {
+    if (value === 'default') {
+      mob.autoCastRulesMode = 'default';
+      return true;
+    }
+    if (value === 'disabled') {
+      mob.autoCastRulesMode = 'disabled';
+      mob.autoCastAbilityId = null;
+      return true;
+    }
+    if (Array.isArray(value)) {
+      mob.aiAutoCastRules = value;
+      mob.autoCastRulesMode = 'custom';
+      return true;
+    }
+    if (value && typeof value === 'object') {
+      const mode = String(value.mode || value.state || 'custom').toLowerCase();
+      if (mode === 'default') {
+        mob.autoCastRulesMode = 'default';
+        return true;
+      }
+      if (mode === 'disabled') {
+        mob.autoCastRulesMode = 'disabled';
+        mob.autoCastAbilityId = null;
+        return true;
+      }
+      if (Array.isArray(value.rules)) {
+        mob.aiAutoCastRules = value.rules;
+      }
+      mob.autoCastRulesMode = 'custom';
+      return true;
+    }
+  }
 
   // Direct fields / behaviour hooks
   if (k === 'mode' || k === 'aiMode') {
@@ -10828,6 +21957,18 @@ function applyMobParam(mob, key, value) {
     return false;
   }
 
+  if (k === 'autoCastAbilityId') {
+    if (value == null || value === false || (typeof value === 'string' && lc(value) === 'none')) {
+      mob.autoCastAbilityId = null;
+      return true;
+    }
+
+    const want = lc(String(value));
+    const has = Array.isArray(mob.abilities) && mob.abilities.some(a => a && lc(a.id || a.name) === want);
+    mob.autoCastAbilityId = has ? want : null;
+    return true;
+  }
+
   if (k === 'goalX' || k === 'aiGoalX') {
     const n = Number(value);
     if (!isFinite(n)) return false;
@@ -10835,7 +21976,7 @@ function applyMobParam(mob, key, value) {
     return true;
   }
 
-  // ===== Anchor / targeting controls (setMobParam) =====
+  // ===== Anchor / targeting controls =====
 
   if (k === 'anchorX') {
     const n = Number(value);
@@ -10852,12 +21993,16 @@ function applyMobParam(mob, key, value) {
   }
 
   if (k === 'targetClear') {
-    mob.targetQueue = [];
-    mob.targetCurrentKey = null;
-    mob.__targetActor = null;
-    mob.__targetGoalActor = null;
-    mob.__targetStopRangePx = null;
-    mob.__targetPreferredAbilityId = null;
+    mob.attackTargetQueue = [];
+    mob.attackTargetCurrentKey = null;
+    mob.__attackTargetActor = null;
+    mob.__attackStopRangePx = null;
+    mob.__attackPreferredAbilityId = null;
+
+    mob.moveTargetQueue = [];
+    mob.moveTargetCurrentKey = null;
+    mob.__moveTargetActor = null;
+    mob.__moveStopRangePx = null;
     return true;
   }
 
@@ -10877,17 +22022,17 @@ function applyMobParam(mob, key, value) {
     }
 
     if (!td) return false;
-    if (!Array.isArray(mob.targetQueue)) mob.targetQueue = [];
+    if (!Array.isArray(mob.attackTargetQueue)) mob.attackTargetQueue = [];
 
     const k2 = targetKeyFromDescriptor(td);
     if (!k2) return false;
 
     // No duplicates
-    for (const ex of mob.targetQueue) {
+    for (const ex of mob.attackTargetQueue) {
       if (targetKeyFromDescriptor(ex) === k2) return true;
     }
 
-    mob.targetQueue.push(td);
+    mob.attackTargetQueue.push(td);
     return true;
   }
 
@@ -10904,13 +22049,13 @@ function applyMobParam(mob, key, value) {
       else if (kk === 'npc') td = { kind: 'npc', name: String(value.name || value.id || '') };
     }
 
-    if (!td || !Array.isArray(mob.targetQueue)) return false;
+    if (!td || !Array.isArray(mob.attackTargetQueue)) return false;
     const k2 = targetKeyFromDescriptor(td);
     if (!k2) return false;
 
-    for (let i = mob.targetQueue.length - 1; i >= 0; i--) {
-      if (targetKeyFromDescriptor(mob.targetQueue[i]) === k2) {
-        mob.targetQueue.splice(i, 1);
+    for (let i = mob.attackTargetQueue.length - 1; i >= 0; i--) {
+      if (targetKeyFromDescriptor(mob.attackTargetQueue[i]) === k2) {
+        mob.attackTargetQueue.splice(i, 1);
       }
     }
     return true;
@@ -10932,8 +22077,8 @@ function applyMobParam(mob, key, value) {
     const prevHp = Number(mob?.stats?.hp?.current ?? 0);
 
     mob.stats.hp.current = Math.max(0, n);
-    if (isFinite(mob.stats.hp.base)) {
-      mob.stats.hp.current = Math.min(mob.stats.hp.current, Number(mob.stats.hp.base));
+    if (isFinite(mob.stats.hp.max)) {
+      mob.stats.hp.current = Math.min(mob.stats.hp.current, Number(mob.stats.hp.max));
     }
 
     const nextHp = Number(mob?.stats?.hp?.current ?? 0);
@@ -10950,57 +22095,207 @@ function applyMobParam(mob, key, value) {
   return setByDotPath(mob.paramOverrides, k, value);
 }
 
-function setMobParam(eff, payload) {
-  const mobId = lc(eff?.id || eff?.mob || eff?.mobId || '');
-  const key = String(eff?.key || eff?.param || '');
-  if (!mobId || !key) return false;
+function applyActorParam(actor, key, value) {
+  if (!actor || !key) return false;
+  const kind = getActorKind(actor);
+  if (!kind) return false;
 
-  const useInContact = !!eff?.inContact;
+  if (kind === 'mob') return applyMobParam(actor, key, value);
 
-  // Optional: set only specific instance(s)
-  let wantInstanceId = String(eff?.instanceId || eff?.instance || '');
+  const k = String(key);
+  if (k === 'section' || k === 'sectionX') {
+    if (!actor.sectionParams) actor.sectionParams = { section: null, sectionX: 0 };
+    if (k === 'section') {
+      actor.sectionParams.section = (value != null) ? String(value) : null;
+      if (actor.sectionParams.sectionX == null) actor.sectionParams.sectionX = 0;
+    } else {
+      const n = Number(value);
+      if (!isFinite(n)) return false;
+      actor.sectionParams.sectionX = n;
+    }
 
-  // If inContact:true, default to the instance that triggered the rule (mob_contact_* payload)
-  if (!wantInstanceId && useInContact) {
-    wantInstanceId = String(payload?.mobInstanceId || '');
+    const sec = actor.sectionParams.section;
+    if (sec) {
+      const startX = _sectionStartWorldXForArea(currentAreaName, sec);
+      if (!isFinite(startX)) return false;
+      const local = Number(actor.sectionParams.sectionX || 0);
+      const worldX = startX + local;
+      actor.worldX = worldX;
+      const rec = ensureNpcRecord(actor.name);
+      rec.area = actor.area || currentAreaName || rec.area;
+      rec.worldX = actor.worldX;
+      return true;
+    }
   }
 
-  // (Optional) support multiple instances if you later add payload.mobInstanceIds
-  const wantInstanceIds = Array.isArray(payload?.mobInstanceIds) ? payload.mobInstanceIds.map(String) : null;
-  const wantSet = wantInstanceIds ? new Set(wantInstanceIds) : null;
-
-  let did = false;
-
-  for (const m of mobs) {
-    if (!m || lc(m.id) !== mobId) continue;
-
-    if (wantInstanceId && String(m.instanceId) !== wantInstanceId) continue;
-    if (!wantInstanceId && wantSet && !wantSet.has(String(m.instanceId))) continue;
-
-    if (applyMobParam(m, key, eff.value)) did = true;
+  if (k === 'autoCastRules') {
+    if (value === 'default') {
+      actor.autoCastRulesMode = 'default';
+      return true;
+    }
+    if (value === 'disabled') {
+      actor.autoCastRulesMode = 'disabled';
+      actor.autoCastAbilityId = null;
+      return true;
+    }
+    if (Array.isArray(value)) {
+      actor.aiAutoCastRules = value;
+      actor.autoCastRulesMode = 'custom';
+      return true;
+    }
+    if (value && typeof value === 'object') {
+      const mode = String(value.mode || value.state || 'custom').toLowerCase();
+      if (mode === 'default') {
+        actor.autoCastRulesMode = 'default';
+        return true;
+      }
+      if (mode === 'disabled') {
+        actor.autoCastRulesMode = 'disabled';
+        actor.autoCastAbilityId = null;
+        return true;
+      }
+      if (Array.isArray(value.rules)) {
+        actor.aiAutoCastRules = value.rules;
+      }
+      actor.autoCastRulesMode = 'custom';
+      return true;
+    }
   }
 
-  if (did) {
-    emitGameEvent('mob_param_change', { mob: mobId, key });
+  if (k === 'autoCastAbilityId') {
+    if (value == null || value === false || (typeof value === 'string' && lc(value) === 'none')) {
+      actor.autoCastAbilityId = null;
+      return true;
+    }
+
+    const want = lc(String(value));
+    const has = Array.isArray(actor.abilities) && actor.abilities.some(a => a && lc(a.id || a.name) === want);
+    actor.autoCastAbilityId = has ? want : null;
+    return true;
   }
 
-  return did;
+  if (k === 'mode' || k === 'aiMode') {
+    if (kind !== 'npc') return false;
+    const mode = lc(value);
+    if (mode === 'waiting' || mode === 'moving' || mode === 'stationary') {
+      setNpcAiMode(actor, mode, {});
+      return true;
+    }
+    return false;
+  }
+
+  if (k === 'goalX' || k === 'aiGoalX') {
+    if (kind !== 'npc') return false;
+    const n = Number(value);
+    if (!isFinite(n)) return false;
+    actor.aiGoalX = n;
+    return true;
+  }
+
+  if (k === 'anchorX') {
+    if (kind !== 'npc') return false;
+    const n = Number(value);
+    if (!isFinite(n)) return false;
+    setNpcAiMode(actor, 'waiting', { anchorX: n });
+    return true;
+  }
+
+  if (k === 'targetClear') {
+    if (!Array.isArray(actor.attackTargetQueue)) return false;
+    actor.attackTargetQueue = [];
+    actor.attackTargetCurrentKey = null;
+    actor.__attackTargetActor = null;
+    actor.__attackStopRangePx = null;
+    actor.__attackPreferredAbilityId = null;
+
+    actor.moveTargetQueue = [];
+    actor.moveTargetCurrentKey = null;
+    actor.__moveTargetActor = null;
+    actor.__moveStopRangePx = null;
+    return true;
+  }
+
+  if (k === 'targetAdd') {
+    if (!Array.isArray(actor.attackTargetQueue)) return false;
+    let td = null;
+
+    if (typeof value === 'string') {
+      const s = lc(value);
+      if (s === 'player') td = { kind: 'player' };
+      else td = { kind: 'npc', name: String(value) };
+    } else if (value && typeof value === 'object') {
+      const kk = lc(value.kind || '');
+      if (kk === 'player') td = { kind: 'player' };
+      else if (kk === 'npc') td = { kind: 'npc', name: String(value.name || value.id || '') };
+      else if (kk === 'mob') td = { kind: 'mob', id: String(value.id || ''), instanceId: String(value.instanceId || '') };
+    }
+
+    if (!td) return false;
+    const k2 = targetKeyFromDescriptor(td);
+    if (!k2) return false;
+
+    for (const ex of actor.attackTargetQueue) {
+      if (targetKeyFromDescriptor(ex) === k2) return true;
+    }
+
+    actor.attackTargetQueue.push(td);
+    return true;
+  }
+
+  if (k === 'targetRemove') {
+    if (!Array.isArray(actor.attackTargetQueue)) return false;
+    let td = null;
+
+    if (typeof value === 'string') {
+      const s = lc(value);
+      if (s === 'player') td = { kind: 'player' };
+      else td = { kind: 'npc', name: String(value) };
+    } else if (value && typeof value === 'object') {
+      const kk = lc(value.kind || '');
+      if (kk === 'player') td = { kind: 'player' };
+      else if (kk === 'npc') td = { kind: 'npc', name: String(value.name || value.id || '') };
+    }
+
+    if (!td) return false;
+    const k2 = targetKeyFromDescriptor(td);
+    if (!k2) return false;
+
+    for (let i = actor.attackTargetQueue.length - 1; i >= 0; i--) {
+      if (targetKeyFromDescriptor(actor.attackTargetQueue[i]) === k2) {
+        actor.attackTargetQueue.splice(i, 1);
+      }
+    }
+    return true;
+  }
+
+  const ok = setByDotPath(actor, k, value);
+  if (ok && kind === 'npc') {
+    const rec = ensureNpcRecord(actor.name);
+    if ((k === 'worldX' || k === 'area') && !actor.area) {
+      actor.area = currentAreaName;
+    }
+    if (k === 'worldX' || k === 'area') {
+      rec.area = actor.area || currentAreaName || rec.area;
+      if (typeof actor.worldX === 'number') rec.worldX = actor.worldX;
+    }
+  }
+  return ok;
 }
 
-function applyMobLocomotionY(mob, dt) {
+function applyMobLocomotionY(mob, dt, nowMs = null) {
   if (!mob) return;
 
   const def = mob.def || mobDetails?.[lc(mob.id)] || null;
 
-  // Allow rules to override locomotion mode via setMobParam:
-  //   { "type":"setMobParam","mob":"x","key":"locomotionMode","value":"hover" }
+  // Allow rules to override locomotion mode via setActorParam:
+  //   { "type":"setActorParam","actor":{kind:"mob",id:"x"},"key":"locomotionMode","value":"hover" }
   // Or via dot path:
-  //   { "type":"setMobParam","mob":"x","key":"locomotion.mode","value":"hover" }
+  //   { "type":"setActorParam","actor":{kind:"mob",id:"x"},"key":"locomotion.mode","value":"hover" }
   let mode = lc(getEffectiveMobParam(mob, 'locomotion.mode') ?? getEffectiveMobParam(mob, 'locomotionMode') ?? mob.locomotionMode ?? def?.locomotion?.mode ?? 'ground');
   if (!mode) mode = 'ground';
 
   const yGround = groundY - mob.h - 8;
-  const now = performance.now();
+  const now = (nowMs == null) ? getGameNowMs() : Number(nowMs);
 
   if (!isFinite(mob._bobSeed)) mob._bobSeed = Math.random() * 100000;
 
@@ -11045,8 +22340,9 @@ function applyMobLocomotionY(mob, dt) {
 }
 
 
-function updateWorldMobAutonomy(mob, dt, activeObjectBlockers) {
+function updateWorldMobAutonomy(mob, dt, activeObjectBlockers, nowMs) {
   if (!mob) return;
+  const now = (nowMs == null) ? getGameNowMs() : Number(nowMs);
 
   // Freeze while despawning (lets animation render cleanly)
   if (mob._removeAtMs) {
@@ -11056,8 +22352,8 @@ function updateWorldMobAutonomy(mob, dt, activeObjectBlockers) {
   }
 
 
-  // Freeze autonomous movement during conversation/menu/action-lock
-  const worldLocked = inConversation || inMenu || (inActionPhrase && activeAction?.lockPlayer);
+  // Freeze autonomous movement only when world time is frozen
+  const worldLocked = shouldFreezeWorldTime();
   if (worldLocked) {
     mob.vx = 0;
     mob.vy = 0;
@@ -11066,30 +22362,33 @@ function updateWorldMobAutonomy(mob, dt, activeObjectBlockers) {
 
   // Stop-moving lock (abilities/attacks)
   {
-    const now = performance.now();
     const until = Number(mob.__stopMoveUntilMs || 0);
     if (isFinite(until) && until > now) {
       mob.vx = 0;
       mob.vy = 0;
-      applyMobLocomotionY(mob, dt);
+      applyMobLocomotionY(mob, dt, now);
       return;
     }
   }
 
-  // Targeting update (may force aiMode/goal)
+  // Targeting update (attack + movement)
   {
-    const now = performance.now();
-    updateActorTargeting(mob, now);
+    updateActorTargeting(mob, now, 'attack');
+    updateActorTargeting(mob, now, 'move');
 
-    // If the chosen target is in a safeplace, instantly clear it (safeplace actors are untargetable)
-    const t = mob.__targetGoalActor || mob.__targetActor || null;
+    // If the chosen movement target is in a safeplace, instantly clear it (safeplace actors are untargetable)
+    const t = mob.__moveTargetActor || null;
     if (t && t._inSafeplace) {
-      mob.targetQueue = [];
-      mob.targetCurrentKey = null;
-      mob.__targetActor = null;
-      mob.__targetGoalActor = null;
-      mob.__targetStopRangePx = null;
-      mob.__targetPreferredAbilityId = null;
+      mob.attackTargetQueue = [];
+      mob.attackTargetCurrentKey = null;
+      mob.__attackTargetActor = null;
+      mob.__attackStopRangePx = null;
+      mob.__attackPreferredAbilityId = null;
+
+      mob.moveTargetQueue = [];
+      mob.moveTargetCurrentKey = null;
+      mob.__moveTargetActor = null;
+      mob.__moveStopRangePx = null;
 
       // Stop chasing this tick
       mob.aiGoalX = null;
@@ -11110,7 +22409,6 @@ function updateWorldMobAutonomy(mob, dt, activeObjectBlockers) {
   }
 
   if (mode === 'waiting') {
-    const now = performance.now();
 
     if (!isFinite(mob.aiAnchorX)) mob.aiAnchorX = mob.worldX;
     if (!mob.aiPhase) mob.aiPhase = 'idle';
@@ -11125,7 +22423,7 @@ function updateWorldMobAutonomy(mob, dt, activeObjectBlockers) {
       } else {
         mob.vx *= Math.pow(friction, dt * 60);
         if (Math.abs(mob.vx) < 0.05) mob.vx = 0;
-        applyMobLocomotionY(mob, dt);
+        applyMobLocomotionY(mob, dt, now);
         return;
       }
     }
@@ -11138,7 +22436,7 @@ function updateWorldMobAutonomy(mob, dt, activeObjectBlockers) {
         mob.aiPhase = 'idle';
         mob.aiNextDecisionAtMs = now + (Number(cfg.waiting.avgIdleMs) || 600);
         mob.vx = 0;
-        applyMobLocomotionY(mob, dt);
+        applyMobLocomotionY(mob, dt, now);
         return;
       }
 
@@ -11158,8 +22456,8 @@ function updateWorldMobAutonomy(mob, dt, activeObjectBlockers) {
       } else {
         mob.worldX += step;
         mob.vx = step / dt;
-        mob.facing = Math.sign(dx) || mob.facing || 1;
-        mob.lastMoveTime = performance.now();
+        // Facing resolved centrally after movement updates.
+        mob.lastMoveTime = now;
         mob.hasEverMoved = true;
       }
 
@@ -11167,7 +22465,7 @@ function updateWorldMobAutonomy(mob, dt, activeObjectBlockers) {
       resolveActorVsBlockers(mob, prevX, activeObjectBlockers);
       mob.worldX = Math.max(2, Math.min(currentArea.lengthPx - mob.w - 2, mob.worldX));
 
-      applyMobLocomotionY(mob, dt);
+      applyMobLocomotionY(mob, dt, now);
       return;
 
 
@@ -11177,10 +22475,10 @@ function updateWorldMobAutonomy(mob, dt, activeObjectBlockers) {
   if (mode === 'moving') {
     // Dynamic targeting goal: chase the current target actor (if present)
     let goalX = Number(mob.aiGoalX);
-    let stopRangePx = Number(mob.__targetStopRangePx);
+    let stopRangePx = Number(mob.__moveStopRangePx);
 
-    if (mob.__targetGoalActor) {
-      const a = mob.__targetGoalActor;
+    if (mob.__moveTargetActor) {
+      const a = mob.__moveTargetActor;
       goalX = actorCenterX(a) - (Number(mob.w) || 0) * 0.5;
       if (!isFinite(stopRangePx) || stopRangePx <= 0) stopRangePx = 0;
     } else {
@@ -11191,7 +22489,7 @@ function updateWorldMobAutonomy(mob, dt, activeObjectBlockers) {
 
     if (!isFinite(goalX) || !isFinite(spd) || spd <= 0) {
       mob.vx = 0;
-      applyMobLocomotionY(mob, dt);
+      applyMobLocomotionY(mob, dt, now);
       return;
     }
 
@@ -11201,8 +22499,16 @@ function updateWorldMobAutonomy(mob, dt, activeObjectBlockers) {
     // If we are close enough (stop range), do not drift into the target
     if (isFinite(stopRangePx) && stopRangePx > 0 && Math.abs(dx) <= stopRangePx) {
       mob.vx = 0;
-      mob.facing = Math.sign(dx) || mob.facing || 1;
-      applyMobLocomotionY(mob, dt);
+      // Facing resolved centrally after movement updates.
+
+      // If this was a "return to anchor" move and we have no target, switch to waiting at anchor
+      if (mob.__returnToAnchor) {
+        const ax = resolveActorAnchorWorldX(mob);
+        mob.__returnToAnchor = false;
+        setNpcAiMode(mob, 'waiting', { anchorX: ax });
+      }
+
+      applyMobLocomotionY(mob, dt, now);
       return;
     }
 
@@ -11214,8 +22520,8 @@ function updateWorldMobAutonomy(mob, dt, activeObjectBlockers) {
     } else {
       mob.worldX += step;
       mob.vx = step / dt;
-      mob.facing = Math.sign(dx) || mob.facing || 1;
-      mob.lastMoveTime = performance.now();
+      // Facing resolved centrally after movement updates.
+      mob.lastMoveTime = now;
       mob.hasEverMoved = true;
     }
 
@@ -11223,7 +22529,7 @@ function updateWorldMobAutonomy(mob, dt, activeObjectBlockers) {
     resolveActorVsBlockers(mob, prevX, activeObjectBlockers);
     mob.worldX = Math.max(2, Math.min(currentArea.lengthPx - mob.w - 2, mob.worldX));
 
-    applyMobLocomotionY(mob, dt);
+    applyMobLocomotionY(mob, dt, now);
     return;
 
 
@@ -11251,49 +22557,66 @@ function createNpc(name, worldX) {
 
   // Ensure registry record exists and provides the canonical stats object
   const rec = ensureNpcRecord(name);
-  const stats = rec.stats;
+  const stats = ensureNpcStatsShared(name) || rec.stats;
 
   const details = npcDetails && npcDetails[name] ? npcDetails[name] : null;
-  const abilities = Array.isArray(details?.abilities) ? details.abilities.map((a) => ({ ...a })) : [];
-  const targeting = (details?.targeting && typeof details.targeting === 'object') ? { ...details.targeting } : null;
+  const innateAbilities = resolveAbilityList(details?.abilities);
+  const aiConfig = (details?.ai && typeof details.ai === 'object') ? details.ai : null;
+  const aiTargeting = (rec.aiTargeting && typeof rec.aiTargeting === 'object')
+    ? JSON.parse(JSON.stringify(rec.aiTargeting))
+    : ((aiConfig?.targeting && typeof aiConfig.targeting === 'object') ? { ...aiConfig.targeting } : null);
+  const aiMovementTargeting = (rec.aiMovementTargeting && typeof rec.aiMovementTargeting === 'object')
+    ? JSON.parse(JSON.stringify(rec.aiMovementTargeting))
+    : ((aiConfig?.movementTargeting && typeof aiConfig.movementTargeting === 'object')
+      ? { ...aiConfig.movementTargeting }
+      : null);
+  const aiAutoCastRules = Array.isArray(rec.aiAutoCastRules)
+    ? JSON.parse(JSON.stringify(rec.aiAutoCastRules))
+    : (Array.isArray(aiConfig?.autoCastRules) ? aiConfig.autoCastRules.slice() : null);
+  const inventorySize = (details?.inventorySize != null && isFinite(Number(details.inventorySize)))
+    ? Math.max(0, Math.floor(Number(details.inventorySize)))
+    : 0;
+  if (!Array.isArray(rec.learnedAbilities)) rec.learnedAbilities = [];
+  const learnedAbilities = rec.learnedAbilities;
 
-  return {
-    worldX, y, w, h, name, sprite, palette,
-    vx: 0,
-    vy: 0,
+  // Auto-cast defaults are now per-actor only
+  let autoCastAbilityId = null;
+  if (Object.prototype.hasOwnProperty.call(rec, 'autoCastAbilityId')) {
+    autoCastAbilityId = rec.autoCastAbilityId;
+  }
+
+  const base = buildActorRuntimeBase({
+    worldX,
+    y,
+    w,
+    h,
     onGround: true,
+    stats,
+    innateAbilities,
+    learnedAbilities,
+    autoCastAbilityId,
+    factions: Array.isArray(rec.factions) ? rec.factions : details?.factions,
+    allianceByFaction: (rec.allianceByFaction && typeof rec.allianceByFaction === 'object')
+      ? rec.allianceByFaction
+      : details?.allianceByFaction,
+    allianceByInstance: (rec.allianceByInstance && typeof rec.allianceByInstance === 'object')
+      ? rec.allianceByInstance
+      : details?.allianceByInstance
+  });
+
+  const actor = {
+    worldX, y, w, h, name, sprite, palette,
     facing: 1, // 1 = right, -1 = left
     isFollowing: false,
-    animFrame: 0,
-    animTimer: 0,
     // logical interaction radius (gameplay only)
     interactionRadius: null,
 
-    // NEW unified stat model (shared with registry record)
-    stats,
-
-    abilities,
-    targeting,
-
-    // targeting (same format as mobs)
-    targetQueue: [],
-    targetCurrentKey: null,
-
-    // targeting scheduling + resolved current target
-    __targetQueueDirty: false,
-    __targetResortAtMs: 0,
-    __targetActor: null,
-
-    // movement intent derived from targeting
-    __targetGoalActor: null,
-    __targetStopRangePx: null,
-    __targetPreferredAbilityId: null,
-
-    abilityNextAtMs: Object.create(null),
-
-
-    lastMoveTime: performance.now(),
-    hasEverMoved: false,
+    aiTargeting,
+    aiMovementTargeting,
+    aiAutoCastRules,
+    inventory: rec.inventory || Object.create(null),
+    inventoryUidCounter: rec.inventoryUidCounter || 1,
+    inventorySize,
 
     // ===== AI (world NPCs) =====
     aiMode: 'stationary',     // 'stationary' | 'waiting' | 'moving'
@@ -11303,6 +22626,21 @@ function createNpc(name, worldX) {
     aiNextDecisionAtMs: null, // waiting timer
     aiMoveTargetX: null       // waiting current short-walk target
   };
+  Object.assign(actor, base);
+
+  bindNpcPersistentFields(actor, rec);
+
+  // Restore persisted AI runtime state if available
+  if (rec.aiMode != null) actor.aiMode = rec.aiMode;
+  if (rec.aiGoalX != null) actor.aiGoalX = rec.aiGoalX;
+  if (rec.aiGoalRef != null) actor.aiGoalRef = rec.aiGoalRef;
+  if (rec.aiAnchorX != null) actor.aiAnchorX = rec.aiAnchorX;
+  if (rec.aiNextDecisionAtMs != null) actor.aiNextDecisionAtMs = rec.aiNextDecisionAtMs;
+  if (rec.aiPhase != null) actor.aiPhase = rec.aiPhase;
+  if (rec.aiMoveTargetX != null) actor.aiMoveTargetX = rec.aiMoveTargetX;
+
+  rebuildActorItemGrants(actor);
+  return actor;
 }
 
 function spawnNpc(name, atX) {
@@ -11341,16 +22679,22 @@ function snapshotNPCsToRegistry() {
     rec.inParty = false;
     rec.area = currentAreaName;
     rec.worldX = Math.max(2, Math.min(currentArea.lengthPx - n.w - 2, n.worldX));
+    // persistent fields are registry-backed via bindNpcPersistentFields
     rec.stats = n.stats || rec.stats;
+    rec.inventory = n.inventory || rec.inventory;
+    rec.inventoryUidCounter = n.inventoryUidCounter || rec.inventoryUidCounter;
     ensureNpcRecordStats(n.name, rec);
   }
   // party NPCs
   for (const p of party) {
     const rec = ensureNpcRecord(p.name);
     rec.inParty = true;
-    rec.area = null;
-    rec.worldX = null;
+    rec.area = p.area ?? rec.area ?? null;
+    if (typeof p.worldX === 'number') rec.worldX = p.worldX;
+    // persistent fields are registry-backed via bindNpcPersistentFields
     rec.stats = p.stats || rec.stats;
+    rec.inventory = p.inventory || rec.inventory;
+    rec.inventoryUidCounter = p.inventoryUidCounter || rec.inventoryUidCounter;
     ensureNpcRecordStats(p.name, rec);
   }
 
@@ -11361,6 +22705,7 @@ function snapshotMobsToRegistry(opts = null) {
 
   for (const m of mobs) {
     if (!m || !m.instanceId) continue;
+    if (m._despawning) continue;
 
     const key = String(m.instanceId);
     const rec = mobRegistry[key] || (mobRegistry[key] = Object.create(null));
@@ -11379,43 +22724,30 @@ function snapshotMobsToRegistry(opts = null) {
     rec.facing = (Number(m.facing) === -1) ? -1 : 1;
     rec.onGround = !!m.onGround;
 
-    // AI
-    rec.aiMode = m.aiMode || 'stationary';
-    rec.aiAnchorX = (m.aiAnchorX !== undefined) ? m.aiAnchorX : null;
-    rec.aiGoalX = (m.aiGoalX !== undefined) ? m.aiGoalX : null;
-    rec.aiPhase = (m.aiPhase !== undefined) ? m.aiPhase : null;
-    rec.aiNextDecisionAtMs = (m.aiNextDecisionAtMs !== undefined) ? m.aiNextDecisionAtMs : null;
-    rec.aiMoveTargetX = (m.aiMoveTargetX !== undefined) ? m.aiMoveTargetX : null;
+    // Persistent fields are registry-backed via bindMobPersistentFields
+    rec.aiMode = m.aiMode || rec.aiMode || 'stationary';
+    rec.aiAnchorX = (m.aiAnchorX !== undefined) ? m.aiAnchorX : rec.aiAnchorX;
+    rec.aiGoalX = (m.aiGoalX !== undefined) ? m.aiGoalX : rec.aiGoalX;
+    rec.aiPhase = (m.aiPhase !== undefined) ? m.aiPhase : rec.aiPhase;
+    rec.aiNextDecisionAtMs = (m.aiNextDecisionAtMs !== undefined) ? m.aiNextDecisionAtMs : rec.aiNextDecisionAtMs;
+    rec.aiMoveTargetX = (m.aiMoveTargetX !== undefined) ? m.aiMoveTargetX : rec.aiMoveTargetX;
 
-    // Anchor should remain the original spawn point
-    rec.anchor = (m.anchor && isFinite(m.anchor.worldX)) ? { worldX: Number(m.anchor.worldX) } : null;
-
-    // Targeting memory
-    rec.tags = Array.isArray(m.tags) ? m.tags.slice() : [];
-
-    // Persist target queue/current key (and always ensure arrays exist)
-    rec.targetQueue = Array.isArray(m.targetQueue) ? m.targetQueue.map(t => (t ? { ...t } : t)) : [];
-    rec.targetCurrentKey = (m.targetCurrentKey !== undefined) ? m.targetCurrentKey : (rec.targetCurrentKey ?? null);
-
-    rec.stats = {
-      hp: {
-        base: Number(m?.stats?.hp?.base ?? 0),
-        current: Number(m?.stats?.hp?.current ?? 0)
-      },
-      endurance: {
-        base: Number(m?.stats?.endurance?.base ?? 0),
-        current: Number(m?.stats?.endurance?.current ?? 0)
-      },
-      fortitude: {
-        base: Number(m?.stats?.fortitude?.base ?? 0),
-        current: Number(m?.stats?.fortitude?.current ?? 0)
-      }
-    };
+    if (m.anchor && typeof m.anchor === 'object') rec.anchor = m.anchor;
+    rec.tags = Array.isArray(m.tags) ? m.tags : rec.tags;
+    rec.attackTargetQueue = Array.isArray(m.attackTargetQueue) ? m.attackTargetQueue : rec.attackTargetQueue;
+    rec.attackTargetCurrentKey = (m.attackTargetCurrentKey !== undefined) ? m.attackTargetCurrentKey : (rec.attackTargetCurrentKey ?? null);
+    rec.moveTargetQueue = Array.isArray(m.moveTargetQueue) ? m.moveTargetQueue : rec.moveTargetQueue;
+    rec.moveTargetCurrentKey = (m.moveTargetCurrentKey !== undefined) ? m.moveTargetCurrentKey : (rec.moveTargetCurrentKey ?? null);
+    rec.stats = m.stats || rec.stats;
 
     // If we’re leaving this area, player must be removed from targets (but NPCs like Rowyn stay)
-    if (stripPlayerTargets && Array.isArray(rec.targetQueue) && rec.targetQueue.length) {
-      rec.targetQueue = rec.targetQueue.filter(t => lc(t?.kind || '') !== 'player');
-      if (lc(rec.targetCurrentKey || '') === 'player') rec.targetCurrentKey = null;
+    if (stripPlayerTargets && Array.isArray(rec.attackTargetQueue) && rec.attackTargetQueue.length) {
+      rec.attackTargetQueue = rec.attackTargetQueue.filter(t => lc(t?.kind || '') !== 'player');
+      if (lc(rec.attackTargetCurrentKey || '') === 'player') rec.attackTargetCurrentKey = null;
+    }
+    if (stripPlayerTargets && Array.isArray(rec.moveTargetQueue) && rec.moveTargetQueue.length) {
+      rec.moveTargetQueue = rec.moveTargetQueue.filter(t => lc(t?.kind || '') !== 'player');
+      if (lc(rec.moveTargetCurrentKey || '') === 'player') rec.moveTargetCurrentKey = null;
     }
   }
 }
@@ -11423,9 +22755,16 @@ function snapshotMobsToRegistry(opts = null) {
 
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
+window.addEventListener('resize', () => {
+  if (inMenu && playerMenuContent) syncAbilityCardPortraits(playerMenuContent);
+});
 
 // ===== Init =====
 async function initGame() {
+  // Ensure canvas fonts are loaded before first render loop
+  if (document?.fonts?.load) {
+    try { await document.fonts.load('16px "Parchment MF"'); } catch {}
+  }
 
   // ===== Player sprite preload (NPC-style) =====
   playerSprites.idle.src = 'assets/sprites/player/dace.png';
@@ -11443,16 +22782,52 @@ async function initGame() {
   npcNameList = Object.keys(npcDetails || {});
 
 
-  // Optional: apply Player startingStats from characters.json (during transition)
-  if (npcDetails && npcDetails.Player && npcDetails.Player.startingStats) {
-    const ss = npcDetails.Player.startingStats;
-    for (const k of ['stamina','composure','endurance','fortitude']) {
-      if (typeof ss[k] === 'number' && isFinite(ss[k])) {
-        setPlayerStatField(k, 'base', ss[k]);
-        setPlayerStatField(k, 'current', ss[k]);
-      }
+  // Ensure abilities data is loaded before resolving Player/NPC abilities.
+  if (!abilitiesData) {
+    abilitiesData = await abilitiesDataPromise;
+    abilitiesDataByLc = {};
+    for (const [k, v] of Object.entries(abilitiesData || {})) {
+      abilitiesDataByLc[lc(k)] = v;
     }
   }
+
+  // Optional: apply Player startingStats + abilities/targeting from characters.json
+  if (npcDetails && npcDetails.Player) {
+    if (npcDetails.Player.startingStats) {
+      const ss = npcDetails.Player.startingStats;
+      ensurePlayerStats();
+      __applyStartingStatsToStats(player.stats, ss);
+    }
+
+    const pAbilities = resolveAbilityList(npcDetails.Player.abilities);
+    player.innateAbilities = pAbilities;
+    ensureActorLearnedAbilities(player);
+    player.heldAbilities = [];
+    player.abilities = [];
+    player.factions = Array.isArray(npcDetails.Player.factions) ? npcDetails.Player.factions.slice() : [];
+    player.allianceByFaction = (npcDetails.Player.allianceByFaction && typeof npcDetails.Player.allianceByFaction === 'object')
+      ? { ...npcDetails.Player.allianceByFaction }
+      : undefined;
+    player.allianceByInstance = (npcDetails.Player.allianceByInstance && typeof npcDetails.Player.allianceByInstance === 'object')
+      ? { ...npcDetails.Player.allianceByInstance }
+      : undefined;
+
+    if (npcDetails.Player.ai && typeof npcDetails.Player.ai === 'object') {
+      if (npcDetails.Player.ai.targeting && typeof npcDetails.Player.ai.targeting === 'object') {
+        player.aiTargeting = { ...npcDetails.Player.ai.targeting };
+      }
+      if (npcDetails.Player.ai.movementTargeting && typeof npcDetails.Player.ai.movementTargeting === 'object') {
+        player.aiMovementTargeting = { ...npcDetails.Player.ai.movementTargeting };
+      }
+    }
+    if (npcDetails.Player.inventorySize != null && isFinite(Number(npcDetails.Player.inventorySize))) {
+      player.inventorySize = Math.max(0, Math.floor(Number(npcDetails.Player.inventorySize)));
+    }
+
+    player.autoCastAbilityId = player.autoCastAbilityId ?? null;
+  }
+
+  ensurePlayerGoals();
 
 
   for (const name of npcNameList) {
@@ -11462,13 +22837,28 @@ async function initGame() {
   mobDetailsRaw = await mobDetailsPromise;
   mobDetails = resolveMobTemplates(mobDetailsRaw);
   mobIdList = Object.keys(mobDetails || {});
-  console.log('[mobs] loaded', mobIdList.length, 'mob defs');
+
+  if (!abilitiesData) {
+    abilitiesData = await abilitiesDataPromise;
+    abilitiesDataByLc = {};
+    for (const [k, v] of Object.entries(abilitiesData || {})) {
+      abilitiesDataByLc[lc(k)] = v;
+    }
+  }
+
+  factionsData = await factionsDataPromise;
 
 
   itemsData = await loadItemsJSON();
   objectsData = await objectsDataPromise;
 
   rulesData = await loadRulesJSON();
+
+  // Item grants (abilities/features) depend on items data.
+  rebuildActorItemGrants(player);
+  for (const p of party) {
+    if (p) rebuildActorItemGrants(p);
+  }
 
   // Kick off stat-change icon loads early so first dialog changes show immediately
   __getStatChangeIcon('affection', 'up');
@@ -11532,12 +22922,23 @@ async function initGame() {
   const areaToUse = startArea || 'Default';
   buildAndEnterArea(areaToUse, 'left');
 
+  // Refresh menu tabs now that player/NPC/items data has loaded
+  renderMenuTabs(menuTopTabs, true, true);
+
   requestAnimationFrame(gameLoop);
 }
 initGame();
 
 // ===== Conversation controls (unchanged core) =====
 async function startConversation(npc) {
+  if (loading) await waitForAreaReady();
+  if (!npc || isActorUnconscious(npc)) return;
+  __resetDialogStackState();
+  __resetDialogEndQueue();
+  __resetDialogConversationFlags();
+  wasMenuOpenBeforeDialog = !!inMenu;
+  if (inMenu) closePlayerMenu();
+  hideMenuTabsForDialog();
   inConversation = true;
   currentNpc = npc;
 
@@ -11555,7 +22956,7 @@ async function startConversation(npc) {
 
   // show UI immediately
   conversationOverlay.style.display = 'block';
-  dialogBox.textContent = 'Loading...';
+  __setDialogBoxText('Loading...');
   optionsBox.innerHTML = '';
   conversationPortrait.src = '';
 
@@ -11565,12 +22966,20 @@ async function startConversation(npc) {
   currentDialog = data;
   currentDialogKey = fileKey;
 
-  currentPhraseId = data.start;
+  const overrideStart = String(npc?.dialogStart || '').trim();
+  currentPhraseId = overrideStart || data.start;
   await loadPhrase(currentPhraseId);
 
 }
 
 async function startRuleScene(startRef, ruleId) {
+  if (loading) await waitForAreaReady();
+  __resetDialogStackState();
+  __resetDialogEndQueue();
+  __resetDialogConversationFlags();
+  wasMenuOpenBeforeDialog = !!inMenu;
+  if (inMenu) closePlayerMenu();
+  hideMenuTabsForDialog();
   // Remember which rule started this scene (so once-rules can be marked fired on endConversation)
   currentRuleSceneId = ruleId || null;
 
@@ -11580,8 +22989,8 @@ async function startRuleScene(startRef, ruleId) {
   currentNpc = null;
 
   // Show conversation overlay (actions may hide it again)
-  conversationOverlay.style.display = 'block';
-  dialogBox.textContent = '';
+  conversationOverlay.style.display = 'none';
+  __setDialogBoxText('');
   optionsBox.innerHTML = '';
   conversationPortrait.src = '';
 
@@ -11603,21 +23012,20 @@ function checkWhenBlock(w, npc) {
     if (!rule || typeof rule !== 'object') return true;
 
     const k = lc(statName || '');
-    const rec = npc?.stats?.[k];
-    const npcVal = Number(rec?.current);
+    const npcVal = Number(getActorStatValue(npc?.name || '', k, 'current'));
 
     if (!isFinite(npcVal)) return false;
 
     for (const op of Object.keys(rule)) {
       let target = rule[op];
 
-      // allow symbolic values: minalignment / minaffection (now the BASE threshold)
+      // allow symbolic values: minalignment / minaffection (thresholds)
       if (typeof target === 'string') {
         const t = lc(target);
-        if (t === 'minalignment') target = Number(npc?.stats?.alignment?.base ?? 0);
-        else if (t === 'minaffection') target = Number(npc?.stats?.affection?.base ?? 0);
-        else return false;
-      }
+      if (t === 'minalignment') target = getActorStatValue(npc?.name || '', 'minalignment', 'base');
+      else if (t === 'minaffection') target = getActorStatValue(npc?.name || '', 'minaffection', 'base');
+      else return false;
+    }
 
       if (typeof target !== 'number') return false;
 
@@ -11633,6 +23041,64 @@ function checkWhenBlock(w, npc) {
     }
 
     return true;
+  }
+
+  function checkStatSum(rule) {
+    if (!rule || typeof rule !== 'object') return true;
+
+    const actorName = String(rule.actor || rule.npc || (npc && npc.name) || 'player');
+    const stats = Array.isArray(rule.stats) ? rule.stats : [];
+    if (!actorName || stats.length === 0) return false;
+
+    const field = rule.field || 'current';
+    let sum = 0;
+    for (const statName of stats) {
+      const v = getActorStatValue(actorName, statName, field);
+      if (!isFinite(v)) return false;
+      sum += Number(v);
+    }
+
+    let target = null;
+    if (rule.rhs && typeof rule.rhs === 'object') {
+      if (rule.rhs.field) {
+        const rhsStat = rule.rhs.stat || stats[0];
+        target = getActorStatValue(actorName, rhsStat, rule.rhs.field);
+      } else if ('value' in rule.rhs) {
+        target = Number(rule.rhs.value);
+      }
+    } else if ('rhs' in rule) {
+      target = rule.rhs;
+    } else if ('value' in rule) {
+      target = rule.value;
+    }
+
+    if (typeof target === 'string') {
+      const t = lc(target);
+      if (t === 'minalignment') target = getActorStatValue(actorName, 'minalignment', 'base');
+      else if (t === 'minaffection') target = getActorStatValue(actorName, 'minaffection', 'base');
+      else return false;
+    }
+
+    const rhs = Number(target);
+    if (!isFinite(rhs)) return false;
+
+    let op = lc(rule.op || rule.compare || rule.cmp || 'lt');
+    if (op === '<') op = 'lt';
+    else if (op === '<=') op = 'lte';
+    else if (op === '>') op = 'gt';
+    else if (op === '>=') op = 'gte';
+    else if (op === '==') op = 'eq';
+    else if (op === '!=') op = 'neq';
+
+    switch (op) {
+      case 'lt':  return sum < rhs;
+      case 'lte': return sum <= rhs;
+      case 'gt':  return sum > rhs;
+      case 'gte': return sum >= rhs;
+      case 'eq':  return sum === rhs;
+      case 'neq': return sum !== rhs;
+      default: return false;
+    }
   }
 
   // AREA
@@ -11772,10 +23238,23 @@ function checkWhenBlock(w, npc) {
 
 
   // STATS
+  if (w.statSum) {
+    const list = Array.isArray(w.statSum) ? w.statSum : [w.statSum];
+    for (const rule of list) {
+      if (!checkStatSum(rule)) return false;
+    }
+  }
   if (w.alignment && !checkStat('alignment', w.alignment)) return false;
   if (w.affection && !checkStat('affection', w.affection)) return false;
 
   return true;
+}
+
+function _dialogOptionFlagKey(phraseId, optionId) {
+  const dialogKey = String(currentDialogKey || '');
+  const phrase = String(phraseId || currentPhraseId || '');
+  const opt = String(optionId || '');
+  return `dialogOptionChosen:${dialogKey}:${phrase}:${opt}`;
 }
 
 function clearAllKeys() {
@@ -11818,6 +23297,7 @@ function getOrCreateNpcByName(name) {
   }
 
   // Create + push into world npcs
+  const npc = createNpc(name, spawnX);
   npc.stats = rec.stats;
   npcs.push(npc);
 
@@ -11828,9 +23308,13 @@ function getOrCreateNpcByName(name) {
 
 function startActionPhrase(phraseId, phrase) {
   inActionPhrase = true;
+  __dialogActionSinceLastPhrase = true;
+  __clearDialogStack();
 
   // Default: lock player movement during actions
   const lockPlayer = phrase.lockPlayer !== false;
+  const lockPartyFollow = (phrase.allowPartyFollow === true) ? false : (phrase.lockPartyFollow !== false);
+  const timeFrozen = !!(phrase?.action?.timeFrozen ?? phrase?.timeFrozen);
 
   controlsLocked = lockPlayer;
 
@@ -11847,7 +23331,9 @@ function startActionPhrase(phraseId, phrase) {
     startedAtMs: performance.now(),
     done: false,
     phrase,
-    lockPlayer
+    lockPlayer,
+    lockPartyFollow,
+    timeFrozen
   };
 }
 
@@ -11890,6 +23376,122 @@ function isPlayerDrivenByActionMoveTo() {
   return lc(act.actor) === 'player';
 }
 
+function applyForcedMoveStep(actor, targetX, dt, speedFactor = 1) {
+  if (!actor) return { done: true };
+
+  // Base speed: actor's normal movement speed
+  const baseSpeed = actor.maxMovementSpeed || 240;
+
+  // Multiplier from JSON (default 1)
+  const factor = Number(speedFactor ?? 1);
+
+  // Final speed
+  const spd = baseSpeed * factor;
+
+  if (!isFinite(targetX) || !isFinite(spd) || spd <= 0) {
+    return { done: true };
+  }
+
+  const dx = targetX - actor.worldX;
+  const step = Math.sign(dx) * spd * dt;
+
+  if (Math.abs(step) >= Math.abs(dx)) {
+    actor.worldX = targetX;
+    actor.vx = 0;
+    return { done: true };
+  }
+
+  actor.worldX += step;
+  actor.vx = step / dt;
+  actor.lastMoveTime = getGameNowMs();
+  actor.hasEverMoved = true;
+
+  return { done: false };
+}
+
+function isActorDrivenByForcedMove(actor) {
+  return !!(actor && actor.__forcedMoveActive);
+}
+
+function __clearForcedMove(actor) {
+  if (!actor) return;
+  actor.__forcedMoveActive = false;
+  actor.__forcedMove = null;
+}
+
+function resetActorTeleportState(actor) {
+  if (!actor) return;
+  __clearForcedMove(actor);
+  if (actor.__interactionMoveActive) {
+    actor.__interactionMoveActive = false;
+    actor.__interactionMove = null;
+  }
+  actor.vx = 0;
+  actor.vy = 0;
+}
+
+function startForcedMove(actor, targetX, speedFactor = 1, opts = {}) {
+  if (!actor) return false;
+  const tx = Number(targetX);
+  if (!isFinite(tx)) return false;
+
+  actor.__forcedMoveActive = true;
+  actor.__forcedMove = {
+    targetX: tx,
+    speedFactor: Number(speedFactor ?? 1),
+    startedAtMs: getGameNowMs(),
+    source: opts?.source || null,
+    dir: (opts && (opts.dir === 1 || opts.dir === -1)) ? opts.dir : null,
+    sourceX: (opts && isFinite(Number(opts.sourceX))) ? Number(opts.sourceX) : null,
+    startX: Number(actor.worldX)
+  };
+
+  return true;
+}
+
+function updateForcedMoves(dt, nowMs, activeObjectBlockers) {
+  const list = [player, ...(Array.isArray(party) ? party : []), ...(Array.isArray(npcs) ? npcs : []), ...(Array.isArray(mobs) ? mobs : [])];
+  if (!list.length) return;
+
+  for (const actor of list) {
+    if (!actor || !actor.__forcedMoveActive) continue;
+
+    const move = actor.__forcedMove;
+    if (!move || !isFinite(move.targetX)) {
+      __clearForcedMove(actor);
+      continue;
+    }
+
+    const prevX = actor.worldX;
+    const res = applyForcedMoveStep(actor, move.targetX, dt, move.speedFactor);
+
+    // Keep grounded (matches moveTo + interaction rules)
+    actor.y = groundY - actor.h - (actor === player ? 0 : 8);
+
+    if (activeObjectBlockers) {
+      resolveActorVsBlockers(actor, prevX, activeObjectBlockers);
+    }
+
+    const moved = Math.abs(Number(actor.worldX) - Number(prevX)) > 0.01;
+    const remaining = Math.abs(Number(move.targetX) - Number(actor.worldX));
+
+    if (!moved && remaining > 0.5) {
+      actor.vx = 0;
+      __clearForcedMove(actor);
+      continue;
+    }
+
+    if (res.done) {
+      __clearForcedMove(actor);
+      continue;
+    }
+  }
+}
+
+function isPlayerStunned() {
+  return !!(player && actorHasTag(player, 'stunned'));
+}
+
 
 // Minimal action set for now:
 // - wait: { type:"wait", durationMs: 800 }
@@ -11916,6 +23518,18 @@ function runActiveAction(dt) {
     if (actor) {
       const f = Number(act.facing);
       if (f === 1 || f === -1) actor.facing = f;
+    }
+    activeAction.done = true;
+
+  } else if (act.type === 'faceto') {
+    const actor = findActorByName(act.actor);
+    if (actor) {
+      const spec = __resolveActionTargetSpec(act);
+      const targetX = spec ? __getTargetCenterXFromSpecNearActor(spec, actor) : null;
+      if (isFinite(targetX)) {
+        const dir = Math.sign(Number(targetX) - Number(actor.worldX || 0));
+        if (dir === 1 || dir === -1) actor.facing = dir;
+      }
     }
     activeAction.done = true;
 
@@ -12016,6 +23630,9 @@ function runActiveAction(dt) {
     if (!CAMERA_TWEEN.active) {
       activeAction.done = true;
     }
+  } else if (act.type === 'interactionEffect') {
+    __flushPendingObjectInteraction('action');
+    activeAction.done = true;
   } else if (act.type === 'moveTo') {
     const actor = findActorByName(act.actor);
     const actor2 = findActorByName(act.toChar);
@@ -12027,6 +23644,10 @@ function runActiveAction(dt) {
       let targetX = (activeAction._moveTargetX !== undefined) ? activeAction._moveTargetX : null;
 
       if (targetX === null) {
+        const spec = __resolveActionTargetSpec(act);
+        if (spec) {
+          targetX = __getTargetCenterXFromSpecNearActor(spec, actor);
+        }
 
         // Target currently active interactable object
         if (act.toActiveObject === true) {
@@ -12076,43 +23697,10 @@ function runActiveAction(dt) {
 
 
       // Base speed: actor's normal movement speed
-      const baseSpeed = actor.maxMovementSpeed || 240;
-
-      // Multiplier from JSON (default 1)
-      const factor = Number(act.speedFactor ?? 1);
-
-      // Final speed
-      const spd = baseSpeed * factor;
-
-
-      if (!isFinite(targetX) || !isFinite(spd) || spd <= 0) {
+      const res = applyForcedMoveStep(actor, targetX, dt, act.speedFactor);
+      if (res.done) {
         activeAction.done = true;
       } else {
-        const dx = targetX - actor.worldX;
-        const step = Math.sign(dx) * spd * dt;
-
-        if (Math.abs(step) >= Math.abs(dx)) {
-            console.log('[MOVE SNAP->DONE]', {
-            phraseId: activeAction?.phraseId,
-            actor: actor?.name,
-            worldX: actor?.worldX,
-            targetX,
-            dx,
-            step,
-            dt
-          });
-
-          actor.worldX = targetX;
-          actor.vx = 0;
-          activeAction.done = true;
-        } else {
-          actor.worldX += step;
-          actor.vx = step / dt;
-          actor.facing = Math.sign(dx) || actor.facing || 1;
-          actor.lastMoveTime = performance.now();
-          actor.hasEverMoved = true;
-        }
-
         // Keep them grounded (same rule you use elsewhere)
         actor.y = groundY - actor.h - (actor === player ? 0 : 8);
       }
@@ -12188,18 +23776,17 @@ function runActiveAction(dt) {
     const phraseNow = currentDialog?.phrases?.[currentPhraseId];
     const next = phraseNow?.next;
 
-    
-    console.log('[ACTION DONE]', {
-      phraseId: activeAction?.phraseId,
-      currentPhraseId,
-      act: activeAction?.phrase?.action,
-      next
-    });
-
+    const isEndQueue = !!activeAction?.phrase?.__endQueue;
     stopActionPhrase();
+    if (isEndQueue) {
+      __continueDialogEndQueue();
+      return;
+    }
 
     // Apply effects on the action phrase when it completes (optional but consistent)
-    applyEffects(phraseNow?.effects);
+    const split = __splitDialogEffects(phraseNow?.effects);
+    if (split.atEnd.length) __enqueueDialogEndEffects(split.atEnd);
+    applyEffects(split.immediate);
 
     // If the player cancelled the scene, do NOT continue the scene graph.
     // We only ran this action to restore camera control, so now we exit to gameplay.
@@ -12239,12 +23826,18 @@ function runActiveAction(dt) {
 function getDialogLayoutModeForPhrase(phrase) {
   const raw = (phrase && Object.prototype.hasOwnProperty.call(phrase, 'speaker')) ? phrase.speaker : undefined;
   const s = (typeof raw === 'string') ? lc(raw) : '';
+  const playerName = lc(player?.name || '');
 
-  if (s === 'player') return 'player';
+  if (s === 'player' || (playerName && s === playerName)) return 'player';
   if (s === 'narrator') return 'narrator';
+  if (s === 'guide') return 'guide';
 
   // guide / null / missing speaker
-  if (!s || s === 'guide') return 'guide';
+  if (!s) {
+    // If we're in an NPC conversation with no explicit speaker, treat as NPC layout
+    if (currentNpc && currentNpc.name) return 'npc';
+    return 'guide';
+  }
 
   return 'npc';
 }
@@ -12297,6 +23890,927 @@ function setDialogMinHeightForLines(lineCount = 4) {
   dialogBox.style.minHeight = `${Math.ceil(lineH * lineCount + pad)}px`;
 }
 
+function setDialogHeightForText(fullText) {
+  if (!dialogBox) return;
+  if (dialogBox.style.display === 'none') return;
+  const text = String(fullText ?? '');
+  const cs = window.getComputedStyle(dialogBox);
+  const pt = parseFloat(cs.paddingTop);
+  const pb = parseFloat(cs.paddingBottom);
+  const pad = (isFinite(pt) ? pt : 0) + (isFinite(pb) ? pb : 0);
+
+  const meas = document.createElement('div');
+  meas.className = 'dialogText';
+  meas.style.position = 'absolute';
+  meas.style.visibility = 'hidden';
+  meas.style.pointerEvents = 'none';
+  meas.style.left = '0';
+  meas.style.top = '0';
+  const w = dialogBox.getBoundingClientRect().width || dialogBox.clientWidth || __lastDialogBoxWidth || 0;
+  if (!w) return;
+  meas.style.width = `${w}px`;
+  meas.innerHTML = text;
+  dialogBox.appendChild(meas);
+
+  const h = Math.ceil(meas.scrollHeight + pad);
+  dialogBox.removeChild(meas);
+  dialogBox.style.minHeight = '';
+  dialogBox.style.height = `${h}px`;
+  __dialogHeightLocked = true;
+
+  if (__lastDialogLayoutMode === 'npc' && !__lastDialogHasPortrait && currentNpc) {
+    // Ensure layout has applied before positioning the pointer
+    dialogBox.getBoundingClientRect();
+    const host = __dialogFirstNpcBoxEl || dialogBox;
+    __setDialogPointerVisible(true, host);
+    requestAnimationFrame(() => __positionDialogPointerToActor(currentNpc));
+  }
+  const r = dialogBox.getBoundingClientRect();
+  //   h: r.height,
+  //   top: r.top,
+  //   left: r.left,
+  //   bottom: r.bottom
+  // });
+}
+
+async function prepareDialogBoxForText(text) {
+  if (!dialogBox) return;
+  dialogBox.style.display = '';
+  for (let i = 0; i < 3; i++) {
+    const w = dialogBox.getBoundingClientRect().width || dialogBox.clientWidth || 0;
+    if (w > 0) {
+      setDialogHeightForText(text);
+      break;
+    }
+    await new Promise(r => requestAnimationFrame(r));
+  }
+  // Ensure the box is painted before typing begins
+  await new Promise(r => requestAnimationFrame(r));
+}
+
+function scheduleDialogHeightForText(text) {
+  requestAnimationFrame(() => setDialogHeightForText(text));
+}
+
+let __dialogPointerEl = null;
+let __dialogTextEl = null;
+let __dialogHeightLocked = false;
+let __lastDialogPortraitWidth = 0;
+let __lastDialogLayoutMode = null;
+let __lastDialogHasPortrait = false;
+let __lastDialogBoxWidth = 0;
+let __dialogHasShownPhrase = false;
+let __dialogLastSpeakerName = '';
+let __dialogActionSinceLastPhrase = false;
+let __dialogStackPending = false;
+let __dialogStackPrevRect = null;
+let __dialogStackTarget = null;
+const __dialogStackItems = [];
+let __dialogOptionRowHeight = null;
+let __dialogOptionsPadHeight = null;
+const __dialogChoiceItems = [];
+const __dialogChoiceOffsetX = 40;
+let __dialogCarryChoiceText = null;
+let __dialogCarryChoiceRect = null;
+
+// ===== Dialog stack (overhaul) =====
+const DIALOG_STACK = [];
+let __dialogStackContainer = null;
+let __dialogStackTopPx = 0;
+let __dialogStackLeftPx = 0;
+let __dialogStackWidthPx = 0;
+let __dialogLastNpcSpeaker = '';
+let __dialogPendingChoiceText = null;
+let __dialogFirstNpcBoxEl = null;
+
+function __resetDialogStackState() {
+  __clearDialogStackAll();
+  __clearDialogChoiceStack();
+  __dialogHasShownPhrase = false;
+  __dialogLastSpeakerName = '';
+  __dialogActionSinceLastPhrase = false;
+}
+
+function __clearDialogStack() {
+  for (const el of __dialogStackItems.splice(0)) {
+    if (el?.el && el.el.parentElement) el.el.parentElement.removeChild(el.el);
+  }
+  __dialogStackPending = false;
+  __dialogStackPrevRect = null;
+  __dialogStackTarget = null;
+  __attachDialogPointerToActiveBox();
+  __removeDialogStackUpPointer();
+  __removeDialogStackRectLink();
+  __clearDialogChoiceStack();
+}
+
+function __clearDialogChoiceStack() {
+  for (const el of __dialogChoiceItems.splice(0)) {
+    if (el?.el && el.el.parentElement) el.el.parentElement.removeChild(el.el);
+  }
+  __dialogCarryChoiceRect = null;
+}
+
+function __addChoiceBox(text) {
+  if (!conversationOverlay || !dialogBox) return;
+  const label = String(text || '').trim();
+  if (!label) return;
+
+  const overlayRect = conversationOverlay.getBoundingClientRect();
+  const activeRectAbs = dialogBox.getBoundingClientRect();
+  const stackRect = (__dialogStackItems.length ? __dialogStackItems[__dialogStackItems.length - 1].rect : null);
+  const lastChoiceRect = (__dialogChoiceItems.length ? __dialogChoiceItems[__dialogChoiceItems.length - 1].rect : null);
+
+  const candidates = [];
+  if (activeRectAbs.width > 0 && activeRectAbs.height > 0) {
+    candidates.push({
+      left: activeRectAbs.left - overlayRect.left,
+      top: activeRectAbs.top - overlayRect.top,
+      width: activeRectAbs.width,
+      height: activeRectAbs.height
+    });
+  }
+  if (stackRect) candidates.push(stackRect);
+  if (lastChoiceRect) candidates.push(lastChoiceRect);
+
+  const baseRect = candidates.reduce((best, cur) => {
+    if (!best) return cur;
+    const bestBottom = best.top + best.height;
+    const curBottom = cur.top + cur.height;
+    return curBottom > bestBottom ? cur : best;
+  }, null) || {
+    left: activeRectAbs.left - overlayRect.left,
+    top: activeRectAbs.top - overlayRect.top,
+    width: activeRectAbs.width,
+    height: activeRectAbs.height
+  };
+
+  const baseLeft = baseRect.left;
+  const baseTop = baseRect.top;
+  const baseWidth = baseRect.width;
+  const baseHeight = baseRect.height;
+
+  const clone = document.createElement('div');
+  clone.className = 'dialogChoiceItem';
+  clone.textContent = label;
+  conversationOverlay.appendChild(clone);
+
+  const gap = 8;
+  const left = Math.round(baseLeft + __dialogChoiceOffsetX);
+  const top = Math.round(baseTop + baseHeight + gap);
+  const width = Math.max(180, Math.round(baseWidth - __dialogChoiceOffsetX));
+
+  clone.style.left = `${left}px`;
+  clone.style.top = `${top}px`;
+  clone.style.width = `${width}px`;
+
+  const rect = clone.getBoundingClientRect();
+  __dialogChoiceItems.push({
+    el: clone,
+    rect: {
+      left: rect.left - overlayRect.left,
+      top: rect.top - overlayRect.top,
+      width: rect.width,
+      height: rect.height
+    }
+  });
+
+}
+
+function __addChoiceBoxAtTop(text, baseRect) {
+  if (!conversationOverlay) return null;
+  const label = String(text || '').trim();
+  if (!label) return null;
+  if (!baseRect) return null;
+
+  const clone = document.createElement('div');
+  clone.className = 'dialogChoiceItem';
+  clone.textContent = label;
+  conversationOverlay.appendChild(clone);
+
+  const left = Math.round(baseRect.left + __dialogChoiceOffsetX);
+  const top = Math.round(baseRect.top);
+  const width = Math.max(180, Math.round(baseRect.width - __dialogChoiceOffsetX));
+
+  clone.style.left = `${left}px`;
+  clone.style.top = `${top}px`;
+  clone.style.width = `${width}px`;
+
+  const overlayRect = conversationOverlay.getBoundingClientRect();
+  const rect = clone.getBoundingClientRect();
+  const stored = {
+    left: rect.left - overlayRect.left,
+    top: rect.top - overlayRect.top,
+    width: rect.width,
+    height: rect.height
+  };
+
+  __dialogChoiceItems.push({ el: clone, rect: stored });
+  __dialogCarryChoiceRect = stored;
+  return stored;
+}
+
+function __ensureDialogStackContainer() {
+  if (!conversationOverlay) return null;
+  if (__dialogStackContainer && __dialogStackContainer.parentElement === conversationOverlay) return __dialogStackContainer;
+  const el = document.createElement('div');
+  el.id = 'dialogStackContainer';
+  el.style.position = 'absolute';
+  el.style.left = '0px';
+  el.style.top = '0px';
+  el.style.width = '100%';
+  el.style.height = '100%';
+  el.style.pointerEvents = 'none';
+  conversationOverlay.appendChild(el);
+  __dialogStackContainer = el;
+  return el;
+}
+
+function __clearDialogStackAll({ keepPendingChoice = false } = {}) {
+  DIALOG_STACK.length = 0;
+  __dialogLastNpcSpeaker = '';
+  if (!keepPendingChoice) {
+    __dialogPendingChoiceText = null;
+  }
+  __dialogFirstNpcBoxEl = null;
+  if (__dialogStackContainer) __dialogStackContainer.innerHTML = '';
+}
+
+function __computeDialogStackLayout() {
+  const W = window.innerWidth || 0;
+  const H = window.innerHeight || 0;
+  const pad = 12;
+
+  const hasPortrait = !!(conversationPortrait && conversationPortrait.naturalWidth > 0);
+  __lastDialogHasPortrait = hasPortrait;
+
+  const pr = conversationPortrait ? conversationPortrait.getBoundingClientRect() : { width: 0 };
+  let portraitW = Math.ceil(pr.width || 0);
+  const fallbackPortraitW = Math.round((832 / 1248) * H);
+  if (portraitW >= fallbackPortraitW) {
+    __lastDialogPortraitWidth = portraitW;
+  } else if (__lastDialogPortraitWidth >= fallbackPortraitW) {
+    portraitW = __lastDialogPortraitWidth;
+  } else {
+    portraitW = fallbackPortraitW;
+  }
+
+  const leftX = Math.ceil(portraitW + pad);
+  const avail = Math.max(0, W - leftX - pad);
+  const boxW = Math.max(200, Math.min(avail, H));
+  __dialogStackLeftPx = leftX;
+  __dialogStackWidthPx = Math.floor(boxW);
+  __dialogStackTopPx = Math.round(H * 0.2);
+
+  if (optionsBox) {
+    optionsBox.style.left = `${__dialogStackLeftPx}px`;
+    optionsBox.style.bottom = `${pad}px`;
+    optionsBox.style.width = `${__dialogStackWidthPx}px`;
+    optionsBox.style.maxWidth = `${Math.floor(H)}px`;
+    optionsBox.style.transform = '';
+    optionsBox.style.textAlign = 'left';
+  }
+}
+
+function __measureStackHeight(items) {
+  const container = __ensureDialogStackContainer();
+  if (!container) return 0;
+  const temp = document.createElement('div');
+  temp.style.position = 'absolute';
+  temp.style.left = '-9999px';
+  temp.style.top = '0px';
+  temp.style.visibility = 'hidden';
+  container.appendChild(temp);
+
+  let total = 0;
+  const gap = 8;
+
+  for (const it of items) {
+    const box = document.createElement('div');
+    box.className = it.kind === 'player' ? 'dialogStackItem dialogStackPlayer' : 'dialogStackItem dialogStackNpc';
+    box.style.width = `${__dialogStackWidthPx}px`;
+    box.textContent = it.text || '';
+    temp.appendChild(box);
+    const h = box.getBoundingClientRect().height || box.offsetHeight || 0;
+    total += h;
+    total += gap;
+  }
+
+  if (total > 0) total -= gap;
+  container.removeChild(temp);
+  return total;
+}
+
+function __getDialogStackTextWidth(textEl, contentOverride = null) {
+  if (!textEl) return 0;
+  let restore = null;
+  if (contentOverride != null) {
+    restore = textEl.textContent;
+    textEl.textContent = contentOverride;
+  }
+  const range = document.createRange();
+  range.selectNodeContents(textEl);
+  const rects = range.getClientRects();
+  let maxW = 0;
+  for (let i = 0; i < rects.length; i++) {
+    const w = rects[i].width;
+    if (w > maxW) maxW = w;
+  }
+  if (!maxW) {
+    const r = textEl.getBoundingClientRect();
+    if (r && r.width) maxW = r.width;
+  }
+  if (restore != null) textEl.textContent = restore;
+  return maxW;
+}
+
+function __fitDialogStackBoxWidth(box, textEl, maxWidth) {
+  if (!box || !textEl) return maxWidth;
+  const cs = window.getComputedStyle(box);
+  const pl = parseFloat(cs.paddingLeft || '0') || 0;
+  const pr = parseFloat(cs.paddingRight || '0') || 0;
+  const pad = pl + pr;
+  const textW = __getDialogStackTextWidth(textEl);
+  const minTextW = __getDialogStackTextWidth(textEl, 'nnnn');
+  const minW = Math.ceil(minTextW + pad);
+  const desired = Math.min(maxWidth, Math.ceil(textW + pad));
+  return Math.max(Math.ceil(pad + 2), desired, minW);
+}
+
+function __canAddToStack(pendingItems) {
+  const items = DIALOG_STACK.concat(pendingItems || []);
+  const height = __measureStackHeight(items);
+  const { row, pad } = __getDialogOptionRowHeight();
+  const minOptionsHeight = pad + row * 4;
+  const overlayH = conversationOverlay?.getBoundingClientRect().height || window.innerHeight || 0;
+  const available = Math.max(0, overlayH - minOptionsHeight - __dialogStackTopPx - 12);
+  return height <= available;
+}
+
+function __renderDialogStack(typingIndex = null) {
+  const container = __ensureDialogStackContainer();
+  if (!container) return null;
+  container.innerHTML = '';
+
+  let y = __dialogStackTopPx;
+  const gap = 8;
+  const boxes = [];
+  const npcIndices = [];
+  let typingEl = null;
+
+  for (let i = 0; i < DIALOG_STACK.length; i++) {
+    const it = DIALOG_STACK[i];
+    const box = document.createElement('div');
+    box.className = it.kind === 'player' ? 'dialogStackItem dialogStackPlayer' : 'dialogStackItem dialogStackNpc';
+    const maxWidth = __dialogStackWidthPx;
+    const rightEdge = __dialogStackLeftPx + __dialogChoiceOffsetX + maxWidth;
+    const left = __dialogStackLeftPx + (it.kind === 'player' ? __dialogChoiceOffsetX : 0);
+    box.style.left = `${left}px`;
+    box.style.top = `${y}px`;
+    box.style.width = `${maxWidth}px`;
+
+    const textEl = document.createElement('div');
+    textEl.className = 'dialogStackText';
+    textEl.textContent = it.text || '';
+    box.appendChild(textEl);
+    container.appendChild(box);
+
+    const fittedWidth = __fitDialogStackBoxWidth(box, textEl, maxWidth);
+    if (it.kind === 'player') {
+      box.style.left = `${Math.round(rightEdge - fittedWidth)}px`;
+    } else {
+      box.style.left = `${__dialogStackLeftPx}px`;
+    }
+    box.style.width = `${fittedWidth}px`;
+
+    if (typingIndex === i) {
+      textEl.textContent = '';
+    }
+
+    const rect = box.getBoundingClientRect();
+    boxes.push({ el: box, rect });
+    if (it.kind === 'npc') npcIndices.push(i);
+    if (typingIndex === i) typingEl = textEl;
+
+    y = Math.round(y + rect.height + gap);
+  }
+
+  // Pointer for first NPC box
+  if (npcIndices.length) {
+    const firstNpcIdx = npcIndices[0];
+    const host = boxes[firstNpcIdx]?.el || null;
+    if (host) {
+      __dialogFirstNpcBoxEl = host;
+      __setDialogPointerVisible(true, host);
+      if (!__lastDialogHasPortrait && currentNpc) {
+        __positionDialogPointerToActor(currentNpc, host);
+      } else {
+        __resetDialogPointerToDefault(host);
+      }
+    }
+  } else {
+    __setDialogPointerVisible(false);
+    __dialogFirstNpcBoxEl = null;
+  }
+
+  // Connectors between NPC boxes
+  for (let i = 1; i < npcIndices.length; i++) {
+    const curIdx = npcIndices[i];
+    const prevIdx = npcIndices[i - 1];
+    const curBox = boxes[curIdx];
+    const prevBox = boxes[prevIdx];
+    if (!curBox || !prevBox) continue;
+
+    let link = curBox.el.querySelector('.dialogStackRectLink');
+    if (!link) {
+      link = document.createElement('div');
+      link.className = 'dialogStackRectLink';
+      curBox.el.appendChild(link);
+    }
+    const gapPx = Math.round(curBox.rect.top - (prevBox.rect.top + prevBox.rect.height));
+    const linkH = Math.max(0, gapPx + 2);
+    link.style.left = `16px`;
+    link.style.top = `-${linkH}px`;
+    link.style.height = `${linkH}px`;
+  }
+
+  return typingEl;
+}
+
+function __updateDialogPointerForPortrait() {
+  if (!__dialogFirstNpcBoxEl) return;
+  if (!__lastDialogHasPortrait && currentNpc) {
+    __positionDialogPointerToActor(currentNpc, __dialogFirstNpcBoxEl);
+  } else {
+    __resetDialogPointerToDefault(__dialogFirstNpcBoxEl);
+  }
+}
+
+function __ensureDialogStackPointer() {
+  if (!dialogBox) return null;
+  let el = dialogBox.querySelector('.dialogStackPointer');
+  if (el) return el;
+  el = document.createElement('div');
+  el.className = 'dialogStackPointer';
+  el.style.pointerEvents = 'none';
+  dialogBox.appendChild(el);
+  return el;
+}
+
+function __removeDialogStackPointer() {
+  if (!dialogBox) return;
+  const el = dialogBox.querySelector('.dialogStackPointer');
+  if (el && el.parentElement) el.parentElement.removeChild(el);
+}
+
+function __attachDialogPointerToStackTop() {
+  if (!__dialogStackItems.length) return false;
+  const top = __dialogStackItems[0]?.el;
+  if (!top) return false;
+  const el = __ensureDialogPointerEl(top);
+  if (el && el.parentElement !== top) {
+    top.appendChild(el);
+  }
+  __resetDialogPointerToDefault(top);
+  return true;
+}
+
+function __attachDialogPointerToActiveBox() {
+  if (!dialogBox) return false;
+  const el = __ensureDialogPointerEl(dialogBox);
+  if (el && el.parentElement !== dialogBox) {
+    dialogBox.appendChild(el);
+  }
+  __resetDialogPointerToDefault(dialogBox);
+  return true;
+}
+
+function __ensureDialogStackUpPointer() {
+  if (!dialogBox) return null;
+  let el = dialogBox.querySelector('.dialogStackUpPointer');
+  if (el) return el;
+  el = document.createElement('div');
+  el.className = 'dialogStackUpPointer';
+  el.style.pointerEvents = 'none';
+  dialogBox.appendChild(el);
+  return el;
+}
+
+function __removeDialogStackUpPointer() {
+  if (!dialogBox) return;
+  const el = dialogBox.querySelector('.dialogStackUpPointer');
+  if (el && el.parentElement) el.parentElement.removeChild(el);
+}
+
+function __ensureDialogStackRectLink() {
+  if (!dialogBox) return null;
+  let el = dialogBox.querySelector('.dialogStackRectLink');
+  if (el) return el;
+  el = document.createElement('div');
+  el.className = 'dialogStackRectLink';
+  el.style.pointerEvents = 'none';
+  dialogBox.appendChild(el);
+  return el;
+}
+
+function __removeDialogStackRectLink() {
+  if (!dialogBox) return;
+  const el = dialogBox.querySelector('.dialogStackRectLink');
+  if (el && el.parentElement) el.parentElement.removeChild(el);
+}
+
+function __getDialogOptionRowHeight() {
+  if (__dialogOptionRowHeight != null && __dialogOptionsPadHeight != null) {
+    return { row: __dialogOptionRowHeight, pad: __dialogOptionsPadHeight };
+  }
+  if (!optionsBox) return { row: 60, pad: 16 };
+
+  const temp = document.createElement('div');
+  temp.className = 'dialogOption';
+  temp.style.visibility = 'hidden';
+  temp.style.position = 'absolute';
+  temp.textContent = 'Option';
+  optionsBox.appendChild(temp);
+
+  const rect = temp.getBoundingClientRect();
+  const cs = window.getComputedStyle(temp);
+  const mt = parseFloat(cs.marginTop || '0') || 0;
+  const mb = parseFloat(cs.marginBottom || '0') || 0;
+  const row = rect.height + mt + mb;
+  optionsBox.removeChild(temp);
+
+  const csBox = window.getComputedStyle(optionsBox);
+  const pt = parseFloat(csBox.paddingTop || '0') || 0;
+  const pb = parseFloat(csBox.paddingBottom || '0') || 0;
+  __dialogOptionRowHeight = Math.max(1, row);
+  __dialogOptionsPadHeight = pt + pb;
+  return { row: __dialogOptionRowHeight, pad: __dialogOptionsPadHeight };
+}
+
+function __cloneDialogBoxToStack() {
+  if (!conversationOverlay || !dialogBox) return null;
+  const overlayRect = conversationOverlay.getBoundingClientRect();
+  const rect = dialogBox.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return null;
+
+  const clone = document.createElement('div');
+  clone.className = 'dialogBoxStackItem';
+  clone.style.left = `${Math.round(rect.left - overlayRect.left)}px`;
+  clone.style.top = `${Math.round(rect.top - overlayRect.top)}px`;
+  clone.style.width = `${Math.round(rect.width)}px`;
+  clone.style.height = `${Math.round(rect.height)}px`;
+
+  const textEl = __dialogTextEl;
+  clone.innerHTML = textEl ? textEl.innerHTML : '';
+  if (__dialogStackItems.length > 0) {
+    const svgs = clone.querySelectorAll('svg');
+    svgs.forEach(el => el.parentElement && el.parentElement.removeChild(el));
+  }
+  conversationOverlay.appendChild(clone);
+  __dialogStackItems.push({ el: clone, rect: {
+    left: rect.left - overlayRect.left,
+    top: rect.top - overlayRect.top,
+    width: rect.width,
+    height: rect.height
+  }});
+
+  return {
+    left: rect.left - overlayRect.left,
+    top: rect.top - overlayRect.top,
+    width: rect.width,
+    height: rect.height
+  };
+}
+
+function __finalizeDialogStackLayout() {
+  if (!conversationOverlay || !dialogBox || !__dialogStackPending || !__dialogStackPrevRect) {
+    __dialogStackPending = false;
+    __dialogStackPrevRect = null;
+    __dialogStackTarget = null;
+    __removeDialogStackPointer();
+    __removeDialogStackUpPointer();
+    __removeDialogStackRectLink();
+    return;
+  }
+
+  const overlayRect = conversationOverlay.getBoundingClientRect();
+  const newRect = dialogBox.getBoundingClientRect();
+  const baseNpcRect = __dialogStackPrevRect;
+  let prev = __dialogStackPrevRect;
+  const lastChoice = __dialogChoiceItems.length ? __dialogChoiceItems[__dialogChoiceItems.length - 1].rect : null;
+  if (lastChoice) {
+    const prevBottom = prev.top + prev.height;
+    const choiceBottom = lastChoice.top + lastChoice.height;
+    if (choiceBottom > prevBottom) {
+      prev = lastChoice;
+    }
+  }
+  const gap = 8;
+
+  const { row, pad } = __getDialogOptionRowHeight();
+  const minOptionsHeight = pad + row * 4;
+  const maxBottom = overlayRect.height - minOptionsHeight - 12;
+  const nextTop = prev.top + prev.height + gap;
+  const nextBottom = nextTop + newRect.height;
+
+  if (nextBottom > maxBottom) {
+    __clearDialogStack();
+    return;
+  }
+
+  __dialogStackTarget = {
+    top: Math.round(nextTop),
+    left: Math.round(baseNpcRect.left),
+    width: Math.round(baseNpcRect.width)
+  };
+
+  dialogBox.style.top = `${__dialogStackTarget.top}px`;
+  dialogBox.style.bottom = '';
+  dialogBox.style.transform = '';
+  dialogBox.style.left = `${__dialogStackTarget.left}px`;
+  dialogBox.style.width = `${__dialogStackTarget.width}px`;
+  dialogBox.style.maxWidth = `${__dialogStackTarget.width}px`;
+
+  // Move speaker pointer to the top-most stacked box.
+  __attachDialogPointerToStackTop();
+
+  // Maintain rectangular connectors for all stacked boxes.
+  for (let i = 0; i < __dialogStackItems.length; i++) {
+    const item = __dialogStackItems[i];
+    if (!item || !item.el || !item.rect) continue;
+    const nextRect = (i + 1 < __dialogStackItems.length)
+      ? __dialogStackItems[i + 1].rect
+      : __dialogStackTarget;
+
+    if (!nextRect) continue;
+    let link = item.el.querySelector('.dialogStackLink');
+    if (!link) {
+      link = document.createElement('div');
+      link.className = 'dialogStackLink';
+      item.el.appendChild(link);
+    }
+    const linkLeft = 16;
+    const linkTop = Math.round(item.rect.height - 1);
+    const gap = Math.round(nextRect.top - (item.rect.top + item.rect.height));
+    const linkH = Math.max(0, gap + 2);
+    link.style.left = `${linkLeft}px`;
+    link.style.top = `${linkTop}px`;
+    link.style.height = `${linkH}px`;
+  }
+
+  // Active stacked box: rectangle connector at top-left to previous box.
+  __removeDialogStackUpPointer();
+  const rectLink = __ensureDialogStackRectLink();
+  if (rectLink && __dialogStackTarget) {
+    const leftAnchor = prev.left + 18;
+    const linkLeft = Math.round(leftAnchor - __dialogStackTarget.left);
+    const gap = Math.round(__dialogStackTarget.top - (prev.top + prev.height));
+    const linkH = Math.max(0, gap + 2);
+    rectLink.style.left = `${Math.max(6, linkLeft)}px`;
+    rectLink.style.top = `-${linkH}px`;
+    rectLink.style.height = `${linkH}px`;
+  }
+
+  __dialogStackPending = false;
+  __dialogStackPrevRect = null;
+}
+
+function __ensureDialogPointerEl(host = null) {
+  const parent = host || dialogBox;
+  if (!parent) return null;
+  if (__dialogPointerEl) {
+    if (__dialogPointerEl.parentElement !== parent) {
+      parent.appendChild(__dialogPointerEl);
+    }
+    return __dialogPointerEl;
+  }
+
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.style.position = 'absolute';
+  svg.style.left = '-60px';
+  svg.style.top = 'calc(90% - 28px)';
+  svg.style.transform = '';
+  svg.style.pointerEvents = 'none';
+  svg.style.zIndex = '0';
+  svg.style.overflow = 'visible';
+
+  const pointerW = 60;
+  const pointerH = 10;
+  const tipOffsetY = -5; // tilt up slightly without rotating the base
+  svg.setAttribute('width', String(pointerW));
+  svg.setAttribute('height', String(pointerH * 2));
+  svg.setAttribute('viewBox', `0 0 ${pointerW} ${pointerH * 2}`);
+
+  // Fill only (no outline)
+  const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+  poly.setAttribute(
+    'points',
+    `${pointerW},0 ${pointerW},${pointerH * 2} 0,${pointerH + tipOffsetY}`
+  );
+  poly.setAttribute('fill', '#ffffff');
+  poly.setAttribute('stroke', 'none');
+  svg.appendChild(poly);
+  svg.__poly = poly;
+
+  parent.appendChild(svg);
+  __dialogPointerEl = svg;
+  return svg;
+}
+
+function __setDialogPointerVisible(on, host = null) {
+  const el = __ensureDialogPointerEl(host);
+  if (!el) return;
+  el.style.display = on ? '' : 'none';
+}
+
+function __resetDialogPointerToDefault(host = null) {
+  const el = __ensureDialogPointerEl(host);
+  if (!el) return;
+  const pointerW = 60;
+  const pointerH = 10;
+  const tipOffsetY = -5;
+
+  el.style.left = '-60px';
+  el.style.top = 'calc(90% - 28px)';
+  el.style.width = `${pointerW}px`;
+  el.style.height = `${pointerH * 2}px`;
+  el.setAttribute('width', String(pointerW));
+  el.setAttribute('height', String(pointerH * 2));
+  el.setAttribute('viewBox', `0 0 ${pointerW} ${pointerH * 2}`);
+
+  let poly = el.__poly;
+  if (!poly) {
+    poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+    poly.setAttribute('fill', '#ffffff');
+    el.appendChild(poly);
+    el.__poly = poly;
+  }
+
+  poly.setAttribute(
+    'points',
+    `${pointerW},0 ${pointerW},${pointerH * 2} 0,${pointerH + tipOffsetY}`
+  );
+
+  if (el.__line1 && el.__line1.parentElement) el.__line1.parentElement.removeChild(el.__line1);
+  if (el.__line2 && el.__line2.parentElement) el.__line2.parentElement.removeChild(el.__line2);
+  el.__line1 = null;
+  el.__line2 = null;
+}
+
+function __renderToScreenX(rx) {
+  const cx = WIDTH * 0.5;
+  return (Number(rx) - cx) * cameraZoom + cx;
+}
+
+function __renderToScreenY(ry) {
+  const cy = HEIGHT * 0.5;
+  return (Number(ry) - cy) * cameraZoom + cy;
+}
+
+function __positionDialogPointerToActor(actor, host = null) {
+  const boxHost = host || dialogBox;
+  if (!boxHost || !actor) return;
+  const resolveActor = (a) => {
+    if (a && isFinite(Number(a.worldX)) && isFinite(Number(a.y))) return a;
+    const name = a?.name;
+    if (!name) return null;
+    const lcName = lc(name);
+    const found = npcs.find(n => lc(n?.name || '') === lcName);
+    return found || null;
+  };
+  const worldActor = resolveActor(actor);
+  if (!worldActor) return;
+  const el = __ensureDialogPointerEl(boxHost);
+  if (!el) return;
+
+  const boxRect = boxHost.getBoundingClientRect();
+  if (!boxRect || !boxRect.width || !boxRect.height) return;
+
+  const center = __actorRenderCenter(worldActor);
+  if (!center) return;
+
+  const canvasRect = canvas.getBoundingClientRect();
+  const scaleX = canvasRect.width / Math.max(1, WIDTH);
+  const scaleY = canvasRect.height / Math.max(1, HEIGHT);
+
+  const actorTopY = canvasRect.top + (Number(worldActor.y) * scaleY);
+  const actorCenterX = canvasRect.left + (Number(center.x) * scaleX);
+  const targetCenterY = actorTopY + (Number(worldActor.h) * 0.10 * scaleY);
+  const targetCenterX = actorCenterX;
+
+  const radius = Math.max(0, Number(worldActor.h) * 0.05 * scaleY);
+
+  // Aim at the target center, but stop at the circle boundary (radius)
+  const boxW = boxRect.width;
+  const boxH = boxRect.height;
+  const baseCenterX = boxRect.left + boxW / 2;
+  const baseCenterY = boxRect.top + boxH;
+  const vx = targetCenterX - baseCenterX;
+  const vy = targetCenterY - baseCenterY;
+  const vlen = Math.hypot(vx, vy) || 1;
+  const tipXRaw = targetCenterX - (vx / vlen) * radius;
+  const tipYRaw = targetCenterY - (vy / vlen) * radius;
+  if (!isFinite(tipXRaw) || !isFinite(tipYRaw)) return;
+  const tipX = Math.max(canvasRect.left + 4, Math.min(canvasRect.right - 4, tipXRaw));
+  const tipY = Math.max(canvasRect.top + 4, Math.min(canvasRect.bottom - 4, tipYRaw));
+
+  // boxW/boxH already set above
+  const pad = 4;
+  const pointerH = 50;
+  const baseHalf = 10;
+  const cornerRadius = 12;
+  const edgeOffset = boxW * 0.05;
+
+  const baseY = boxRect.top + boxH;
+  const centerX = boxRect.left + boxW / 2;
+
+  const minBaseX = Math.max(boxRect.left + edgeOffset, boxRect.left + cornerRadius + baseHalf);
+  const maxBaseX = Math.min(boxRect.left + boxW - edgeOffset, boxRect.left + boxW - cornerRadius - baseHalf);
+
+  const rel = (tipX - boxRect.left) / boxW; // owner center within bubble (0..1)
+  const playerSx = canvasRect.left + ((player.worldX - cameraX + (Number(player.w) || 0) * 0.5) * scaleX);
+  const playerOnLeft = playerSx < tipX;
+
+  // Angle the pointer ~30 degrees off vertical; tip stays at owner.
+  const angleRad = Math.PI / 6; // 30 degrees
+  const horizOffset = Math.tan(angleRad) * Math.max(0, tipY - baseY);
+
+  let baseX = centerX;
+
+  if (rel >= 0.45 && rel <= 0.55) {
+    baseX = boxRect.left + boxW * (playerOnLeft ? 0.45 : 0.55);
+  } else if (rel >= 0.05 && rel <= 0.95) {
+    const dir = playerOnLeft ? -1 : 1;
+    baseX = tipX + dir * horizOffset;
+  } else {
+    baseX = (rel < 0.05) ? (boxRect.left + boxW * 0.05) : (boxRect.left + boxW * 0.95);
+  }
+
+  baseX = Math.max(minBaseX, Math.min(maxBaseX, baseX));
+
+  const baseXLocal = baseX - boxRect.left;
+  const baseYLocal = baseY - boxRect.top;
+  const tipXLocal = tipX - boxRect.left;
+  const tipYLocal = tipY - boxRect.top;
+  //   boxTop: boxRect.top,
+  //   boxH: boxRect.height,
+  //   baseY,
+  //   tipY
+  // });
+
+  const svgW = Math.ceil(boxW);
+  const svgH = Math.ceil(Math.max(pointerH * 2, tipYLocal + pad));
+
+  el.style.left = '0px';
+  el.style.top = '0px';
+  el.style.width = `${svgW}px`;
+  el.style.height = `${svgH}px`;
+  el.setAttribute('width', String(svgW));
+  el.setAttribute('height', String(svgH));
+  el.setAttribute('viewBox', `0 0 ${svgW} ${svgH}`);
+
+  let poly = el.__poly;
+  let line1 = el.__line1;
+  let line2 = el.__line2;
+  if (!poly) {
+    poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+    poly.setAttribute('fill', '#ffffff');
+    el.appendChild(poly);
+    el.__poly = poly;
+  }
+  if (line1 && line1.parentElement) line1.parentElement.removeChild(line1);
+  if (line2 && line2.parentElement) line2.parentElement.removeChild(line2);
+  el.__line1 = null;
+  el.__line2 = null;
+
+  const p1x = baseXLocal - baseHalf;
+  const p1y = baseYLocal;
+  const p2x = baseXLocal + baseHalf;
+  const p2y = baseYLocal;
+  const p3x = tipXLocal;
+  const p3y = tipYLocal;
+
+  poly.setAttribute('points', `${p1x},${p1y} ${p2x},${p2y} ${p3x},${p3y}`);
+}
+
+function __ensureDialogTextEl() {
+  if (!dialogBox) return null;
+  if (__dialogTextEl && __dialogTextEl.parentElement === dialogBox) return __dialogTextEl;
+
+  const el = document.createElement('div');
+  el.className = 'dialogText';
+  dialogBox.appendChild(el);
+  __dialogTextEl = el;
+  return el;
+}
+
+function __setDialogBoxText(text) {
+  const el = __ensureDialogTextEl();
+  if (!el) return;
+  el.textContent = String(text ?? '');
+}
+
 function refreshConversationOverlayLayout(phrase) {
   if (!conversationOverlay || !dialogBox || !optionsBox) return;
 
@@ -12305,12 +24819,22 @@ function refreshConversationOverlayLayout(phrase) {
 
   const mode = getDialogLayoutModeForPhrase(phrase);
   conversationOverlay.dataset.mode = mode;
+  __lastDialogLayoutMode = mode;
+
+  // Narrator/guide should not inherit the NPC dialog stack.
+  if (mode === 'narrator' || mode === 'guide') {
+    __clearDialogStackAll();
+    __clearDialogStack();
+  }
 
   // Track current speaker name so stat-change feedback can mirror into the dialog portrait
   // (best-effort: supports a few common phrase shapes)
   CURRENT_DIALOG_SPEAKER_NAME = String(
     (phrase && (phrase.speaker ?? phrase.npc ?? phrase.actor ?? phrase.name ?? phrase.who)) || ''
   ).trim();
+  if (conversationOverlay) {
+    conversationOverlay.dataset.speaker = CURRENT_DIALOG_SPEAKER_NAME;
+  }
 
 
   const W = window.innerWidth || 0;
@@ -12318,6 +24842,7 @@ function refreshConversationOverlayLayout(phrase) {
   const pad = 12;
 
   if (mode === 'narrator') {
+    __setDialogPointerVisible(false);
     // 50% width, centered both axes, italic
     dialogBox.style.width = '50%';
     dialogBox.style.left = '50%';
@@ -12341,6 +24866,7 @@ function refreshConversationOverlayLayout(phrase) {
   }
 
   if (mode === 'guide') {
+    __setDialogPointerVisible(false);
     // 50% width, centered, top of window, italic bold centered blue, auto height
     dialogBox.style.width = '50%';
     dialogBox.style.left = '50%';
@@ -12365,11 +24891,12 @@ function refreshConversationOverlayLayout(phrase) {
   }
 
   if (mode === 'player') {
+    __setDialogPointerVisible(false);
     // 50% width, centered horizontally, 4 lines min, sits above optionsBox
     dialogBox.style.width = '50%';
     dialogBox.style.left = '50%';
     dialogBox.style.transform = 'translateX(-50%)';
-    setDialogMinHeightForLines(4);
+    if (!__dialogHeightLocked) setDialogMinHeightForLines(4);
 
     optionsBox.style.width = '50%';
     optionsBox.style.left = '50%';
@@ -12390,36 +24917,9 @@ function refreshConversationOverlayLayout(phrase) {
   if (conversationPortrait) {
     conversationPortrait.style.display = 'block';
   }
-
-  dialogBox.style.background = 'rgba(255, 255, 255, 1)';
-  dialogBox.style.border = '1px solid rgba(0, 0, 0, 1)';
-  dialogBox.style.color = '#000';
-  dialogBox.style.fontStyle = '';
-
-
-  // measure portrait width (after image load this becomes correct)
-  const pr = conversationPortrait ? conversationPortrait.getBoundingClientRect() : { width: 0 };
-  const leftX = Math.ceil((pr.width || 0) + pad);
-
-  // dialog box: just below top; left anchored to portrait; width fills remaining up to max=H
-  const avail = Math.max(0, W - leftX - pad);
-  const boxW = Math.max(200, Math.min(avail, H)); // max width = window height
-  dialogBox.style.left = `${leftX}px`;
-  dialogBox.style.top = `20%`;
-  dialogBox.style.width = `${Math.floor(boxW)}px`;
-  dialogBox.style.maxWidth = `${Math.floor(H)}px`;
-
-  // height: at least 4 lines OR enough to show full text (whichever is taller)
-  setDialogMinHeightForLines(4);
-  dialogBox.style.height = ''; // let content decide, scroll if needed
-
-  // options box aligned to same left/width
-  optionsBox.style.left = `${leftX}px`;
-  optionsBox.style.bottom = `${pad}px`;
-  optionsBox.style.width = `${Math.floor(boxW)}px`;
-  optionsBox.style.maxWidth = `${Math.floor(H)}px`;
-  optionsBox.style.transform = '';
-  optionsBox.style.textAlign = 'left';
+  __computeDialogStackLayout();
+  __renderDialogStack(null);
+  return;
 }
 
 window.addEventListener('resize', () => {
@@ -12446,7 +24946,9 @@ function resolveSpeakerNameForPhrase(phrase) {
 }
 
 async function typeDialogText(element, text) {
-  element.innerHTML = '';
+  const target = (element === dialogBox) ? __ensureDialogTextEl() : element;
+  if (!target) return;
+  target.innerHTML = '';
   if (!text) return;
 
   isTypingDialog = true;
@@ -12461,7 +24963,7 @@ async function typeDialogText(element, text) {
     if (!inConversation) return;
 
     if (cancelDialogTyping) {
-      element.innerHTML = text;
+      target.innerHTML = text;
       break;
     }
 
@@ -12470,7 +24972,7 @@ async function typeDialogText(element, text) {
       const end = text.indexOf('>', i);
       if (end !== -1) {
         htmlBuffer += text.slice(i, end + 1);
-        element.innerHTML = htmlBuffer;
+        target.innerHTML = htmlBuffer;
         i = end + 1;
         continue;
       }
@@ -12478,7 +24980,7 @@ async function typeDialogText(element, text) {
 
     // Visible character: animate it
     htmlBuffer += text[i];
-    element.innerHTML = htmlBuffer;
+    target.innerHTML = htmlBuffer;
     i++;
 
     await new Promise(resolve => setTimeout(resolve, delay));
@@ -12495,6 +24997,7 @@ async function loadPhrase(id) {
   if (!inConversation) return;
 
   const mySeq = ++__dialogPhraseLoadSeq;
+  __dialogHeightLocked = false;
 
   const resolved = await ensureDialogAndGetPhrase(id);
   if (!resolved.dialog) { endConversation(); return; }
@@ -12502,7 +25005,18 @@ async function loadPhrase(id) {
   const phrase = resolved.dialog.phrases[resolved.phraseId];
   currentPhraseId = resolved.phraseId;
 
-  if (!phrase) { endConversation(); return; }
+  const resolvedSpeaker = resolveSpeakerNameForPhrase(phrase);
+  const speakerKey = lc(String(resolvedSpeaker || ''));
+
+  // Ensure dialog layout metadata is available before effects fire
+  if (conversationOverlay) {
+    const mode = getDialogLayoutModeForPhrase(phrase);
+    conversationOverlay.dataset.mode = mode;
+    const speakerName = String(
+      (phrase && (phrase.speaker ?? phrase.npc ?? phrase.actor ?? phrase.name ?? phrase.who)) || ''
+    ).trim();
+    conversationOverlay.dataset.speaker = speakerName;
+  }
 
 
   // ACTION PHRASE:
@@ -12510,29 +25024,42 @@ async function loadPhrase(id) {
   // - Hide dialog UI
   // - Lock world + dialog inputs
   // - Keep world updating (handled in update())
-  if (phrase.action && typeof phrase.action === 'object') {
+  const actionObj = (phrase.action && typeof phrase.action === 'object') ? phrase.action : null;
+  if (actionObj && actionObj.atEnd === true) {
+    __enqueueDialogEndAction(actionObj);
+  } else if (actionObj) {
     startActionPhrase(id, phrase);
     return;
   }
 
   // Apply dialog phrase effects ON ENTER (so they run once when shown)
-  applyEffects(phrase?.effects);
+  const split = __splitDialogEffects(phrase?.effects);
+  if (split.atEnd.length) __enqueueDialogEndEffects(split.atEnd);
+  applyEffects(split.immediate);
 
+  const hasText = (typeof phrase.text === 'string' && phrase.text.trim().length > 0);
+  const hasOptions = !!(phrase.options && typeof phrase.options === 'object');
+  if (!hasText && !hasOptions) {
+    const next = __resolveConditionalNext(phrase.next || null, currentNpc);
+    if (next) {
+      void loadPhrase(next);
+    } else {
+      endConversation();
+    }
+    return;
+  }
 
-  // Layout mode (player / narrator / guide / npc)
   const layoutMode = getDialogLayoutModeForPhrase(phrase);
 
-  // Default: hide portrait unless NPC mode (but DO NOT clear src here; keep old portrait until new is ready)
-  conversationPortrait.style.display = (layoutMode === 'npc') ? 'block' : 'none';
 
-  // For NPC phrases: do not show the dialog/options until the NEW portrait is loaded
-if (layoutMode === 'npc') {
-  __dialogAwaitingPortrait = true;
+  // Ensure overlay is visible once we know there's renderable content
+  conversationOverlay.style.display = 'block';
 
-  // Keep the old portrait visible while loading the next one
-  if (dialogBox) dialogBox.style.display = 'none';
-  if (optionsBox) optionsBox.style.display = 'none';
-
+  // NPC stack mode
+  if (layoutMode === 'npc') {
+    __dialogAwaitingPortrait = false;
+    conversationPortrait.style.display = 'block';
+    if (dialogBox) dialogBox.style.display = 'none';
 
     const speakerName = lc(String(phrase.speaker || ''));
     const reaction = phrase.reaction || 'neutral';
@@ -12542,24 +25069,70 @@ if (layoutMode === 'npc') {
     const fallback =
       `assets/portraits/character_portrait_${speakerName}_neutral.png`;
 
-    const finalSrc = await ensurePortraitSrcLoaded(portraitPath, fallback);
+    const loadPromise = ensurePortraitSrcLoaded(portraitPath, fallback);
+    const portraitTimeoutMs = 5000;
 
-    // If another phrase started loading while we waited, abort this one
-    if (!inConversation || mySeq !== __dialogPhraseLoadSeq) return;
+    const speakerChanged = !!(__dialogLastNpcSpeaker && lc(__dialogLastNpcSpeaker) !== lc(resolvedSpeaker || ''));
+    if (speakerChanged) {
+      conversationPortrait.src = '';
+      conversationPortrait.style.display = 'none';
+      __lastDialogHasPortrait = false;
+      __updateDialogPointerForPortrait();
+    }
 
-    conversationPortrait.src = finalSrc;
+    const applyIfReady = (src) => {
+      if (!src) return;
+      if (!inConversation || mySeq !== __dialogPhraseLoadSeq) return;
+      conversationPortrait.src = src;
+      __lastDialogHasPortrait = true;
+      conversationPortrait.style.display = 'block';
+      __updateDialogPointerForPortrait();
+    };
 
+    Promise.race([
+      loadPromise,
+      sleepMs(portraitTimeoutMs).then(() => null)
+    ]).then(applyIfReady);
+    loadPromise.then(applyIfReady);
 
-    __dialogAwaitingPortrait = false;
+    __computeDialogStackLayout();
 
-    // Now that portrait is ready (real width), layout + show dialog/options
-    refreshConversationOverlayLayout(phrase);
-    if (dialogBox) dialogBox.style.display = '';
-    if (optionsBox) optionsBox.style.display = '';
+    const pending = [];
+    if (__dialogPendingChoiceText) {
+      pending.push({ text: __dialogPendingChoiceText, speaker: 'player', kind: 'player' });
+    }
+    pending.push({ text: phrase.text || '', speaker: resolvedSpeaker || '', kind: 'npc' });
 
+    const shouldClear =
+      !__dialogHasShownPhrase ||
+      __dialogActionSinceLastPhrase ||
+      speakerChanged ||
+      !__canAddToStack(pending);
+
+    if (shouldClear) {
+      __clearDialogStackAll({ keepPendingChoice: !!__dialogPendingChoiceText });
+      if (__dialogPendingChoiceText) {
+        DIALOG_STACK.push({ text: __dialogPendingChoiceText, speaker: 'player', kind: 'player' });
+      }
+    }
+
+    const npcIndex = DIALOG_STACK.length;
+    DIALOG_STACK.push({ text: phrase.text || '', speaker: resolvedSpeaker || '', kind: 'npc' });
+
+    const typingEl = __renderDialogStack(npcIndex);
+    if (typingEl) {
+      await typeDialogText(typingEl, phrase.text);
+    }
+
+    __dialogHasShownPhrase = true;
+    __dialogLastNpcSpeaker = String(resolvedSpeaker || '');
+    __dialogPendingChoiceText = null;
+    __dialogActionSinceLastPhrase = false;
   } else {
+    // Non-NPC modes: existing layout
+    conversationPortrait.style.display = 'none';
     __dialogAwaitingPortrait = false;
-    // Non-NPC modes can lay out immediately
+    if (dialogBox) dialogBox.style.display = '';
     refreshConversationOverlayLayout(phrase);
   }
 
@@ -12568,27 +25141,68 @@ if (layoutMode === 'npc') {
 
   optionsBox.innerHTML = '';
   dialogOptionsMap = null;
+  dialogOptionsByKey = null;
 
-  await typeDialogText(dialogBox, phrase.text);
+  if (layoutMode !== 'npc') {
+    await prepareDialogBoxForText(phrase.text);
+    // Reflow pointer now that box height is final, before typing begins
+    refreshConversationOverlayLayout(phrase);
+    await typeDialogText(dialogBox, phrase.text);
+  }
 
   if (phrase.options) {
     dialogOptionsMap = {};
+    dialogOptionsByKey = {};
     let idx = 1;
     for (const key in phrase.options) {
       const opt = phrase.options[key];
+      const optFlagKey = _dialogOptionFlagKey(currentPhraseId, key);
+      const wasChosen = !!getFlag('global', optFlagKey);
 
       // NEW: conditional visibility
       if (opt.when && !checkWhenBlock(opt.when, currentNpc)) {
         continue; // hide this option
       }
+      if (opt.state && !evaluateRuleState({ state: opt.state }, __lastEvent?.payload || null)) {
+        continue; // hide this option
+      }
+      if (opt.hideIfChosen) {
+        const mode = lc(opt.hideIfChosen);
+        const convoChosen = !!__getDialogConversationFlag(optFlagKey);
+        if (mode === 'conversation' || mode === 'perconversation') {
+          if (convoChosen) continue; // hide after chosen in this conversation
+        } else {
+          if (wasChosen) continue; // hide after chosen globally (default)
+        }
+      }
 
       const optDiv = document.createElement('div');
-      optDiv.textContent = `${idx}. ${opt.text}`;
+      optDiv.dataset.optionIndex = String(idx);
+      optDiv.dataset.optionKey = String(key);
+      optDiv.className = 'dialogOption';
+      const textSpan = document.createElement('span');
+      textSpan.className = 'dialogOptionText';
+      textSpan.textContent = opt.text;
+      optDiv.appendChild(textSpan);
+      attachHotkeyBadge(optDiv, idx);
+      optDiv.addEventListener('click', (e) => {
+        e.stopPropagation();
+        selectDialogOptionByKey(String(key));
+      });
+      optDiv.addEventListener('mousedown', (e) => e.stopPropagation());
       optionsBox.appendChild(optDiv);
 
       dialogOptionsMap[idx] = {
         ...opt,
-        optionId: key
+        optionId: key,
+        _dialogOptionFlagKey: optFlagKey,
+        _dialogOptionWasChosen: wasChosen
+      };
+      dialogOptionsByKey[String(key)] = {
+        ...opt,
+        optionId: key,
+        _dialogOptionFlagKey: optFlagKey,
+        _dialogOptionWasChosen: wasChosen
       };
       idx++;
     }
@@ -12599,16 +25213,139 @@ if (layoutMode === 'npc') {
     optionsBox.appendChild(p);
   }
   // Final layout pass (now that optionsBox has its real height)
-  refreshConversationOverlayLayout(phrase);
+  if (layoutMode !== 'npc') {
+    refreshConversationOverlayLayout(phrase);
+  }
+  // keep height fixed during typing; do not resize here
 
+  __dialogHasShownPhrase = true;
+  __dialogLastSpeakerName = String(resolvedSpeaker || '');
+  __dialogActionSinceLastPhrase = false;
+
+}
+
+function selectDialogOptionByIndex(idx) {
+  if (!dialogOptionsMap || Object.keys(dialogOptionsMap).length === 0) return false;
+  const opt = dialogOptionsMap[idx];
+  if (!opt) return false;
+  return selectDialogOption(opt);
+}
+
+function selectDialogOptionByKey(key) {
+  if (!dialogOptionsByKey || Object.keys(dialogOptionsByKey).length === 0) return false;
+  const opt = dialogOptionsByKey[String(key)];
+  if (!opt) return false;
+  return selectDialogOption(opt);
+}
+
+function selectDialogOption(opt) {
+  if (!opt) return false;
+
+  const choiceText = String(opt.text || '').trim();
+  if (choiceText) {
+    __computeDialogStackLayout();
+    const pending = [{ text: choiceText, speaker: 'player', kind: 'player' }];
+    if (!__canAddToStack(pending)) {
+      __clearDialogStackAll();
+    }
+    DIALOG_STACK.push({ text: choiceText, speaker: 'player', kind: 'player' });
+    __dialogPendingChoiceText = choiceText;
+    __renderDialogStack(null);
+  }
+
+  optionsBox.innerHTML = '';
+  dialogOptionsMap = null;
+  dialogOptionsByKey = null;
+
+  if (opt._dialogOptionFlagKey) {
+    setFlag('global', opt._dialogOptionFlagKey, true);
+    __setDialogConversationFlag(opt._dialogOptionFlagKey, true);
+  }
+
+  // APPLY EFFECTS (dialog option)
+  const merged = [];
+  if (Array.isArray(opt.effects)) {
+    if (!opt.effectsOnce || !opt._dialogOptionWasChosen) {
+      merged.push(...opt.effects);
+    }
+  }
+
+  applyEffects(merged);
+
+  emitGameEvent('dialog_option', {
+    area: currentAreaName,
+    section: getSectionNameForX(player.worldX),
+    npc: currentNpc ? currentNpc.name : null,
+    phrase: currentPhraseId,
+    optionId: opt.optionId
+  });
+
+  // HANDLE NEXT
+  let next = opt.next;
+
+  if (typeof next === 'string') {
+    optionsBox.innerHTML = '';
+    dialogOptionsMap = null;
+    void loadPhrase(next);
+    return true;
+  }
+
+  if (next && typeof next === 'object') {
+    const entries = Object.entries(next);
+    entries.sort((a, b) => {
+      const wa = a[1]?.when && Object.keys(a[1].when).length > 0 ? 0 : 1;
+      const wb = b[1]?.when && Object.keys(b[1].when).length > 0 ? 0 : 1;
+      return wa - wb;
+    });
+
+    for (const [branchName, branch] of entries) {
+      const w = branch?.when || {};
+      if (checkWhenBlock(w, currentNpc)) {
+        optionsBox.innerHTML = '';
+        dialogOptionsMap = null;
+        void loadPhrase(branchName);
+        return true;
+      }
+    }
+
+    endConversation();
+    return true;
+  }
+
+  endConversation();
+  return true;
 }
 
 async function startTriggeredDialog(index) {
   const p = activeDialogPrompts[index];
   if (!p) return;
+  if (p.npc && isActorUnconscious(p.npc)) return;
+
+  __resetDialogStackState();
+  let promptId = p.__promptId || null;
+  if (!promptId) {
+    let triggerKey = p.triggerKey || null;
+    if (!triggerKey) {
+      const who = lc(p.npc?.name || p.npc || '');
+      const start = lc(p.start || '');
+      const text = lc(p.prompt || '');
+      triggerKey = `legacy:${who}:${start}:${text}`;
+    }
+    promptId = `${lc(p.npc.name)}:${triggerKey}`;
+  }
+  // Remove prompt immediately when triggered so it doesn't render during dialog
+  activeDialogPrompts.splice(index, 1);
+  __releasePartyPromptSlot(promptId);
+  __promptVisibleMsById.delete(promptId);
+  __promptAnimYById.delete(promptId);
 
   // Mark as "fired" only AFTER the conversation completes
-  currentTriggeredPromptId = `${lc(p.npc.name)}:${p.triggerKey}`;
+  currentTriggeredPromptId = promptId;
+  currentTriggeredPromptRuleId = p.ruleId || null;
+
+  wasMenuOpenBeforeDialog = !!inMenu;
+  if (inMenu) closePlayerMenu();
+  hideMenuTabsForDialog();
 
   inConversation = true;
   currentNpc = p.npc;
@@ -12633,7 +25370,7 @@ async function startTriggeredDialog(index) {
 
   // Show UI immediately (mirror startConversation)
   conversationOverlay.style.display = 'block';
-  dialogBox.innerHTML = 'Loading...';
+  __setDialogBoxText('Loading...');
   optionsBox.innerHTML = '';
   conversationPortrait.src = '';
 
@@ -12653,8 +25390,7 @@ async function startTriggeredDialog(index) {
 }
 
 
-function endConversation() {
-  console.log('[DEBUG] endConversation called');
+function __finalizeConversationEnd() {
 
   const npc = currentNpc;
   const wasViewMode = inViewMode;
@@ -12669,6 +25405,7 @@ function endConversation() {
 
   inConversation = false;
   __dialogAwaitingPortrait = false;
+  __resetDialogStackState();
   currentNpc = null;
 
   currentDialog = null;
@@ -12677,10 +25414,18 @@ function endConversation() {
   inViewMode = false;
   conversationOverlay.style.display = 'none';
 
+  // Flush any queued interaction effects if a dialog ended without an explicit action.
+  __flushPendingObjectInteraction('dialog_end');
+  if (wasMenuOpenBeforeDialog) {
+    wasMenuOpenBeforeDialog = false;
+    openPlayerMenu(activeMenuPageId);
+  } else {
+    showMenuTabsAfterDialog();
+  }
+
   // NPC must exist and must not be in view-only mode
   if (!npc || wasViewMode) {
     // Even without an NPC, state-only rules may now be eligible to fire.
-    console.log('[DEBUG] evaluateAllStateRules about to run');
 
     if (currentRuleSceneId) {
       const rid = String(currentRuleSceneId);
@@ -12706,12 +25451,23 @@ function endConversation() {
 
   // If this conversation was started from a triggered prompt, mark it fired now
   if (currentTriggeredPromptId) {
-    firedDialogTriggers.add(currentTriggeredPromptId);
+    const rid = String(currentTriggeredPromptRuleId || '').trim();
+    const rule = rid ? stateRuleById.get(rid) : null;
+    const persistenceRaw = rule?.dialog?.persistence;
+    const persistence = (persistenceRaw == null) ? 1 : Number(persistenceRaw);
+    const isInfinite = (isFinite(persistence) && persistence === 0);
+    if (!isInfinite && isFinite(persistence)) {
+      const prev = firedDialogTriggers.get(currentTriggeredPromptId) || 0;
+      firedDialogTriggers.set(currentTriggeredPromptId, prev + 1);
+    }
+    if (rid) {
+      activeStateRuleIds.delete(rid);
+    }
     currentTriggeredPromptId = null;
+    currentTriggeredPromptRuleId = null;
   }
 
   // IMPORTANT: some state-only scene rules get unblocked only after conversations end
-  console.log('[DEBUG] evaluateAllStateRules about to run');
   if (currentRuleSceneId) {
     const rid = String(currentRuleSceneId);
     triggeredRuleIds.add(rid);
@@ -12734,25 +25490,31 @@ function endConversation() {
 
 }
 
+function endConversation() {
+  if (__dialogEndQueueActive) return;
+  if (dialogEndQueue && dialogEndQueue.length) {
+    __startDialogEndQueue();
+    return;
+  }
+  __resetDialogConversationFlags();
+  __finalizeConversationEnd();
+}
+
 function canRecruitNpc(npc) {
   if (!npc) return false;
   if (party.includes(npc)) return false;
   if (party.length >= 3) return false;
 
-  const aCur = Number(npc?.stats?.alignment?.current ?? 0);
-  const aMin = Number(npc?.stats?.alignment?.base ?? 0);
-
-  const fCur = Number(npc?.stats?.affection?.current ?? 0);
-  const fMin = Number(npc?.stats?.affection?.base ?? 0);
-
-  return (
-    (fCur >= fMin) ||
-    (aCur >= aMin)
-  );
+  const aCur = Number(getActorStatValue(npc?.name || '', 'alignment', 'current') ?? 0);
+  const aMinRaw = getActorStatValue(npc?.name || '', 'minalignment', 'base');
+  if (aMinRaw == null) return false;
+  const aMin = Number(aMinRaw);
+  const fCur = Number(getActorStatValue(npc?.name || '', 'affection', 'current') ?? 0);
+  return (aCur + fCur) >= aMin;
 }
 
 
-function emitProximityEvent(isEnter, t) {
+function emitProximityEvent(isEnter, t, extra = null) {
   const ev = isEnter ? 'proximity_enter' : 'proximity_leave';
 
   if (isEnter && t && t.kind === 'safeplace') {
@@ -12770,6 +25532,12 @@ function emitProximityEvent(isEnter, t) {
 
 
 
+  const isObject = t && t.kind === 'object';
+  const instanceKey = isObject ? makeProxKey(t) : null;
+  const canInteract = isObject ? isObjectInteractable(t.id, instanceKey) : undefined;
+  const objDef = isObject ? getObjectDef(t.id) : null;
+  const hasInteracts = isObject ? partyCanInteractWithObjectDef(objDef) : undefined;
+
   emitGameEvent(ev, {
     area: currentAreaName,
     section: getSectionNameForX(player.worldX),
@@ -12777,8 +25545,14 @@ function emitProximityEvent(isEnter, t) {
     id: t.id,
     from: (playerCenterX() < t.worldX) ? 'left' : 'right',
     target: t.target,
-    npc: (t.kind === 'npc') ? t.id : undefined
+    npc: (t.kind === 'npc') ? t.id : undefined,
+    interactable: canInteract,
+    interactsOk: hasInteracts,
+    covered: (extra && extra.covered !== undefined) ? !!extra.covered : undefined,
+    coveredWas: (extra && extra.coveredWas !== undefined) ? !!extra.coveredWas : undefined,
+    __rawProximity: (extra && extra.rawProximity) ? true : undefined
   });
+
 
   if (t.kind === 'npc') {
     emitGameEvent(isEnter ? 'npc_proximity' : 'npc_proximity_leave', {
@@ -12821,7 +25595,11 @@ function mobPayloadBase(mob, targetActor = null) {
 // Apply effects using the existing rule/effect pipeline.
 function applyMobEffects(effects, mob, extraPayload = null, targetActor = null) {
   if (!Array.isArray(effects) || effects.length === 0) return;
-  const payload = { ...mobPayloadBase(mob, targetActor), ...(extraPayload || {}) };
+  const payload = {
+    ...mobPayloadBase(mob, targetActor),
+    sourceActor: targetActorDescriptorFromActor(mob),
+    ...(extraPayload || {})
+  };
   applyRuleEffects({ effects }, payload);
 }
 
@@ -12836,61 +25614,168 @@ function npcPayloadBase(npc, targetActor = null) {
   };
 }
 
+function playerPayloadBase(targetActor = null) {
+  const td = targetActor ? targetActorDescriptorFromActor(targetActor) : null;
+  return {
+    area: currentAreaName,
+    section: getSectionNameForX((targetActor && isFinite(targetActor.worldX)) ? targetActor.worldX : player.worldX),
+    targetActor: td
+  };
+}
+
 function applyNpcEffects(effects, npc, extraPayload = null, targetActor = null) {
   if (!Array.isArray(effects) || effects.length === 0) return;
-  const payload = { ...npcPayloadBase(npc, targetActor), ...(extraPayload || {}) };
+  const payload = {
+    ...npcPayloadBase(npc, targetActor),
+    sourceActor: targetActorDescriptorFromActor(npc),
+    ...(extraPayload || {})
+  };
   applyRuleEffects({ effects }, payload);
 }
 
-function tryNpcAbilities(npc, nowMs) {
-  const list = npc?.abilities;
+function applyPlayerEffects(effects, extraPayload = null, targetActor = null) {
+  if (!Array.isArray(effects) || effects.length === 0) return;
+  const payload = {
+    ...playerPayloadBase(targetActor),
+    sourceActor: targetActorDescriptorFromActor(player),
+    ...(extraPayload || {})
+  };
+  applyRuleEffects({ effects }, payload);
+}
+
+function getActorKind(actor) {
+  if (!actor) return '';
+  if (actor === player || lc(actor?.name) === 'player') return 'player';
+  if (actor && actor.instanceId && actor.id) return 'mob';
+  if (actor && actor.name) return 'npc';
+  return '';
+}
+
+function tryActorAbilities(actor, nowMs) {
+  const list = actor?.abilities;
   if (!Array.isArray(list) || list.length === 0) return;
+  if (actorHasTag(actor, 'stunned')) return;
+
+  const autoId = lc(actor.autoCastAbilityId || '');
+  if (!autoId) return;
+
+  const kind = getActorKind(actor);
+  if (!kind) return;
+  const lockUntil = Number(actor.__abilityLockUntilMs || 0);
+  if (lockUntil > nowMs) return;
 
   for (let i = 0; i < list.length; i++) {
     const a = list[i];
     if (!a) continue;
 
     const abilityId = lc(a.id || a.name || `ability_${i}`);
-    const nextAt = Number(npc.abilityNextAtMs?.[abilityId] || 0);
+    if (abilityId !== autoId) continue;
+
+    const nextAt = Number(actor.abilityNextAtMs?.[abilityId] || 0);
     if (nowMs < nextAt) continue;
 
-    // Must have a real current target; no fallback to player
-    const target = npc.__targetActor;
-    if (!target) continue;
+    const fixedTargetsRaw = resolveAbilityFixedTargets(actor, a);
+    const tdef = getAbilityTargetingDef(a);
 
-    // Range gating
-    const rangePxRaw = a.rangePx ?? a.range;
-    const rangePx = Number(rangePxRaw);
+    let target = actor.__attackTargetActor || null;
+    if (!fixedTargetsRaw) {
+      const candidates = __getAbilityTargetCandidates(actor, a, { priorityOnly: true });
+      if (!candidates.length) continue;
+      if (target && candidates.includes(target)) {
+        // keep
+      } else {
+        target = candidates[0] || null;
+      }
+    }
+
+    if (!target && !fixedTargetsRaw && kind === 'mob') target = player;
+    if (!target && !fixedTargetsRaw && kind === 'npc') continue;
+
+    const requiresContact = !!(a.requiresContact || a.inContact);
+    let contactTargetActor = null;
+
+    if (fixedTargetsRaw) {
+      let fixedTargets = fixedTargetsRaw.slice();
+
+      if (requiresContact && kind === 'mob') {
+        fixedTargets = fixedTargets.filter(t => {
+          const pairKey = contactPairKey(actor.instanceId, t);
+          return pairKey && contactInsidePairs.has(pairKey);
+        });
+      }
+
+      const rangePx = getAbilityRangePx(a, tdef);
+      if (isFinite(rangePx) && rangePx > 0) {
+        const actorCx = actorCenterX(actor);
+        fixedTargets = fixedTargets.filter(t => Math.abs(actorCenterX(t) - actorCx) <= rangePx);
+      }
+
+      if (!fixedTargets.length) continue;
+
+      for (const t of fixedTargets) {
+        if (!t) continue;
+        if (kind === 'mob') {
+          emitGameEvent('mob_ability', { ...mobPayloadBase(actor, t), ability: abilityId });
+        } else if (kind === 'npc') {
+          emitGameEvent('npc_ability', { ...npcPayloadBase(actor, t), ability: abilityId });
+        } else if (kind === 'player') {
+          emitGameEvent('player_ability', { ...playerPayloadBase(t), ability: abilityId });
+        }
+      }
+
+      const ok = __applyAbilityEffectsWithTiming(kind, actor, a, fixedTargets, null, nowMs);
+      if (!ok) continue;
+
+      if (lc(actor.__forcedTargetAbilityId || '') === abilityId) {
+        actor.__forcedTargetKey = null;
+        actor.__forcedTargetAbilityId = null;
+      }
+      return; // one ability per tick per actor
+    }
+
+    if (requiresContact) {
+      if (kind !== 'mob') {
+        if (!target) continue;
+      } else {
+        const pref = target || player;
+        const candidates = [pref, player, ...party];
+        for (const cand of candidates) {
+          if (!cand) continue;
+          const pairKey = contactPairKey(actor.instanceId, cand);
+          if (pairKey && contactInsidePairs.has(pairKey)) {
+            contactTargetActor = cand;
+            break;
+          }
+        }
+      if (!contactTargetActor) continue;
+      }
+    }
+
+    const rangePx = getAbilityRangePx(a, tdef);
     if (isFinite(rangePx) && rangePx > 0) {
-      const npcCx = (Number(npc.worldX) || 0) + (Number(npc.w) || 0) * 0.5;
-      const dx = Math.abs(actorCenterX(target) - npcCx);
+      const actorCx = actorCenterX(actor);
+      const tgt = contactTargetActor || target;
+      if (!tgt) continue;
+      const dx = Math.abs(actorCenterX(tgt) - actorCx);
       if (dx > rangePx) continue;
     }
 
-    const effects = Array.isArray(a.effects) ? a.effects : null;
-    if (!effects || effects.length === 0) continue;
+    if (kind === 'mob') {
+      emitGameEvent('mob_ability', { ...mobPayloadBase(actor, contactTargetActor || target), ability: abilityId });
+    } else if (kind === 'npc') {
+      emitGameEvent('npc_ability', { ...npcPayloadBase(actor, target), ability: abilityId });
+    } else if (kind === 'player') {
+      emitGameEvent('player_ability', { ...playerPayloadBase(target), ability: abilityId });
+    }
 
-    // Fire
-    emitGameEvent('npc_ability', { ...npcPayloadBase(npc, target), ability: abilityId });
-    console.log(
-      '[npc ability FIRE]',
-      'npc=', npc.name,
-      'ability=', abilityId,
-      'targetTd=', targetActorDescriptorFromActor(target),
-      'npcX=', npc.worldX,
-      'targetX=', target?.worldX,
-      'rangePx=', a.rangePx ?? a.range,
-      'cooldownMs=', a.cooldownMs ?? a.cooldown
-    );
+    const ok = __applyAbilityEffectsWithTiming(kind, actor, a, contactTargetActor || target, null, nowMs);
+    if (!ok) continue;
 
-    console.log('[npc ability effects]', abilityId, JSON.stringify(effects));
-
-
-    applyNpcEffects(effects, npc, { ability: abilityId }, target);
-
-    const cd = Math.max(0, Number(a.cooldownMs ?? a.cooldown ?? 1000) || 1000);
-    npc.abilityNextAtMs[abilityId] = nowMs + cd;
-    return; // one ability per tick per npc
+    if (lc(actor.__forcedTargetAbilityId || '') === abilityId) {
+      actor.__forcedTargetKey = null;
+      actor.__forcedTargetAbilityId = null;
+    }
+    return; // one ability per tick per actor
   }
 }
 
@@ -12980,6 +25865,70 @@ function removeMobInstance(mob) {
   }
 }
 
+function despawnMobInstance(mob) {
+  if (!mob) return false;
+
+  const now = getGameNowMs();
+  const canAnim = actorHasAnimSprite('mob', mob.id, 'despawn');
+
+  // Prevent registry persistence for time-based despawns
+  if (mob.instanceId && mobRegistry && mobRegistry[mob.instanceId]) {
+    delete mobRegistry[mob.instanceId];
+  }
+
+  if (canAnim) {
+    setActorTempAnim(mob, 'despawn', 700, now);
+    lockActorMovementForMs(mob, 700, now);
+    mob._despawning = true;
+    mob._removeAtMs = now + 700;
+    mob.vx = 0;
+    mob.vy = 0;
+  } else {
+    removeMobInstance(mob);
+  }
+
+  return true;
+}
+
+function removeWorldNpcInstance(npc) {
+  if (!npc) return false;
+  const idx = npcs.indexOf(npc);
+  if (idx >= 0) npcs.splice(idx, 1);
+  if (currentArea && Array.isArray(currentArea.npcs)) {
+    const j = currentArea.npcs.indexOf(npc);
+    if (j >= 0) currentArea.npcs.splice(j, 1);
+  }
+  return true;
+}
+
+function despawnNpcInstance(npc) {
+  if (!npc) return false;
+  const now = getGameNowMs();
+
+  // Preserve NPC state in registry
+  const rec = ensureNpcRecord(npc.name);
+  rec.inParty = false;
+  rec.area = currentAreaName;
+  rec.worldX = npc.worldX;
+  rec.stats = npc.stats || rec.stats;
+  rec.inventory = npc.inventory || rec.inventory;
+  rec.inventoryUidCounter = npc.inventoryUidCounter || rec.inventoryUidCounter;
+  ensureNpcRecordStats(npc.name, rec);
+
+  const canAnim = actorHasAnimSprite('npc', npc.name, 'despawn');
+  if (canAnim) {
+    setActorTempAnim(npc, 'despawn', 700, now);
+    lockActorMovementForMs(npc, 700, now);
+    npc._removeAtMs = now + 700;
+    npc.vx = 0;
+    npc.vy = 0;
+  } else {
+    removeWorldNpcInstance(npc);
+  }
+
+  return true;
+}
+
 
 function applyMobDrops(mob) {
   const drops = mob?.def?.drops;
@@ -13006,6 +25955,18 @@ function applyMobDrops(mob) {
   }
 }
 
+function markSpawnSpecDefeated(mob) {
+  if (!mob) return;
+  const inst = String(mob.instanceId || '');
+  if (!inst) return;
+  for (const spec of pendingSpawns || []) {
+    if (spec && spec.kind === 'mob' && String(spec.instanceId || '') === inst) {
+      spec._blocked = true;
+      return;
+    }
+  }
+}
+
 function handleMobDefeatIfNeeded(mob, extraPayload = null) {
   if (!mob) return false;
 
@@ -13017,6 +25978,7 @@ function handleMobDefeatIfNeeded(mob, extraPayload = null) {
   // prevent double-processing
   if (mob._defeated) return true;
   mob._defeated = true;
+  markSpawnSpecDefeated(mob);
 
   emitGameEvent('mob_defeat', { ...mobPayloadBase(mob), ...(extraPayload || {}) });
 
@@ -13032,7 +25994,7 @@ function handleMobDefeatIfNeeded(mob, extraPayload = null) {
   applyMobDrops(mob);
   
   // Delay removal to allow despawn animation to render
-  const now = performance.now();
+  const now = getGameNowMs();
   mob._removeAtMs = now + 700;
   mob.vx = 0;
   mob.vy = 0;
@@ -13128,73 +26090,7 @@ function runMobContactTick(mob, nowMs) {
 
 
 function tryMobAbilities(mob, nowMs) {
-  const list = mob?.def?.abilities;
-  if (!Array.isArray(list) || list.length === 0) return;
-
-  // Ability gating: if you ever want to disable abilities via rules, add a mob param later.
-  for (let i = 0; i < list.length; i++) {
-    const a = list[i];
-    if (!a) continue;
-
-    const abilityId = lc(a.id || a.name || `ability_${i}`);
-    const nextAt = Number(mob.abilityNextAtMs?.[abilityId] || 0);
-    if (nowMs < nextAt) continue;
-
-    const requiresContact = !!(a.requiresContact || a.inContact);
-    let contactTargetActor = null;
-
-    if (requiresContact) {
-      // Prefer current target if set, else player, else party
-      const pref = mob.__targetActor || mob.__targetGoalActor || player;
-
-      const candidates = [pref, player, ...party];
-      for (const cand of candidates) {
-        if (!cand) continue;
-        const pairKey = contactPairKey(mob.instanceId, cand);
-        if (pairKey && contactInsidePairs.has(pairKey)) {
-          contactTargetActor = cand;
-          break;
-        }
-      }
-      if (!contactTargetActor) continue;
-    }
-
-
-
-    const rangePxRaw = a.rangePx ?? a.range;
-    const rangePx = Number(rangePxRaw);
-    if (isFinite(rangePx) && rangePx > 0) {
-      const mobCx = (Number(mob.worldX) || 0) + (Number(mob.w) || 0) * 0.5;
-
-      // Prefer current targeting actor; fall back to player
-      const pref = mob.__targetActor || mob.__targetGoalActor || player;
-      const prefCx = actorCenterX(pref);
-
-      const dx = Math.abs(prefCx - mobCx);
-      if (dx > rangePx) continue;
-    }
-
-
-    const effects = Array.isArray(a.effects) ? a.effects : null;
-    if (!effects || effects.length === 0) continue;
-
-    // Fire
-    emitGameEvent('mob_ability', { ...mobPayloadBase(mob), ability: abilityId });
-    console.log(
-      '[mob ability]',
-      abilityId,
-      'mob=', mob.id,
-      'instance=', mob.instanceId,
-      'rangePx=', a.rangePx ?? a.range,
-      'requiresContact=', !!(a.requiresContact || a.inContact)
-    );
-    const pref = mob.__targetActor || mob.__targetGoalActor || player;
-    applyMobEffects(effects, mob, { ability: abilityId }, contactTargetActor || pref);
-
-    const cd = Math.max(0, Number(a.cooldownMs ?? a.cooldown ?? 1000) || 1000);
-    mob.abilityNextAtMs[abilityId] = nowMs + cd;
-    return; // one ability per tick per mob
-  }
+  return tryActorAbilities(mob, nowMs);
 }
 
 
@@ -13238,6 +26134,8 @@ function addNpcToPartyInternal(npc, opts = {}) {
 
   npc.isChasing = false;
   npc.followSpeed = 0;
+  // Party members should not auto-cast by default
+  npc.autoCastAbilityId = null;
 
   // Insert at index (or push)
   if (index === null || index === undefined || index < 0 || index > party.length) {
@@ -13256,15 +26154,14 @@ function addNpcToPartyInternal(npc, opts = {}) {
 
   rec.met = true;
   if (!rec.firstMetAt) rec.firstMetAt = Date.now();
-  rec.lastSeenArea = null;
-  rec.lastSeenWorldX = null;
+  rec.lastSeenArea = currentAreaName ?? rec.lastSeenArea ?? null;
+  rec.lastSeenWorldX = (npc && typeof npc.worldX === 'number') ? npc.worldX : (rec.lastSeenWorldX ?? null);
   rec.lastSeenAt = Date.now();
 
-  rec.area = null;
-  rec.worldX = null;
   rec.stats = npc.stats || rec.stats;
   ensureNpcRecordStats(npc.name, rec);
 
+  rebuildActorItemGrants(npc);
 
 
 
@@ -13383,11 +26280,94 @@ function isMovementKeyCode(code) {
   );
 }
 
+function triggerCurrentObjectInteract() {
+  if (!currentObjectInteract) {
+    return false;
+  }
+  const nowMs = getGameNowMs();
+  if (nowMs < nextObjectInteractAtMs) return false;
+  const ok = __beginObjectInteraction(currentObjectInteract.typeId, currentObjectInteract.instanceKey);
+  if (ok) nextObjectInteractAtMs = nowMs + OBJECT_INTERACT_COOLDOWN_MS;
+  return ok;
+}
+
+function pickupWorldItem(instanceKey) {
+  const item = getWorldItemByInstanceKey(instanceKey);
+  if (!item || !isWorldItemAvailable(item)) return false;
+
+  if (!hasActorInventorySpace(player)) {
+    showPlayerMenuError('Inventory is full.');
+    return false;
+  }
+
+  const qty = Math.max(1, Math.floor(Number(item.qty || 1)));
+  const added = addItemToActorInventory(player, item.itemId, qty);
+  if (!added) return false;
+
+  const flagKey = worldItemPickedFlagKey(item.instanceKey);
+  if (flagKey) setFlag('global', flagKey, true);
+  item._picked = true;
+
+  const instKey = item.instanceKey;
+  if (instKey && proximityInside.has(instKey)) {
+    proximityInside.delete(instKey);
+    proximityInsideRaw.delete(instKey);
+    proximityTargetByKey.delete(instKey);
+
+    const typeKey = makeProxTypeKey({ kind: 'item', id: item.itemId });
+    if (proximityInteractFocus.get(typeKey) === instKey) {
+      proximityInteractFocus.delete(typeKey);
+    }
+
+    const prev = proximityTypeCount.get(typeKey) || 0;
+    const next = Math.max(0, prev - 1);
+    if (next === 0) {
+      proximityTypeCount.delete(typeKey);
+      proximityInsideTypes.delete(typeKey);
+    } else {
+      proximityTypeCount.set(typeKey, next);
+    }
+  }
+
+  if (currentItemInteract && currentItemInteract.instanceKey === instKey) {
+    currentItemInteract = null;
+  }
+  return true;
+}
+
+function triggerCurrentItemInteract() {
+  if (!currentItemInteract) return false;
+  return pickupWorldItem(currentItemInteract.instanceKey);
+}
+
+function triggerCurrentInteract() {
+  if (currentObjectInteract && triggerCurrentObjectInteract()) return true;
+  if (currentItemInteract && triggerCurrentItemInteract()) return true;
+  return false;
+}
+
 
 
 // ===== Key handling =====
 const keys = {};
 window.addEventListener('keydown', (e) => {
+
+  if (e.code === 'Enter') {
+    const evt = new KeyboardEvent('keydown', {
+      code: 'Space',
+      key: ' ',
+      repeat: e.repeat,
+      shiftKey: e.shiftKey,
+      ctrlKey: e.ctrlKey,
+      altKey: e.altKey,
+      metaKey: e.metaKey,
+      bubbles: true,
+      cancelable: true
+    });
+    window.dispatchEvent(evt);
+    e.preventDefault();
+    return;
+  }
 
   if (inConversation && isTypingDialog) {
     cancelDialogTyping = true;
@@ -13395,35 +26375,175 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
+  if (mapOverlayOpen) {
+    if (e.code === 'Escape' || e.code === 'KeyM' || e.code === 'KeyX') {
+      setMapOverlayOpen(false, false);
+    }
+    if (e.code === 'ArrowLeft') { mapPanX += 40; }
+    if (e.code === 'ArrowRight') { mapPanX -= 40; }
+    if (e.code === 'ArrowUp') { mapPanY += 40; }
+    if (e.code === 'ArrowDown') { mapPanY -= 40; }
+    if (e.code === 'KeyM' && e.shiftKey) { setMapOverlayOpen(true, true); }
+    e.preventDefault();
+    return;
+  }
+
+  if (e.code === 'KeyM' && !inMenu && !inConversation && !inActionPhrase && !controlsLocked && !isPlayerStunned()) {
+    if (!e.shiftKey && !canOpenMapOverlay()) return;
+    setMapOverlayOpen(true, !!e.shiftKey);
+    e.preventDefault();
+    return;
+  }
+
   // Menu input eats keys (prevents movement, recruiting, exits, etc.)
   if (inMenu) {
-    if (e.code === 'Escape' || e.code === 'KeyX' || e.code === 'KeyM') {
+    if (inManualTargeting) {
+      // Cancel / exit
+      if (e.code === 'Escape' || e.code === 'KeyX') {
+        endManualTargeting({ closeAll: true });
+        e.preventDefault();
+        return;
+      }
+
+      // Return to menu pages
+      if (e.code === 'KeyM' && isMenuPageVisible('party')) { endManualTargeting({ openMenuPageId: 'party' }); e.preventDefault(); return; }
+      if (e.code === 'KeyP' && isMenuPageVisible('party')) { endManualTargeting({ openMenuPageId: 'party' }); e.preventDefault(); return; }
+      if (e.code === 'KeyA' && isMenuPageVisible('abilities')) { endManualTargeting({ openMenuPageId: 'abilities' }); e.preventDefault(); return; }
+      if (e.code === 'KeyI' && isMenuPageVisible('items')) { endManualTargeting({ openMenuPageId: 'items' }); e.preventDefault(); return; }
+      if (e.code === 'KeyC' && isMenuPageVisible('npcs')) { endManualTargeting({ openMenuPageId: 'npcs' }); e.preventDefault(); return; }
+      if (e.code === 'KeyJ' && isMenuPageVisible('journal')) { endManualTargeting({ openMenuPageId: 'journal' }); e.preventDefault(); return; }
+
+      // Confirm
+      if (e.code === 'Enter' || e.code === 'Space') {
+        confirmManualTargetingSelection();
+        e.preventDefault();
+        return;
+      }
+
+      // Cycle targets
+      if (manualTargetingState && (e.code === 'ArrowLeft' || e.code === 'ArrowRight' || e.code === 'ArrowUp' || e.code === 'ArrowDown')) {
+        const dir = (e.code === 'ArrowLeft' || e.code === 'ArrowUp') ? -1 : 1;
+        const len = manualTargetingState.candidates.length;
+        if (len > 0) {
+          const cur = manualTargetingState.selectedIndex || 0;
+          manualTargetingState.selectedIndex = (cur + dir + len) % len;
+        }
+        e.preventDefault();
+        return;
+      }
+
+      e.preventDefault();
+      return;
+    }
+    if (e.code === 'Escape' || e.code === 'KeyX') {
       closePlayerMenu();
       e.preventDefault();
       return;
     }
 
-    // Left/Right: cycle pages
+    // Left/Right: cycle elements on active page
     if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
       const dir = (e.code === 'ArrowRight') ? 1 : -1;
-      const ids = MENU_PAGES.map(p => p.id);
-      const idx = Math.max(0, ids.indexOf(activeMenuPageId));
-      const next = (idx + dir + ids.length) % ids.length;
-      setActiveMenuPage(ids[next]);
+      if (activeMenuPageId === 'party') {
+        const members = [player].concat(Array.isArray(party) ? party : []);
+        const len = members.length;
+        if (len > 0) {
+          partyMenuSelectedIndex = (partyMenuSelectedIndex + dir + len) % len;
+          partyMenuCardIndex = 0;
+          renderPlayerMenu();
+        }
+      } else if (activeMenuPageId === 'npcs') {
+        const entries = Object.entries(npcRegistry || {})
+          .filter(([_, rec]) => !!(rec?.met || rec?.hasBeenInParty));
+        const names = entries.map(([name]) => name).filter(n => lc(n) !== 'player');
+        names.sort((a, b) => a.localeCompare(b));
+        const len = names.length;
+        if (len > 0) {
+          npcMenuSelectedIndex = (npcMenuSelectedIndex + dir + len) % len;
+          npcMenuCardIndex = 0;
+          renderPlayerMenu();
+        }
+      }
+      e.preventDefault();
+      return;
+    }
+
+    // Up/Down: cycle character sub-cards
+    if (e.code === 'ArrowUp' || e.code === 'ArrowDown') {
+      if (activeMenuPageId === 'party') {
+        const dir = (e.code === 'ArrowDown') ? 1 : -1;
+        partyMenuPrevCardIndex = partyMenuCardIndex;
+        partyMenuCardSlideDir = dir;
+        partyMenuCardIndex = (partyMenuCardIndex + dir + 4) % 4;
+        partyMenuCardAnimUntilMs = performance.now() + 1000;
+        renderPlayerMenu();
+      } else if (activeMenuPageId === 'npcs') {
+        const dir = (e.code === 'ArrowDown') ? 1 : -1;
+        npcMenuPrevCardIndex = npcMenuCardIndex;
+        npcMenuCardSlideDir = dir;
+        npcMenuCardIndex = (npcMenuCardIndex + dir + 4) % 4;
+        npcMenuCardAnimUntilMs = performance.now() + 1000;
+        renderPlayerMenu();
+      } else if (activeMenuPageId === 'abilities') {
+        const len = abilitiesMenuEntries.length;
+        if (len > 0) {
+          const dir = (e.code === 'ArrowDown') ? 1 : -1;
+          abilitiesMenuSelectedIndex = (abilitiesMenuSelectedIndex + dir + len) % len;
+          renderPlayerMenu();
+        }
+      }
+      e.preventDefault();
+      return;
+    }
+
+    if ((e.code === 'Enter' || e.code === 'Space') && activeMenuPageId === 'abilities') {
+      const entry = abilitiesMenuEntries[abilitiesMenuSelectedIndex];
+      triggerAbilityFromEntry(entry);
       e.preventDefault();
       return;
     }
 
     // Open menu directly to Items
     if (e.code === 'KeyI') {
+      if (!isMenuPageVisible('items')) { e.preventDefault(); return; }
+      if (activeMenuPageId === 'items') { closePlayerMenu(); e.preventDefault(); return; }
       setActiveMenuPage('items');
       e.preventDefault();
       return;
     }
 
-    // Open menu directly to Items
+    // Open menu directly to Party
     if (e.code === 'KeyP') {
+      if (!isMenuPageVisible('party')) { e.preventDefault(); return; }
+      if (activeMenuPageId === 'party') { closePlayerMenu(); e.preventDefault(); return; }
       setActiveMenuPage('party');
+      e.preventDefault();
+      return;
+    }
+
+    // Open menu directly to Abilities
+    if (e.code === 'KeyA') {
+      if (!isMenuPageVisible('abilities')) { e.preventDefault(); return; }
+      if (activeMenuPageId === 'abilities') { closePlayerMenu(); e.preventDefault(); return; }
+      setActiveMenuPage('abilities');
+      e.preventDefault();
+      return;
+    }
+
+    // Open menu directly to Characters
+    if (e.code === 'KeyC') {
+      if (!isMenuPageVisible('npcs')) { e.preventDefault(); return; }
+      if (activeMenuPageId === 'npcs') { closePlayerMenu(); e.preventDefault(); return; }
+      setActiveMenuPage('npcs');
+      e.preventDefault();
+      return;
+    }
+
+    // Open menu directly to Journal
+    if (e.code === 'KeyJ') {
+      if (!isMenuPageVisible('journal')) { e.preventDefault(); return; }
+      if (activeMenuPageId === 'journal') { closePlayerMenu(); e.preventDefault(); return; }
+      setActiveMenuPage('journal');
       e.preventDefault();
       return;
     }
@@ -13436,7 +26556,81 @@ window.addEventListener('keydown', (e) => {
         if (!slot || !slot.id) {
           showPlayerMenuError('No item assigned to that slot.');
         } else {
-          tryUseItemWithFeedback(slot.id, slot.uid);
+          if (e.shiftKey) {
+            const res = beginManualItemGiveTargeting(slot.id, slot.uid);
+            if (!res) showPlayerMenuError('No valid targets to give to.');
+          } else {
+            tryUseItemWithFeedback(slot.id, slot.uid);
+          }
+        }
+
+        e.preventDefault();
+        return;
+      }
+    }
+
+    if (activeMenuPageId === 'party' && partyMenuCardIndex === 1 && e.code.startsWith('Digit')) {
+      const n = parseInt(e.code.replace('Digit', ''), 10);
+      if (Number.isFinite(n) && n >= 1 && n <= 9) {
+        const members = [player].concat(Array.isArray(party) ? party : []);
+        const actor = members[partyMenuSelectedIndex];
+        const abilities = Array.isArray(actor?.abilities) ? actor.abilities : [];
+        const ability = abilities[n - 1];
+        if (!actor || !ability || !ability.id) {
+          e.preventDefault();
+          return;
+        }
+
+        if (e.shiftKey) {
+          toggleActorAutoCast(actor, ability.id);
+          renderPlayerMenu();
+        } else {
+          const actorName = (actor === player) ? 'player' : actor.name;
+          const res = beginManualTargeting(actorName, ability.id);
+          if (res === 'started') {
+            e.preventDefault();
+            return;
+          }
+          if (res === 'casted') {
+            closePlayerMenu();
+            renderPlayerMenu();
+            e.preventDefault();
+            return;
+          }
+        }
+        e.preventDefault();
+        return;
+      }
+    }
+
+    if (activeMenuPageId === 'party' && partyMenuCardIndex === 2 && e.code.startsWith('Digit')) {
+      const n = parseInt(e.code.replace('Digit', ''), 10);
+      if (Number.isFinite(n) && n >= 1 && n <= 9) {
+        const members = [player].concat(Array.isArray(party) ? party : []);
+        const actor = members[partyMenuSelectedIndex];
+        const cards = getActorInventoryCards(actor);
+        const entry = cards[n - 1];
+        if (!entry || !entry.id) {
+          showPlayerMenuError('No item assigned to that slot.');
+          e.preventDefault();
+          return;
+        }
+
+        if (e.shiftKey) {
+          const res = beginManualItemGiveTargetingForActor(actor, entry.id, entry.uid);
+          if (!res) showPlayerMenuError('No valid targets to give to.');
+        } else {
+          const def = getItemDef(entry.id);
+          const hasTargeting = !!(def && (def.fixedTarget || def?.targeting));
+          if (hasTargeting) {
+            const res = beginManualItemTargetingForActor(actor, entry.id, entry.uid);
+            if (res === 'casted') {
+              renderPlayerMenu();
+            }
+          } else {
+            const ok = tryUseActorItemWithFeedback(actor, entry.id, entry.uid);
+            if (ok) renderPlayerMenu();
+          }
         }
 
         e.preventDefault();
@@ -13448,18 +26642,31 @@ window.addEventListener('keydown', (e) => {
       const n = parseInt(e.code.replace('Digit', ''), 10);
       if (Number.isFinite(n) && n >= 1 && n <= 9) {
         const slot = abilitiesMenuHotkeys[n - 1];
-        if (!slot || !slot.abilityId || !slot.npcName) {
+        if (!slot || !slot.abilityId || !slot.actorName) {
           e.preventDefault();
           return;
         }
 
-        if (!tryCastPartyAbility(slot.npcName, slot.abilityId)) {
-          e.preventDefault();
-          return;
+        if (e.shiftKey) {
+          const actor =
+            (lc(slot.actorName) === 'player' || lc(slot.actorName) === lc(player?.name || ''))
+              ? player
+              : party.find(n => n && lc(n.name) === lc(slot.actorName));
+          toggleActorAutoCast(actor, slot.abilityId);
+          renderPlayerMenu();
+        } else {
+          const res = beginManualTargeting(slot.actorName, slot.abilityId);
+          if (res === 'started') {
+            e.preventDefault();
+            return;
+          }
+          if (res === 'casted') {
+            closePlayerMenu();
+            renderPlayerMenu();
+            e.preventDefault();
+            return;
+          }
         }
-
-        closePlayerMenu();
-        renderPlayerMenu();
         e.preventDefault();
         return;
       }
@@ -13487,7 +26694,7 @@ window.addEventListener('keydown', (e) => {
   keys[e.code] = true;
   if (loading) return;
 
-  if (controlsLocked && !inConversation) return;
+  if ((controlsLocked || isPlayerStunned()) && !inConversation) return;
 
   // Triggered dialog prompts:
   // - Party NPC prompts: Digit1..Digit9 (assigned 1,2,3...)
@@ -13539,6 +26746,10 @@ window.addEventListener('keydown', (e) => {
     if (dialogOptionsMap && Object.keys(dialogOptionsMap).length > 0) {
       if (e.code.startsWith('Digit')) {
         const idx = parseInt(e.code.replace('Digit', ''));
+        if (Number.isFinite(idx)) {
+          selectDialogOptionByIndex(idx);
+          return;
+        }
         const opt = dialogOptionsMap[idx];
         if (!opt) return;
         optionsBox.innerHTML = '';
@@ -13550,16 +26761,6 @@ window.addEventListener('keydown', (e) => {
         if (currentNpc) {
           // Backward-compat: convert legacy fields into effects
           const merged = [];
-
-          const aff = Number(opt.affectionEffect || 0);
-          const ali = Number(opt.alignmentEffect || 0);
-
-          if (isFinite(aff) && aff !== 0) {
-            merged.push({ type: 'updateStat', npc: currentNpc.name, stat: 'affection', delta: aff });
-          }
-          if (isFinite(ali) && ali !== 0) {
-            merged.push({ type: 'updateStat', npc: currentNpc.name, stat: 'alignment', delta: ali });
-          }
 
           if (Array.isArray(opt.effects)) merged.push(...opt.effects);
 
@@ -13679,7 +26880,7 @@ window.addEventListener('keydown', (e) => {
   }
   
   // NEW: hard block all gameplay controls when locked
-  if (controlsLocked && !inConversation) {
+  if ((controlsLocked || isPlayerStunned()) && !inConversation) {
     return;
   }
 
@@ -13719,43 +26920,32 @@ window.addEventListener('keydown', (e) => {
     }
   }
 
-  // Object interaction (Space)
-  if (e.code === 'Space') {
-    if (!currentObjectInteract) {
+  // Object interaction (Space / Enter)
+  if (e.code === 'Space' || e.code === 'Enter') {
+    if (!currentObjectInteract && !currentItemInteract) {
       // no interact target => allow Space to be used for jump as usual
     } else {
-
-
-      const wasTypeInteracted =
-        !!getFlag('global', `objectTypeInteracted:${currentObjectInteract.typeId}`);
-
-      setFlag('global', 'activeObjectType', currentObjectInteract.typeId);
-      setFlag('global', `objectTypeInteractedBefore:${currentObjectInteract.typeId}`, wasTypeInteracted);
-
-
-      emitGameEvent('object_interact', {
-        kind: 'object',
-        id: currentObjectInteract.typeId,
-        instanceKey: currentObjectInteract.instanceKey,
-        wasTypeInteracted
-      });
-
-
-      e.preventDefault();
-      return;
+      if (triggerCurrentInteract()) {
+        e.preventDefault();
+        return;
+      }
     }
   }
 
 
 
   if (e.code === 'KeyV' && currentTrigger) {
+    wasMenuOpenBeforeDialog = !!inMenu;
+    if (inMenu) closePlayerMenu();
+    hideMenuTabsForDialog();
     inViewMode = true;
     inConversation = true;
     currentNpc = currentTrigger;
     promptEl.style.display = 'none';
     conversationPortrait.src = `assets/portraits/character_portrait_${lc(currentNpc.name)}_neutral.png`;
-    dialogBox.textContent =
-      `Name: ${currentNpc.name}\nAlignment: ${Number(currentNpc?.stats?.alignment?.current ?? 0)} / ${Number(currentNpc?.stats?.alignment?.base ?? 0)}\nAffection: ${Number(currentNpc?.stats?.affection?.current ?? 0)} / ${Number(currentNpc?.stats?.affection?.base ?? 0)}`;
+    __setDialogBoxText(
+      `Name: ${currentNpc.name}\nAlignment: ${Number(getActorStatValue(currentNpc?.name || '', 'alignment', 'current') ?? 0)} / ${Number(getActorStatValue(currentNpc?.name || '', 'minalignment', 'base') ?? 0)}\nAffection: ${Number(getActorStatValue(currentNpc?.name || '', 'affection', 'current') ?? 0)} / ${Number(getActorStatValue(currentNpc?.name || '', 'minaffection', 'base') ?? 0)}`
+    );
     optionsBox.innerHTML = '<div>Press X to close</div>';
     conversationOverlay.style.display = 'block';
     return;
@@ -13769,17 +26959,19 @@ window.addEventListener('keydown', (e) => {
   }
 
 
-  if (e.code === 'KeyN') showNames = !showNames;
-
-  // Menu toggle
-  if (!inConversation && !loading && e.code === 'KeyM') {
-    togglePlayerMenu();
-    e.preventDefault();
-    return;
+  if (e.code === 'KeyN') {
+    if (e.shiftKey) {
+      showNames = true;
+      showRangeIndicators = true;
+    } else {
+      showNames = !showNames;
+      if (showRangeIndicators) showRangeIndicators = false;
+    }
   }
 
   // Open menu directly to Items
   if (!inConversation && !loading && e.code === 'KeyI') {
+    if (!isMenuPageVisible('items')) return;
     togglePlayerMenu('items');
     e.preventDefault();
     return;
@@ -13787,6 +26979,7 @@ window.addEventListener('keydown', (e) => {
 
   // Open menu directly to Party
   if (!inConversation && !loading && e.code === 'KeyP') {
+    if (!isMenuPageVisible('party')) return;
     togglePlayerMenu('party');
     e.preventDefault();
     return;
@@ -13794,7 +26987,24 @@ window.addEventListener('keydown', (e) => {
 
   // Open menu directly to Abilities
   if (!inConversation && !loading && e.code === 'KeyA') {
+    if (!isMenuPageVisible('abilities')) return;
     togglePlayerMenu('abilities');
+    e.preventDefault();
+    return;
+  }
+
+  // Open menu directly to Characters
+  if (!inConversation && !loading && e.code === 'KeyC') {
+    if (!isMenuPageVisible('npcs')) return;
+    togglePlayerMenu('npcs');
+    e.preventDefault();
+    return;
+  }
+
+  // Open menu directly to Journal
+  if (!inConversation && !loading && e.code === 'KeyJ') {
+    if (!isMenuPageVisible('journal')) return;
+    togglePlayerMenu('journal');
     e.preventDefault();
     return;
   }
@@ -13828,7 +27038,173 @@ window.addEventListener('keydown', (e) => {
 
 });
 
-window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+window.addEventListener('keyup', (e) => {
+  if (e.code === 'Enter') {
+    const evt = new KeyboardEvent('keyup', {
+      code: 'Space',
+      key: ' ',
+      shiftKey: e.shiftKey,
+      ctrlKey: e.ctrlKey,
+      altKey: e.altKey,
+      metaKey: e.metaKey,
+      bubbles: true,
+      cancelable: true
+    });
+    window.dispatchEvent(evt);
+    e.preventDefault();
+    return;
+  }
+  keys[e.code] = false;
+});
+window.addEventListener('resize', () => {
+  renderMenuTabs(menuTopTabs, !inMenu, true);
+  if (inMenu) renderPlayerMenu();
+});
+
+window.addEventListener('mousemove', (e) => {
+  if (!manualTargetingDragTile) return;
+  const rect = viewportEl?.getBoundingClientRect();
+  if (rect) {
+    manualTargetingDragTile.style.left = `${e.clientX - rect.left + 8}px`;
+    manualTargetingDragTile.style.top = `${e.clientY - rect.top + 8}px`;
+  } else {
+    manualTargetingDragTile.style.left = `${e.clientX + 8}px`;
+    manualTargetingDragTile.style.top = `${e.clientY + 8}px`;
+  }
+
+  if (canvas) {
+    const cRect = canvas.getBoundingClientRect();
+    const sx = (e.clientX - cRect.left) * (canvas.width / cRect.width);
+    const sy = (e.clientY - cRect.top) * (canvas.height / cRect.height);
+    manualTargetingMouse.x = sx;
+    manualTargetingMouse.y = sy;
+    manualTargetingMouse.has = true;
+    if (inManualTargeting) updateManualTargetingHover();
+  }
+});
+
+window.addEventListener('mouseup', (e) => {
+  if (!manualTargetingDragTile) return;
+  const st = manualTargetingState;
+  const hoverOk = !!st && Number.isFinite(st.hoverIndex) && st.hoverIndex >= 0;
+  if (hoverOk) {
+    confirmManualTargetingSelection();
+  } else if (st) {
+    endManualTargeting({ openMenuPageId: st.returnPageId });
+  }
+  hideManualTargetingDragTile();
+  e.preventDefault();
+});
+
+if (canvas) {
+  canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const sx = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const sy = (e.clientY - rect.top) * (canvas.height / rect.height);
+    manualTargetingMouse.x = sx;
+    manualTargetingMouse.y = sy;
+    manualTargetingMouse.has = true;
+    if (inManualTargeting) updateManualTargetingHover();
+  });
+
+  canvas.addEventListener('mousedown', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const sx = (e.clientX - rect.left) * (canvas.width / rect.width);
+    const sy = (e.clientY - rect.top) * (canvas.height / rect.height);
+    if (inManualTargeting) {
+      manualTargetingMouse.x = sx;
+      manualTargetingMouse.y = sy;
+      manualTargetingMouse.has = true;
+      updateManualTargetingHover();
+      confirmManualTargetingSelection();
+      e.preventDefault();
+      return;
+    }
+
+    // Prompt bubble click => talk
+    for (const p of __lastPromptLayouts) {
+      if (!p) continue;
+      if (sx >= p.x && sx <= p.x + p.w && sy >= p.y && sy <= p.y + p.h) {
+        if (Number.isFinite(p.promptIndex)) {
+          void startTriggeredDialog(p.promptIndex);
+          e.preventDefault();
+          return;
+        }
+      }
+    }
+
+    // Recruit icon click
+    for (const r of __lastRecruitIcons) {
+      if (!r) continue;
+      if (sx >= r.x && sx <= r.x + r.w && sy >= r.y && sy <= r.y + r.h) {
+        recruitNpcToParty(r.npc);
+        e.preventDefault();
+        return;
+      }
+    }
+
+    // Interaction icon/object click
+    if (__lastInteractIconRect) {
+      const r = __lastInteractIconRect;
+      if (sx >= r.x && sx <= r.x + r.w && sy >= r.y && sy <= r.y + r.h) {
+        if (triggerCurrentInteract()) {
+          e.preventDefault();
+          return;
+        }
+      }
+    }
+    if (__lastInteractObjectRect) {
+      const r = __lastInteractObjectRect;
+      if (sx >= r.x && sx <= r.x + r.w && sy >= r.y && sy <= r.y + r.h) {
+        if (triggerCurrentInteract()) {
+          e.preventDefault();
+          return;
+        }
+      }
+    }
+    if (__lastInteractItemRect) {
+      const r = __lastInteractItemRect;
+      if (sx >= r.x && sx <= r.x + r.w && sy >= r.y && sy <= r.y + r.h) {
+        if (triggerCurrentInteract()) {
+          e.preventDefault();
+          return;
+        }
+      }
+    }
+
+    // NPC click => talk (prefer prompt if available)
+    const clickActors = [];
+    for (const npc of npcs) if (npc) clickActors.push(npc);
+    for (const p of party) if (p && p !== player) clickActors.push(p);
+
+    for (const npc of clickActors) {
+      const x = npc.worldX - cameraX;
+      const y = npc.y;
+      const w = Number(npc.w) || 0;
+      const h = Number(npc.h) || 0;
+      if (sx >= x && sx <= x + w && sy >= y && sy <= y + h) {
+        let bestIdx = -1;
+        let bestKey = Infinity;
+        for (let i = 0; i < activeDialogPrompts.length; i++) {
+          const p = activeDialogPrompts[i];
+          if (!p || p.npc !== npc) continue;
+          const keyNum = Number.isFinite(p.keyNum) ? p.keyNum : 9999;
+          if (keyNum < bestKey) {
+            bestKey = keyNum;
+            bestIdx = i;
+          }
+        }
+        if (bestIdx >= 0) {
+          void startTriggeredDialog(bestIdx);
+        } else if (npcs.includes(npc)) {
+          startConversation(npc);
+        }
+        e.preventDefault();
+        return;
+      }
+    }
+  });
+}
 
 function updateCamera() {
   if (!currentArea) return;
@@ -13898,7 +27274,12 @@ function __resolvePendingPassoutRescuePrompt() {
       rescuer,
       null, // prompt text comes from the start phrase text
       `${lc(rescuer)}.${job.phraseId}`,
-      job.triggerKey
+      job.triggerKey,
+      {
+        timeoutMode: 'postSafeplaceExit',
+        safeplaceId: __passoutSafeplaceId,
+        safeplaceArea: __passoutSafeplaceArea
+      }
     );
     __pendingPassoutRescue = null;
     return;
@@ -13957,6 +27338,26 @@ function __isActorInAnySafeplace(actor) {
   return false;
 }
 
+function __isActorInSafeplaceById(actor, safeplaceId, areaName) {
+  if (!actor) return false;
+  const wantId = String(safeplaceId || '');
+  if (!wantId) return false;
+  if (areaName && String(areaName) !== String(currentAreaName)) return false;
+  if (!Array.isArray(worldSafePlaces) || worldSafePlaces.length === 0) return false;
+
+  const r = interactionRadius('safeplace', 0);
+  const cx = (Number(actor.worldX) || 0) + (Number(actor.w) || 0) * 0.5;
+
+  for (const sp of worldSafePlaces) {
+    if (!sp || String(sp.id || '') !== wantId) continue;
+    const sx = __safeplaceCenterX(sp);
+    if (!isFinite(sx)) continue;
+    return Math.abs(cx - sx) <= r;
+  }
+
+  return false;
+}
+
 function __tickSafeplaceRegenForActor(actor, nowMs, inSafeplace) {
   if (!actor) return;
 
@@ -13979,16 +27380,16 @@ function __tickSafeplaceRegenForActor(actor, nowMs, inSafeplace) {
 
   if (nowMs < actor.__safeplaceNextRegenAtMs) return;
 
-  // Regen: +1 stamina and +1 composure (each clamped by existing stat setters)
-  if (actor === player) {
-    addPlayerStatField('stamina', 'current', 1);
-    addPlayerStatField('composure', 'current', 1);
-  } else if (actor.name) {
-    applyNpcStatDelta(actor.name, 'stamina', 1, 'current');
-    applyNpcStatDelta(actor.name, 'composure', 1, 'current');
-  }
-
-  actor.__safeplaceNextRegenAtMs = nowMs + SAFEPLACE_REGEN_EVERY_MS;
+  // Regen disabled
+  // if (actor === player) {
+  //   addPlayerStatField('stamina', 'current', 1);
+  //   addPlayerStatField('composure', 'current', 1);
+  // } else if (actor.name) {
+  //   applyNpcStatDelta(actor.name, 'stamina', 1, 'current');
+  //   applyNpcStatDelta(actor.name, 'composure', 1, 'current');
+  // }
+  //
+  // actor.__safeplaceNextRegenAtMs = nowMs + SAFEPLACE_REGEN_EVERY_MS;
 }
 
 function updateSafeplaceRegenAndFlags(nowMs) {
@@ -14014,27 +27415,19 @@ function updateSafeplaceRegenAndFlags(nowMs) {
 }
 
 // ===== Update / Draw =====
-function update(dt) {
+function update(dt, realDt = null) {
 
   if (!currentArea) return;
+  const nowMs = getGameNowMs();
 
   // Timed flags
-  expireTimedFlags(performance.now());
+  expireTimedFlags(nowMs);
+  processTimedEffects(nowMs);
+  processObjectResetQueues(nowMs);
 
   // Background asset warming (silent; a few per frame)
   processAssetWarmQueue(4);
   __resolvePendingPassoutRescuePrompt();
-
-
-  // If we're in an action phrase, run the action each frame.
-  if (inConversation && inActionPhrase) {
-    runActiveAction(dt);
-  }
-
-  if (inActionPhrase && activeAction?.lockPlayer && !isPlayerDrivenByActionMoveTo()) {
-    player.vx = 0;
-  }
-
 
   if (loading) {
     const visibleNpcsReady = npcs.every(npc => {
@@ -14046,15 +27439,25 @@ function update(dt) {
     const playerReady = playerSprites && playerSprites.ready;
 
 
-    // background readiness (needs the helper from earlier: isAreaBackgroundReady)
-    const bgReady = isAreaBackgroundReady(currentArea);
+    // area readiness (sections within range)
+    const [i0, i1] = getSectionRangeForLoading(currentArea, 2);
+    const bgReady = isAreaReadyForSections(currentArea, i0, i1);
 
     if (playerReady && visibleNpcsReady && bgReady) {
       pendingSpawns = [];
       populateNPCsForCurrentArea();
       populateMobsForCurrentArea();
       initConditionalSpawnsForCurrentArea();
+      if (__pendingAreaEnterEvents && __pendingAreaEnterEvents.length) {
+        for (const ev of __pendingAreaEnterEvents) {
+          emitGameEvent('area_enter', ev);
+        }
+        __pendingAreaEnterEvents = [];
+      }
       loading = false;
+      globalThis.loading = false;
+      __endBlockingLoadTracker();
+      renderMenuTabs(menuTopTabs, !inMenu, true);
 
 
       // Initialize world time cache after first successful load gate
@@ -14067,17 +27470,61 @@ function update(dt) {
 
   }
 
+  // If we're in an action phrase, run the action each frame.
+  if (inConversation && inActionPhrase && !inMenu && !mapOverlayOpen) {
+    runActiveAction(dt);
+  }
+
+  if (inActionPhrase && activeAction?.lockPlayer && !isPlayerDrivenByActionMoveTo()) {
+    player.vx = 0;
+  }
+
+  if (inConversation && __lastDialogLayoutMode === 'npc' && !__lastDialogHasPortrait && currentNpc) {
+    const host = __dialogFirstNpcBoxEl || dialogBox;
+    __setDialogPointerVisible(true, host);
+    __positionDialogPointerToActor(currentNpc, host);
+  }
+
+  // Pause all world-time simulation while time is frozen
+  if (shouldFreezeWorldTime()) return;
+
+  const dtReal = (realDt == null ? dt : realDt);
+
+  updateItemGrantHoldProgress(dtReal);
+
   // ===== World time progression (dt-driven, deterministic pausing rules) =====
   if (shouldAdvanceWorldTime()) {
-    advanceWorldTime(dt);
+    advanceWorldTime(dtReal);
+  }
+
+  if (pendingSpawns && pendingSpawns.length > 0) {
+    if (nowMs - __lastSpawnIfEvalAtMs >= SPAWN_IF_EVAL_INTERVAL_MS) {
+      __lastSpawnIfEvalAtMs = nowMs;
+      processPendingSpawns(null, {}, { allowIfOnly: true });
+    }
   }
 
 
-  const playerMovementLocked = inConversation || inMenu || (inActionPhrase && activeAction?.lockPlayer);
+  const playerAbilityStop = (Number(player?.__stopMoveUntilMs || 0) > nowMs);
+  const playerMovementLocked =
+    (inActionPhrase ? !!activeAction?.lockPlayer : inConversation) ||
+    inMenu ||
+    mapOverlayOpen ||
+    isPlayerStunned() ||
+    playerAbilityStop;
+  const partyFollowLocked = (inActionPhrase ? !!activeAction?.lockPartyFollow : inConversation) || inMenu || mapOverlayOpen || isPlayerStunned();
   const playerDrivenByAction = isPlayerDrivenByActionMoveTo();
   const activeObjectBlockers = getActiveObjectBlockers();
 
-  if (!playerDrivenByAction) {
+  // Update interaction-driven movement before player input/follow systems.
+  updateForcedMoves(dt, nowMs, activeObjectBlockers);
+  updateInteractionMoves(dt, nowMs, activeObjectBlockers);
+
+  const playerDrivenByInteraction = isActorDrivenByInteractionMove(player);
+  const playerDrivenByForcedMove = isActorDrivenByForcedMove(player);
+  const playerDrivenByScript = playerDrivenByAction || playerDrivenByInteraction || playerDrivenByForcedMove;
+
+  if (!playerDrivenByScript) {
     // Movement
     if (!loading) {
 
@@ -14112,9 +27559,6 @@ function update(dt) {
       -maxMovementSpeed()
     );
 
-    if (player.vx > 0) lastDirection = 1;
-    else if (player.vx < 0) lastDirection = -1;
-
     const prevPlayerX = player.worldX;
     player.worldX += player.vx * dt;
     player.y += player.vy * dt;
@@ -14124,7 +27568,7 @@ function update(dt) {
 
     if (player.vx !== 0) {
       player.hasEverMoved = true;
-      player.lastMoveTime = performance.now();
+      player.lastMoveTime = nowMs;
     }
 
     if (player.y < 0) { player.y = 0; player.vy = 0; }
@@ -14134,14 +27578,11 @@ function update(dt) {
       player.onGround = true;
     }
   } else {
-    // Player is being moved by action phrase (moveTo).
+    // Player is being moved by action phrase (moveTo) or interaction movement.
     // runActiveAction() updates player.worldX and player.vx; we only update facing bookkeeping here.
-    if (player.vx > 0) lastDirection = 1;
-    else if (player.vx < 0) lastDirection = -1;
-
     if (player.vx !== 0) {
       player.hasEverMoved = true;
-      player.lastMoveTime = performance.now();
+      player.lastMoveTime = nowMs;
     }
 
     // Keep the same grounding rule used elsewhere (moveTo also does this, but belt-and-braces)
@@ -14150,6 +27591,20 @@ function update(dt) {
     player.onGround = true;
   }
 
+  // ----- Facing update (single authoritative place) -----
+  updateActorFacing(player, nowMs);
+  for (const m of party) {
+    updateActorFacing(m, nowMs);
+  }
+  for (const n of npcs) {
+    updateActorFacing(n, nowMs);
+  }
+  for (const m of mobs) {
+    updateActorFacing(m, nowMs);
+  }
+
+  // Portal contact handling (edge-trigger, uses collision rects)
+  if (handlePortalContacts()) return;
 
   // Area edge handling — transfer FIRST, clamp only if no transfer
   if (!FADE.active) {
@@ -14167,15 +27622,15 @@ function update(dt) {
     // --- Party follow (player-style movement) ---
   // Only run party-follow when the player is not movement-locked.
   // Otherwise (dialog/menu/etc.), party members should hold position.
-  if (!playerMovementLocked) {
+  if (!partyFollowLocked) {
     for (let i = 0; i < party.length; i++) {
       const m = party[i];
+      if (m && (m.__interactionMoveActive || m.__forcedMoveActive)) continue;
 
       // Stop-moving lock (abilities/attacks)
       {
-        const now = performance.now();
         const until = Number(m.__stopMoveUntilMs || 0);
-        if (isFinite(until) && until > now) {
+        if (isFinite(until) && until > nowMs) {
           m.isFollowing = false; // ok while locked; will be recalculated next tick when unlocked
           m.vx = 0;
           m.vy = 0;
@@ -14185,7 +27640,6 @@ function update(dt) {
         }
       }
 
-      const nowMs = performance.now();
       const target = getPartyFollowTargetForIndex(i, nowMs);
 
       const dx =
@@ -14248,8 +27702,8 @@ function update(dt) {
 
       // Facing / animation
       if (Math.abs(m.vx) > 0.1) {
-        m.facing = Math.sign(m.vx);
-        m.lastMoveTime = performance.now();
+        // Facing resolved centrally after movement updates.
+        m.lastMoveTime = nowMs;
         m.hasEverMoved = true;
       }
     }
@@ -14264,20 +27718,30 @@ function update(dt) {
   
   // --- World NPC autonomy (non-party NPCs) ---
   for (const npc of npcs) {
-    updateWorldNpcAutonomy(npc, dt, activeObjectBlockers);
+    updateWorldNpcAutonomy(npc, dt, activeObjectBlockers, nowMs);
   }
 
   // --- Safeplace regen + inSafeplace flags (must run after actors moved this frame) ---
-  updateSafeplaceRegenAndFlags(performance.now());
+  updateSafeplaceRegenAndFlags(nowMs);
 
   // Remove mobs whose despawn delay has completed
   {
-    const now = performance.now();
     for (let i = mobs.length - 1; i >= 0; i--) {
       const m = mobs[i];
       const t = Number(m?._removeAtMs);
-      if (isFinite(t) && t > 0 && now >= t) {
+      if (isFinite(t) && t > 0 && nowMs >= t) {
         removeMobInstance(m);
+      }
+    }
+  }
+
+  // Remove NPCs whose despawn delay has completed
+  {
+    for (let i = npcs.length - 1; i >= 0; i--) {
+      const n = npcs[i];
+      const t = Number(n?._removeAtMs);
+      if (isFinite(t) && t > 0 && nowMs >= t) {
+        removeWorldNpcInstance(n);
       }
     }
   }
@@ -14285,7 +27749,7 @@ function update(dt) {
 
     // --- World mob autonomy ---
   for (const mob of mobs) {
-    updateWorldMobAutonomy(mob, dt, activeObjectBlockers);
+    updateWorldMobAutonomy(mob, dt, activeObjectBlockers, nowMs);
   }
 
 
@@ -14318,6 +27782,7 @@ function update(dt) {
   // - Fires proximity_enter/leave once on entering/leaving radius for multiple target kinds
   let closestDist = Infinity;
   let trigger = null;
+  const coverList = __getCoverRectsForCurrentArea();
 
   // Collect proximity targets for this frame
   const targets = [];
@@ -14348,13 +27813,15 @@ function update(dt) {
   // Here we also treat each exit as a proximity target.
   for (const ex of worldExits) {
     if (!ex) continue;
+    const targetParsed = ex.target ? parseTargetExitString(ex.target) : null;
+    const targetResolved = targetParsed ? findExitWorldPosition(targetParsed) : null;
+    if (!targetResolved || !targetResolved.areaName) continue;
 
     // Make a stable id. If your ex already has an id, use it; otherwise use a composite.
     const exId = ex.id
       ? String(ex.id)
       : `${String(ex.direction || '')}:${String(ex.target || '')}:${String(ex.worldX || '')}`;
 
-    //if (currentAreaName === 'Forest1') console.log('[exit]', exId, ex);
 
     targets.push({
       kind: 'exit',
@@ -14363,6 +27830,7 @@ function update(dt) {
       radius: interactionRadius('exit', 0),
       direction: ex.direction,
       target: ex.target,
+      _resolvedTarget: targetResolved,
       _exitRef: ex
     });
 
@@ -14429,7 +27897,6 @@ function update(dt) {
       if (!base) continue;
 
       // Ensure we have an image entry (lets us compute the same width as rendering)
-      const nowMs = performance.now();
       const resolved = resolvePlacedObjectRender(o, base, nowMs);
       const entry = resolved.entry;
 
@@ -14440,8 +27907,14 @@ function update(dt) {
         (o.heightPx || (TILE_DRAW_HEIGHT() * defaultHMult)) * SCALE.objects
       );
 
-      let targetW = Math.floor(player.w); // safe fallback if image not ready yet
-      if (entry && entry.ready) {
+      let targetW = Math.floor(player.w); // safe fallback
+      const def = getObjectDef(base) || null;
+      const fw = Number(def?.animFramePx?.w);
+      const fh = Number(def?.animFramePx?.h);
+      if (isFinite(fw) && isFinite(fh) && fh > 0) {
+        // Prefer declared anim frame dimensions for stability (avoids flicker when render frames swap)
+        targetW = Math.floor(targetH * (fw / fh));
+      } else if (entry && entry.ready) {
         const srcW = (entry.frames && entry.frames > 1) ? Math.max(1, entry.frameW) : Math.max(1, entry.w);
         const srcH = (entry.frames && entry.frames > 1) ? Math.max(1, entry.frameH) : Math.max(1, entry.h);
         if (srcH > 0) targetW = Math.floor(targetH * (srcW / srcH));
@@ -14452,6 +27925,7 @@ function update(dt) {
       targets.push({
         kind: 'object',
         id: base,
+        objectSectionId: (o.objectId != null && o.objectId !== '') ? String(o.objectId) : ((o.id != null && o.id !== '') ? String(o.id) : null),
         instanceId,
         worldX: o.worldX + (targetW * 0.5),
         radius: interactionRadius('object', targetW),
@@ -14463,6 +27937,25 @@ function update(dt) {
     }
   }
 
+  // --- World item targets ---
+  if (currentArea && Array.isArray(currentArea.worldItems)) {
+    for (const item of currentArea.worldItems) {
+      if (!isWorldItemAvailable(item)) continue;
+
+      const m = getWorldItemDrawMetrics(item);
+      const targetW = m ? m.targetW : player.w;
+
+      targets.push({
+        kind: 'item',
+        id: item.itemId,
+        instanceId: item.instanceId,
+        worldX: Number(item.worldX) || 0,
+        radius: interactionRadius('object', targetW),
+        _itemRef: item
+      });
+    }
+  }
+
   for (const t of targets) {
     const key = makeProxKey(t);          // instance key (objects use instanceId)
     const typeKey = makeProxTypeKey(t);  // rule-facing key (kind + base id)
@@ -14471,9 +27964,37 @@ function update(dt) {
     // keep latest target lookup for distance checks (used by object interaction focus)
     proximityTargetByKey.set(key, t);
 
-
-    const isInside = inRadius(t.worldX, t.radius);
+    let isInside = inRadius(t.worldX, t.radius);
     const wasInside = proximityInside.has(key);
+    let covered = false;
+    const isObjectLike = (t.kind === 'object' || t.kind === 'item');
+    const rawWasInside = isObjectLike ? proximityInsideRaw.has(key) : false;
+    const rawInside = isObjectLike ? isInside : false;
+
+    if (isObjectLike && isInside) {
+      covered = (t.kind === 'object')
+        ? isObjectInstanceCoveredWithCoverList(key, coverList)
+        : isWorldItemCoveredWithCoverList(key, coverList);
+    }
+
+    // Raw proximity tracking for objects/items (ignores cover)
+    if (isObjectLike) {
+      if (rawInside && !rawWasInside) {
+        proximityInsideRaw.add(key);
+        if (covered) {
+          emitProximityEvent(true, t, { covered: true, rawProximity: true });
+        }
+      } else if (!rawInside && rawWasInside) {
+        proximityInsideRaw.delete(key);
+        if (covered) {
+          emitProximityEvent(false, t, { covered: true, rawProximity: true });
+        }
+      }
+    }
+
+    if (isObjectLike && covered) {
+      isInside = false;
+    }
 
     // Interaction target: choose nearest WORLD npc only (not party members)
     if (t.kind === 'npc' && isInside) {
@@ -14510,14 +28031,16 @@ function update(dt) {
     if (isInside && !wasInside) {
       proximityInside.add(key);
 
-      // Set interaction focus if none exists yet for this type
-      if (!proximityInteractFocus.has(typeKey)) {
+      // Set interaction focus if none exists yet for this type,
+      // or if the current focus is no longer inside.
+      const curFocus = proximityInteractFocus.get(typeKey);
+      if (!curFocus || !proximityInside.has(curFocus)) {
         proximityInteractFocus.set(typeKey, key);
       }
 
 
       // Keep type-level proximity in sync for STATE rules
-      if (t.kind === 'object') {
+      if (isObjectLike) {
         const prev = proximityTypeCount.get(typeKey) || 0;
         const next = prev + 1;
         proximityTypeCount.set(typeKey, next);
@@ -14537,7 +28060,7 @@ function update(dt) {
       }
 
 
-      emitProximityEvent(true, t);
+      emitProximityEvent(true, t, { covered, coveredWas: (covered === false && isObjectLike && rawWasInside) });
 
 
     } else if (!isInside && wasInside) {
@@ -14550,7 +28073,7 @@ function update(dt) {
 
 
       // Keep type-level proximity in sync for STATE rules
-      if (t.kind === 'object') {
+      if (isObjectLike) {
         const prev = proximityTypeCount.get(typeKey) || 0;
         const next = Math.max(0, prev - 1);
 
@@ -14568,7 +28091,7 @@ function update(dt) {
       }
 
 
-      emitProximityEvent(false, t);
+      emitProximityEvent(false, t, { covered });
 
     }
 
@@ -14657,25 +28180,29 @@ function update(dt) {
 
 
   // ===== Mob contact ticks + abilities =====
-  const nowMobMs = performance.now();
+  const nowMobMs = nowMs;
 
   for (const mob of mobs) {
     if (!mob || !mob.id || !mob.instanceId) continue;
 
     runMobContactTick(mob, nowMobMs);
-    tryMobAbilities(mob, nowMobMs);
+    tryActorAbilities(mob, nowMobMs);
   }
 
   // ===== NPC targeting + abilities (party + world NPCs) =====
-  const nowNpcMs = performance.now();
+  const nowNpcMs = nowMs;
   for (const npc of [...party, ...npcs]) {
     if (!npc || !npc.name) continue;
 
     // Keep targeting updated even for party NPCs (but updateActorTargeting will not hijack aiMode when isFollowing)
-    updateActorTargeting(npc, nowNpcMs);
+    updateActorTargeting(npc, nowNpcMs, 'attack');
+    updateActorTargeting(npc, nowNpcMs, 'move');
 
-    tryNpcAbilities(npc, nowNpcMs);
+    tryActorAbilities(npc, nowNpcMs);
   }
+
+  // ===== Player abilities (future-proof) =====
+  tryActorAbilities(player, nowNpcMs);
 
 
   // Pick ONE focused interactable object for KeyI (nearest eligible type-focus)
@@ -14702,6 +28229,28 @@ function update(dt) {
     }
   }
 
+  // Pick ONE focused world item for interaction (nearest eligible type-focus)
+  currentItemInteract = null;
+  let bestItemDx = Infinity;
+
+  for (const typeKey of proximityInsideTypes) {
+    const [kind, id] = String(typeKey).split(':');
+    if (kind !== 'item') continue;
+
+    const instanceKey = proximityInteractFocus.get(typeKey);
+    if (!instanceKey) continue;
+    if (!isWorldItemInteractable(instanceKey)) continue;
+
+    const t = proximityTargetByKey.get(instanceKey);
+    if (!t) continue;
+
+    const dx = playerDistX(t.worldX);
+    if (dx < bestItemDx) {
+      bestItemDx = dx;
+      currentItemInteract = { itemId: id, instanceKey };
+    }
+  }
+
 
   // ===== section_enter event =====
   const idx = Math.floor(player.worldX / currentArea.sectionTileWidth);
@@ -14721,6 +28270,11 @@ function update(dt) {
       from = lastPlayerAreaEnterEdge; // 'left' or 'right'
     }
 
+
+    // Mark section index as visited for map discovery (handles unnamed sections)
+    if (currentAreaName != null && idx != null) {
+      setFlag('global', `visitedIdx:${currentAreaName}:${idx}`, true);
+    }
 
     // NEW: section_leave for the previous named section
     if (lastPlayerSection) {
@@ -14742,7 +28296,6 @@ function update(dt) {
         npc: 'Player'
       });
       pendingVerticalTransferFrom = null;
-      showSectionBanner(nowSection);
     }
 
     
@@ -14750,7 +28303,6 @@ function update(dt) {
     // ALWAYS update section memory (even when nowSection is null)
     lastPlayerSection = nowSection;        // may become null
     lastPlayerSectionIndex = idx;
-
 
 
   }
@@ -14811,8 +28363,8 @@ function update(dt) {
     let text = '';
     if (currentExitUp) text += '↑: Use Exit  ';
     if (currentExitDown) text += '↓: Use Exit  ';
-    promptEl.textContent = text.trim();
-    promptEl.style.display = 'block';
+    // promptEl.textContent suppressed (exit label disabled)
+    promptEl.style.display = 'none';
   } else {
     promptEl.style.display = 'none';
   }
@@ -14823,6 +28375,8 @@ function update(dt) {
   activeDialogPrompts.length = 0;
 
   const __stillActivePromptIds = new Set();
+  const __canTriggerPrompts = (!inConversation && !inMenu && !loading && !(inActionPhrase && activeAction?.lockPlayer));
+  const __promptDtMs = Math.max(0, Number(dtReal) * 1000);
 
   for (const p of queuedDialogPrompts) {
 
@@ -14852,7 +28406,15 @@ function update(dt) {
 
     const promptId = `${lc(npc.name)}:${triggerKey}`;
     const firedId = promptId;
-    if (firedDialogTriggers.has(firedId)) continue;
+    const ruleId = p.ruleId || (stateRuleById.has(String(triggerKey || '')) ? String(triggerKey) : null);
+    let persistence = 1;
+    if (ruleId) {
+      const rule = stateRuleById.get(String(ruleId));
+      const raw = rule?.dialog?.persistence;
+      persistence = (raw == null) ? 1 : Number(raw);
+    }
+    const count = firedDialogTriggers.get(firedId) || 0;
+    if (isFinite(persistence) && persistence !== 0 && count >= persistence) continue;
 
     let keyNum = null;
     if (party.includes(npc)) {
@@ -14866,14 +28428,56 @@ function update(dt) {
       prompt: p.prompt,
       start: p.start,
       keyNum,
-      __promptId: promptId
+      __promptId: promptId,
+      ruleId
     });
+
+    // Track visible time for TIME-based prompts only; expire after 5s of actual availability.
+    if (p.timeoutMode === 'time' && __canTriggerPrompts && __promptDtMs > 0) {
+      const prev = __promptVisibleMsById.get(promptId) || 0;
+      const next = prev + __promptDtMs;
+      __promptVisibleMsById.set(promptId, next);
+
+      if (next >= 5000) {
+        // Time-based prompts disappear after 5s but do NOT mark rule triggered.
+        removeDialogPromptForRule(p.ruleId || triggerKey);
+        __promptVisibleMsById.delete(promptId);
+      }
+    }
+    // Post-passout prompts: keep visible until 5s after the player LEAVES the safeplace they woke up in.
+    if (p.timeoutMode === 'postSafeplaceExit' && __canTriggerPrompts && __promptDtMs > 0) {
+      const spId = p.safeplaceId || __passoutSafeplaceId;
+      const spArea = p.safeplaceArea || __passoutSafeplaceArea;
+
+      if (!p.__exitStartedAtMs) {
+        const stillIn = __isActorInSafeplaceById(player, spId, spArea);
+        if (!stillIn) p.__exitStartedAtMs = getGameNowMs();
+      }
+
+      if (p.__exitStartedAtMs) {
+        const prev = __promptVisibleMsById.get(promptId) || 0;
+        const next = prev + __promptDtMs;
+        __promptVisibleMsById.set(promptId, next);
+
+        if (next >= 5000) {
+          removeDialogPromptForRule(p.ruleId || triggerKey);
+          __promptVisibleMsById.delete(promptId);
+        }
+      }
+    }
   }
   
   // Free any party prompt slots that disappeared this frame
   for (const [pid] of __partyPromptSlotById) {
     if (!__stillActivePromptIds.has(pid)) {
       __releasePartyPromptSlot(pid);
+    }
+  }
+
+  // Clear timers for prompts no longer visible
+  for (const [pid] of __promptVisibleMsById) {
+    if (!__stillActivePromptIds.has(pid)) {
+      __promptVisibleMsById.delete(pid);
     }
   }
 
@@ -14903,18 +28507,23 @@ function drawRecruitIconForNpc(npc, yOffset = 0) {
     const y = Math.floor(sy - img.height);
 
     ctx.drawImage(img, x, y);
+    drawKeyBadgeAttached(ctx, { x, y, w: img.width, h: img.height }, 'R');
+    __lastRecruitIcons.push({ npc, x, y, w: img.width, h: img.height });
     return img.height + 6;
   }
 
   // Fallback: plain "R" only if image missing
   ctx.save();
   ctx.fillStyle = '#fff';
-  ctx.font = '40px monospace';
+  ctx.font = uiFont(40);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
   ctx.fillText('R', sx, sy);
   ctx.restore();
 
+  const fw = 26;
+  const fh = 26;
+  __lastRecruitIcons.push({ npc, x: Math.floor(sx - fw / 2), y: Math.floor(sy - fh), w: fw, h: fh });
   return 26;
 }
 
@@ -14933,29 +28542,164 @@ function drawRoundedRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
+const KEYBADGE_DEFAULT_OVERLAP_X_MULT = 0.2;
+const KEYBADGE_DEFAULT_OVERLAP_Y_MULT = 1.8;
+const KEYBADGE_DOM_SCALE = 0.55;
 
-function drawSpeechBubbleForNpc(npc, text, keyLabel, yOffset = 0) {
+function getKeyBadgeLayout(label, opts = {}) {
+  if (!label) return null;
+  const r = Number(opts.r || 26);
+  const overlapX = (opts.overlapX != null) ? Number(opts.overlapX) : r * KEYBADGE_DEFAULT_OVERLAP_X_MULT;
+  const overlapY = (opts.overlapY != null) ? Number(opts.overlapY) : r * KEYBADGE_DEFAULT_OVERLAP_Y_MULT;
+  const fontPx = Number(opts.fontPx || 48);
+  const insetX = Math.max(0, r - overlapX);
+  const insetY = Math.max(0, r - overlapY);
+  return { r, overlapX, overlapY, fontPx, insetX, insetY };
+}
+
+function applyKeyBadgeDefaultsToCss() {
+  const root = document.documentElement;
+  if (!root) return;
+  root.style.setProperty('--keybadge-overlap-x-mult', String(KEYBADGE_DEFAULT_OVERLAP_X_MULT));
+  root.style.setProperty('--keybadge-overlap-y-mult', String(KEYBADGE_DEFAULT_OVERLAP_Y_MULT));
+}
+
+applyKeyBadgeDefaultsToCss();
+
+function drawKeyBadge(ctx, cx, cy, label, opts = {}) {
+  if (!label) return;
+  const r = Number(opts.r || 26);
+  const fontPx = Number(opts.fontPx || 48);
+
+  ctx.save();
+  ctx.fillStyle = '#000000';
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = uiFont(fontPx);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(String(label), cx, cy + 1);
+  ctx.restore();
+}
+
+function attachHotkeyBadge(el, hotKey, opts = {}) {
+  if (!el || hotKey == null) return null;
+  const badge = document.createElement('div');
+  badge.className = 'hotkeyBadge';
+  badge.textContent = String(hotKey);
+  const baseR = (opts && opts.r != null) ? Number(opts.r) : 26;
+  const domR = baseR * KEYBADGE_DOM_SCALE;
+  const baseFontPx = (opts && opts.fontPx != null) ? Number(opts.fontPx) : 48;
+  const resolved = {
+    r: domR,
+    fontPx: baseFontPx * KEYBADGE_DOM_SCALE,
+    overlapX: (opts && opts.overlapX != null)
+      ? Number(opts.overlapX) * KEYBADGE_DOM_SCALE
+      : (opts && opts.overlapXMult != null ? (Number(opts.overlapXMult) * domR) : undefined),
+    overlapY: (opts && opts.overlapY != null)
+      ? Number(opts.overlapY) * KEYBADGE_DOM_SCALE
+      : (opts && opts.overlapYMult != null ? (Number(opts.overlapYMult) * domR) : undefined)
+  };
+  const layout = getKeyBadgeLayout(hotKey, resolved);
+  if (layout) {
+    badge.style.setProperty('--badge-r', `${Number(layout.r)}px`);
+    badge.style.setProperty('--badge-overlap-x', `${Number(layout.overlapX)}px`);
+    badge.style.setProperty('--badge-overlap-y', `${Number(layout.overlapY)}px`);
+    badge.style.setProperty('--badge-font-size', `${Number(layout.fontPx)}px`);
+  }
+  el.appendChild(badge);
+  return badge;
+}
+
+function drawKeyBadgeAttached(ctx, elementRect, label, opts = {}) {
+  if (!label || !elementRect) return;
+  const layout = getKeyBadgeLayout(label, opts);
+  if (!layout) return;
+  const cx = elementRect.x - layout.r + layout.overlapX;
+  const cy = elementRect.y - layout.r + layout.overlapY;
+  drawKeyBadge(ctx, cx, cy, label, layout);
+  return layout;
+}
+
+
+function buildPromptBubbleMetrics(text, keyLabel) {
+  const fontPx = 48;
+  const pointerH = 50;
+  ctx.save();
+  ctx.font = uiFont(fontPx);
+  const paddingX = 16;
+  const paddingY = 10;
+  const fullText = text;
+  const textW = ctx.measureText(fullText).width;
+  const boxW = Math.ceil(textW + paddingX * 2);
+  const boxH = Math.ceil(fontPx + paddingY * 2);
+  ctx.restore();
+  return { fontPx, paddingX, paddingY, fullText, boxW, boxH, pointerH };
+}
+
+function drawSpeechBubbleForNpc(npc, text, keyLabel, yOffset = 0, opts = {}) {
   const sx = npc.worldX - cameraX + npc.w / 2;
   const sy = npc.y - 10 - yOffset;
 
   ctx.save();
 
-  const fontPx = 48;
-  ctx.font = `${fontPx}px monospace`;
+  const metrics = opts.metrics || buildPromptBubbleMetrics(text, keyLabel);
+  const { fontPx, paddingX, paddingY, fullText, boxW, boxH, pointerH } = metrics;
+  const badge = getKeyBadgeLayout(keyLabel, opts.badge || {});
+
+  ctx.font = uiFont(fontPx);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
-  const paddingX = 16;
-  const paddingY = 10;
+  let x = (opts.x != null) ? Math.floor(opts.x) : Math.floor(sx - boxW / 2);
+  let y = (opts.y != null) ? Math.floor(opts.y) : Math.floor(sy - boxH);
 
-  const fullText = keyLabel ? `[${keyLabel}] ${text}` : text;
+  // Clamp prompt fully on-screen
+  const pad = 4;
+  const badgeInsetX = badge ? badge.insetX : 0;
+  const badgeInsetY = badge ? badge.insetY : 0;
+  const leftPad = pad + badgeInsetX;
+  if (x < leftPad) x = leftPad;
+  if (x + boxW > WIDTH - pad) x = Math.max(leftPad, WIDTH - boxW - pad);
+  if (y < pad + badgeInsetY) y = pad + badgeInsetY;
+  if (y + boxH + pointerH > HEIGHT - pad) y = Math.max(pad, HEIGHT - boxH - pointerH - pad);
 
-  const textW = ctx.measureText(fullText).width;
-  const boxW = Math.ceil(textW + paddingX * 2);
-  const boxH = Math.ceil(fontPx + paddingY * 2);
+  // Optional tag (icon or name) when NPC is off-screen
+  let tagH = 0;
+  if (opts && opts.tag) {
+    const tag = opts.tag;
+    const tagMargin = 4;
+    const iconSize = 40;
+    const textSize = 28;
 
-  const x = Math.floor(sx - boxW / 2);
-  const y = Math.floor(sy - boxH);
+    // Ensure space for tag above bubble
+    tagH = iconSize;
+    if (y - tagH - tagMargin < pad) {
+      y = Math.min(HEIGHT - boxH - pad, pad + tagH + tagMargin);
+    }
+
+    if (tag.icon && tag.icon.ready && tag.icon.img) {
+      const ix = Math.floor(x + (boxW / 2) - (iconSize / 2));
+      const iy = Math.floor(y - tagH - tagMargin);
+      ctx.drawImage(tag.icon.img, ix, iy, iconSize, iconSize);
+    } else if (tag.name) {
+      const iy = Math.floor(y - textSize - tagMargin);
+      ctx.save();
+      ctx.font = uiFont(textSize);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 6;
+      ctx.strokeText(tag.name, x + boxW / 2, iy + textSize);
+      ctx.fillText(tag.name, x + boxW / 2, iy + textSize);
+      ctx.restore();
+      tagH = textSize;
+    }
+  }
 
   // Bubble (opaque white with 6px black border)
   const cornerRadius = 12; // increase for rounder corners
@@ -14965,18 +28709,58 @@ function drawSpeechBubbleForNpc(npc, text, keyLabel, yOffset = 0) {
   ctx.fillStyle = '#ffffff';
   ctx.fill();
 
-  ctx.strokeStyle = '#000000';
-  ctx.lineWidth = 6;
-  ctx.lineJoin = 'round';
-  ctx.stroke();
+  drawKeyBadgeAttached(ctx, { x, y, w: boxW, h: boxH }, keyLabel, opts.badge || {});
 
+  // Pointer (white triangle pointing to NPC)
+  const baseY = y + boxH;
+  const baseHalf = 10;
+  const edgeOffset = boxW * 0.05;
+  const minBaseX = Math.max(x + edgeOffset, x + cornerRadius + baseHalf);
+  const maxBaseX = Math.min(x + boxW - edgeOffset, x + boxW - cornerRadius - baseHalf);
+  const centerX = x + boxW / 2;
+
+  const tipX = Math.max(pad, Math.min(WIDTH - pad, sx));
+  const tipY = Math.max(baseY + pointerH, Math.min(sy, HEIGHT - pad));
+
+  const rel = (tipX - x) / boxW; // owner center within bubble (0..1)
+  const playerSx = player.worldX - cameraX + player.w / 2;
+  const playerOnLeft = playerSx < tipX;
+
+  // Angle the pointer ~30 degrees off vertical; tip stays at owner.
+  const angleRad = Math.PI / 6; // 30 degrees
+  const horizOffset = Math.tan(angleRad) * Math.max(0, tipY - baseY);
+
+  let baseX = centerX;
+
+  // Case A: owner within middle 45%..55% of bubble width
+  if (rel >= 0.45 && rel <= 0.55) {
+    baseX = x + boxW * (playerOnLeft ? 0.45 : 0.55);
+  // Case B: owner within 5%..45% or 55%..95% (but not centered)
+  } else if (rel >= 0.05 && rel <= 0.95) {
+    const dir = playerOnLeft ? -1 : 1;
+    baseX = tipX + dir * horizOffset;
+  // Case C: owner outside 5%..95%
+  } else {
+    baseX = (rel < 0.05) ? (x + boxW * 0.05) : (x + boxW * 0.95);
+  }
+
+  baseX = Math.max(minBaseX, Math.min(maxBaseX, baseX));
+
+  ctx.beginPath();
+  ctx.moveTo(baseX - baseHalf, baseY);
+  ctx.lineTo(baseX + baseHalf, baseY);
+  ctx.lineTo(tipX, tipY);
+  ctx.closePath();
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
 
   // Text (black)
   ctx.fillStyle = '#000000';
-  ctx.fillText(fullText, sx, y + boxH / 2);
+  const textX = x + boxW / 2;
+  ctx.fillText(fullText, textX, y + boxH / 2);
 
   ctx.restore();
-  return boxH + 6;
+  return boxH + 6 + (tagH ? (tagH + 4) : 0);
 }
 
 
@@ -14984,18 +28768,17 @@ function drawInteractionIcon(x, y, label = 'I') {
   // Primary: image icon
   if (interactIcon.ready && interactIcon.img) {
     const img = interactIcon.img;
-    ctx.drawImage(
-      img,
-      Math.floor(x - img.width / 2),
-      Math.floor(y - img.height)
-    );
-    return;
+    const ix = Math.floor(x - img.width / 2);
+    const iy = Math.floor(y - img.height);
+    ctx.drawImage(img, ix, iy);
+    drawKeyBadgeAttached(ctx, { x: ix, y: iy, w: img.width, h: img.height }, '↵');
+    return { x: ix, y: iy, w: img.width, h: img.height };
   }
 
   // Fallback: text icon
   ctx.save();
 
-  ctx.font = '28px monospace';
+  ctx.font = uiFont(28);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
@@ -15008,6 +28791,7 @@ function drawInteractionIcon(x, y, label = 'I') {
   ctx.fillText(String(label || 'I'), x, y + 1);
 
   ctx.restore();
+  return { x: Math.floor(x - 14), y: Math.floor(y - 14), w: 28, h: 28 };
 }
 
 function drawExitProximityIcon() {
@@ -15022,10 +28806,29 @@ function drawExitProximityIcon() {
   const worldCenterX = Number(ex.worldX) + Number(ex.w || 0) * 0.5;
   const sx = worldToScreenX(worldCenterX, PARALLAX.ground);
 
+  const img = icon.img;
+
+  // Hide the exit icon if the exit is under cover
+  const coverList = __getCoverRectsForCurrentArea();
+  if (coverList.length) {
+    const targetW = img.width;
+    const targetH = img.height;
+    const target = {
+      _targetKind: 'object',
+      _screenX: Math.floor(sx - targetW * 0.5),
+      _screenY: Math.floor((Number(groundY) || 0) - targetH),
+      _screenW: targetW,
+      _screenH: targetH,
+      _layer: 'gfore',
+      _drawIndex: 0,
+      instanceId: '__exit_icon'
+    };
+    if (isTargetCovered(target, coverList)) return;
+  }
+
   // Vertically fixed to the middle of the screen (still within world-render layer)
   const sy = Math.floor(HEIGHT * 0.5);
 
-  const img = icon.img;
   ctx.drawImage(
     img,
     Math.floor(sx - img.width * 0.5),
@@ -15040,7 +28843,7 @@ function drawExitProximityIcon() {
 
 function setActorTempAnim(actor, type, durationMs = 450, nowMs = null) {
   if (!actor) return false;
-  const now = (nowMs == null) ? performance.now() : Number(nowMs);
+  const now = (nowMs == null) ? getGameNowMs() : Number(nowMs);
   const t = lc(type || '');
   if (!t) return false;
 
@@ -15080,9 +28883,81 @@ function lockActorMovementUntil(actor, untilMs) {
 
 
 function lockActorMovementForMs(actor, durationMs, nowMs = null) {
-  const now = (nowMs == null) ? performance.now() : Number(nowMs);
+  const now = (nowMs == null) ? getGameNowMs() : Number(nowMs);
   const dur = Math.max(0, Number(durationMs || 0));
   return lockActorMovementUntil(actor, now + dur);
+}
+
+function __clearActorFacingLockIfExpired(actor, nowMs = null) {
+  if (!actor) return;
+  const now = (nowMs == null) ? getGameNowMs() : Number(nowMs);
+  const until = Number(actor.__facingLockUntilMs || 0);
+  if (isFinite(until) && until > 0 && now >= until) {
+    actor.__facingLockUntilMs = 0;
+    actor.__facingLockDir = null;
+  }
+}
+
+function lockActorFacingUntil(actor, untilMs, facing = null, opts = {}) {
+  if (!actor) return false;
+  const t = Number(untilMs);
+  if (!isFinite(t) || t <= 0) return false;
+
+  const now = getGameNowMs();
+  __clearActorFacingLockIfExpired(actor, now);
+
+  const prevUntil = Number(actor.__facingLockUntilMs || 0);
+  const override = opts && opts.override === true;
+
+  if (override || !isFinite(prevUntil) || prevUntil <= 0 || t >= prevUntil) {
+    actor.__facingLockUntilMs = t;
+  }
+
+  if (facing === 1 || facing === -1) {
+    actor.__facingLockDir = facing;
+    actor.facing = facing;
+    if (actor === player) lastDirection = facing;
+  } else if (actor.__facingLockDir == null && (actor.facing === 1 || actor.facing === -1)) {
+    actor.__facingLockDir = actor.facing;
+  }
+
+  return true;
+}
+
+function applyActorFacingOverride(actor, nowMs = null) {
+  if (!actor) return false;
+  __clearActorFacingLockIfExpired(actor, nowMs);
+
+  const until = Number(actor.__facingLockUntilMs || 0);
+  if (isFinite(until) && until > 0) {
+    if (actor.__facingLockDir === 1 || actor.__facingLockDir === -1) {
+      actor.facing = actor.__facingLockDir;
+      if (actor === player) lastDirection = actor.__facingLockDir;
+    }
+    return true;
+  }
+
+  return false;
+}
+
+function updateActorFacing(actor, nowMs = null) {
+  if (!actor) return false;
+  const now = (nowMs == null) ? getGameNowMs() : Number(nowMs);
+
+  if (applyActorFacingOverride(actor, now)) return true;
+
+  const vx = Number(actor.vx || 0);
+  if (Math.abs(vx) > 0.01) {
+    const dir = Math.sign(vx) || actor.facing || 1;
+    actor.facing = dir;
+    if (actor === player) lastDirection = dir;
+    return true;
+  }
+
+  if (actor.facing === -1 || actor.facing === 1) {
+    if (actor === player) lastDirection = actor.facing;
+  }
+  return true;
 }
 
 function getActionAnimSpec(actionDef, fallbackType = 'ability', fallbackMs = 520) {
@@ -15090,7 +28965,7 @@ function getActionAnimSpec(actionDef, fallbackType = 'ability', fallbackMs = 520
   const ms = Number(
     actionDef?.animationMs ??
     actionDef?.animMs ??
-    actionDef?.durationMs ??
+    actionDef?.castingTimeMs ??
     actionDef?.timeMs ??
     fallbackMs
   );
@@ -15104,6 +28979,8 @@ function getActionAnimSpec(actionDef, fallbackType = 'ability', fallbackMs = 520
 
 function getActorRequestedAnimType(actor, stoppedLongEnough, nowMs) {
   const now = Number(nowMs);
+
+  if (actorHasTag(actor, 'stunned')) return 'stunned';
   const tempType = lc(actor?.__tempAnimType || '');
   const until = Number(actor?.__tempAnimUntilMs || 0);
 
@@ -15210,6 +29087,26 @@ function resolveActorSheetForDraw(kind, id, actor, facing, animType, nowMs) {
     }
   }
 
+  if (!sheet && t === 'stunned') {
+    const fallbackType = 'stopped';
+    sheet = (lc(kind) === 'mob')
+      ? getOrRequestMobSprite(id, fallbackType, dir)
+      : getOrRequestNpcSprite(id, fallbackType, dir);
+
+    if (!sheet && dir) {
+      const otherDir = (dir === 'left') ? 'right' : 'left';
+      const other =
+        (lc(kind) === 'mob')
+          ? getOrRequestMobSprite(id, fallbackType, otherDir)
+          : getOrRequestNpcSprite(id, fallbackType, otherDir);
+
+      if (other) {
+        sheet = other;
+        flip = true;
+      }
+    }
+  }
+
   return { sheet, flip };
 }
 
@@ -15270,7 +29167,7 @@ function drawPlayer() {
 
   if (!sprites || !sprites.ready) return;
 
-  const now = performance.now();
+  const now = getGameNowMs();
   const stoppedLongEnough = now - (player.lastMoveTime || 0) > 10000;
 
   drawActorSprite({
@@ -15280,35 +29177,27 @@ function drawPlayer() {
     y,
     facing: lastDirection,
     stoppedLongEnough,
-    freezeAnim: (inConversation && !inActionPhrase)
+    freezeAnim: shouldFreezeWorldTime()
   });
 
 
   // Player head bars (STA/COM only) — draw even when names are hidden (force-visible window)
   const cx = x + player.w / 2;
-  const y0 = y - 2;
+  const centerY = y + player.h * 0.45;
+  const totalH = (HEAD_STAT_BAR_H + HEAD_STAT_BAR_GAP) * 2;
+  const barsStartYBottom = centerY + (totalH / 2);
+  __pendingHeadBars.push({ kind: 'player', x, yBottom: barsStartYBottom });
 
-  // bars start just above the player head; they stack upward
-  const barsStartYBottom = y0 - 4;
-  const barsUsed = drawPlayerHeadBars(x, barsStartYBottom);
-
-  // Name label (only when toggled on) sits above the stacked bars
+  // Name label (draw later so we can place above prompts)
   if (showNames && player.name) {
-    ctx.save();
-    ctx.font = '48px monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
-    ctx.fillStyle = '#fff';
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = 2;
-
-    const line1 = `${player.name}`;
-    const nameY = barsStartYBottom - barsUsed - 6;
-
-    ctx.strokeText(line1, cx, nameY);
-    ctx.fillText(line1, cx, nameY);
-
-    ctx.restore();
+    __pendingNameLabels.push({
+      actor: player,
+      label: `${player.name}`,
+      cx,
+      defaultY: y - 6,
+      fontPx: 48,
+      showStroke: true
+    });
   }
 }
 
@@ -15319,7 +29208,7 @@ function drawCharacter(char) {
   const x = Math.floor(sx);
   const y = Math.floor(char.y);
 
-  const now = performance.now();
+  const now = getGameNowMs();
   const stoppedLongEnough = now - (char.lastMoveTime || 0) > 10000;
 
   const wantType = getActorRequestedAnimType(char, stoppedLongEnough, now);
@@ -15339,7 +29228,7 @@ function drawCharacter(char) {
       x,
       y,
       flip: res.flip,
-      freezeAnim: (inConversation && !inActionPhrase)
+      freezeAnim: shouldFreezeWorldTime()
     });
   } else {
     // Fallback: legacy set while requested sheet loads
@@ -15359,7 +29248,7 @@ function drawCharacter(char) {
         y,
         facing: char.facing,
         stoppedLongEnough,
-        freezeAnim: (inConversation && !inActionPhrase)
+        freezeAnim: shouldFreezeWorldTime()
       });
     } else {
       const p = char.palette || {};
@@ -15368,30 +29257,20 @@ function drawCharacter(char) {
     }
   }
 
-  const barsUsed = drawNpcHeadBars(char, x, y);
+  __pendingHeadBars.push({ kind: 'npc', actor: char, x, y });
 
 
   if (showNames && char.name) {
-    ctx.save();
-    ctx.font = '60px monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
-    ctx.fillStyle = '#fff';
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = 2;
-
-    const align = Number(char?.stats?.alignment?.current ?? 0);
-    const affect = Number(char?.stats?.affection?.current ?? 0);
-
-    const label = `${char.name}  [A=${align}  F=${affect}]`;
-
+    const label = `${char.name}`;
     const cx = x + char.w / 2;
-    const baseNameY = y - 2;
-    const nameY = baseNameY - (Number(barsUsed) || 0) - 6;
-
-    ctx.strokeText(label, cx, nameY);
-    ctx.fillText(label, cx, nameY);
-    ctx.restore();
+    __pendingNameLabels.push({
+      actor: char,
+      label,
+      cx,
+      defaultY: y - 6,
+      fontPx: 60,
+      showStroke: true
+    });
   }
 
 }
@@ -15404,7 +29283,7 @@ function drawMob(mob) {
   const x = Math.floor(sx);
   const y = Math.floor(mob.y);
 
-  const now = performance.now();
+  const now = getGameNowMs();
   const stoppedLongEnough = now - (mob.lastMoveTime || 0) > 10000;
 
   const wantType = getActorRequestedAnimType(mob, stoppedLongEnough, now);
@@ -15417,7 +29296,7 @@ function drawMob(mob) {
       x,
       y,
       flip: res.flip,
-      freezeAnim: (inConversation && !inActionPhrase)
+      freezeAnim: shouldFreezeWorldTime()
     });
   } else {
     // Fallback: try legacy set (so you still see something while the requested sheet loads)
@@ -15437,15 +29316,54 @@ function drawMob(mob) {
         y,
         facing: mob.facing || 1,
         stoppedLongEnough,
-        freezeAnim: (inConversation && !inActionPhrase)
+        freezeAnim: shouldFreezeWorldTime()
       });
     } else {
       ctx.fillStyle = '#444';
       ctx.fillRect(x, y, mob.w, mob.h);
     }
   }
-  drawMobHeadBars(mob, x, y);
+  __pendingHeadBars.push({ kind: 'mob', actor: mob, x, y });
 
+}
+
+function getActorAutoCastAbility(actor) {
+  if (!actor) return null;
+  const autoId = lc(actor.autoCastAbilityId || '');
+  if (!autoId) return null;
+  const list = Array.isArray(actor.abilities) ? actor.abilities : [];
+  for (const a of list) {
+    if (!a) continue;
+    const abId = lc(a.id || a.name || '');
+    if (abId === autoId) return a;
+  }
+  return null;
+}
+
+function drawActorAbilityRangeIndicator(actor) {
+  if (!actor) return;
+  const ability = getActorAutoCastAbility(actor);
+  if (!ability) return;
+  const tdef = getAbilityTargetingDef(ability);
+  const rangePx = getAbilityRangePx(ability, tdef);
+  if (!isFinite(rangePx) || rangePx <= 0) return;
+
+  const cx = actorCenterX ? actorCenterX(actor) : (actor.worldX + (actor.w || 0) * 0.5);
+  const left = Math.floor((cx - rangePx) - cameraX);
+  const width = Math.ceil(rangePx * 2);
+  const height = HEIGHT / Math.max(1e-6, cameraZoom || 1);
+
+  ctx.fillStyle = 'rgba(255,0,0,0.4)';
+  ctx.fillRect(left, 0, width, height);
+}
+
+function drawAbilityRangeIndicators() {
+  if (!showRangeIndicators) return;
+
+  drawActorAbilityRangeIndicator(player);
+  for (const npc of npcs) drawActorAbilityRangeIndicator(npc);
+  for (const p of party) drawActorAbilityRangeIndicator(p);
+  for (const m of mobs) drawActorAbilityRangeIndicator(m);
 }
 
 function drawCharacters() {
@@ -15572,16 +29490,41 @@ function drawScenery() {
     }
   }
 
+  drawSafeplaceMarkers();
+
   drawGroundBackObjects(); // NEW: moves with ground, but behind characters
+  drawWorldItems();
 
 
   // (Characters & player are drawn in other functions)
 }
 
+function drawSafeplaceMarkers() {
+  if (!currentArea || !currentArea.safePlacesWorld || currentArea.safePlacesWorld.length === 0) return;
+
+  const entry = loadObjectImage('safeplace');
+  if (!entry || !entry.ready || entry.failed) return;
+
+  const srcW = (entry.frames && entry.frames > 1) ? Math.max(1, entry.frameW) : Math.max(1, entry.w);
+  const srcH = (entry.frames && entry.frames > 1) ? Math.max(1, entry.frameH) : Math.max(1, entry.h);
+  if (!isFinite(srcW) || !isFinite(srcH) || srcH <= 0) return;
+
+  const targetH = HEIGHT;
+  const targetW = Math.floor(targetH * (srcW / srcH));
+  const y = 0;
+
+  for (const sp of currentArea.safePlacesWorld) {
+    if (!sp) continue;
+    const sx = worldToScreenX(Number(sp.worldX) || 0, PARALLAX.ground);
+    const x = Math.floor(sx - (targetW / 2));
+    ctx.drawImage(entry.img, x, y, targetW, targetH);
+  }
+}
+
 function drawParallaxObjectLayer(list, parallax, defaultHeightFactor, dyFn) {
   if (!list || list.length === 0) return;
 
-  const nowMs = performance.now();
+  const nowMs = getGameNowMs();
 
   for (const obj of list) {
     if (obj && obj._spawned === false) continue;
@@ -15660,7 +29603,7 @@ function drawGroundObjectLayer(list, instancePrefix, dyOffset) {
     if (!obj) continue;
     if (obj._spawned === false) continue;
 
-    const nowMs = performance.now();
+    const nowMs = getGameNowMs();
 
 
     const base = objectBaseFromKey(obj.key || obj.name || obj.filename);
@@ -15712,12 +29655,22 @@ function drawGroundObjectLayer(list, instancePrefix, dyOffset) {
     const instanceKey = makeProxKey({ kind: 'object', instanceId });
     const typeKey = makeProxTypeKey({ kind: 'object', id: base });
 
-    if (proximityInteractFocus.get(typeKey) === instanceKey && isObjectInteractable(base, instanceKey)) {
-      drawInteractionIcon(
-        sx + Math.floor(targetW * 0.5),
-        dy - 16,
-        'Space'
-      );
+    const isFocused = (proximityInteractFocus.get(typeKey) === instanceKey);
+    const canInteract = isObjectInteractable(base, instanceKey);
+
+    if (isFocused && canInteract) {
+      __lastInteractObjectRect = {
+        x: sx,
+        y: dy,
+        w: targetW,
+        h: targetH,
+        instanceKey
+      };
+      __pendingInteractIcon = {
+        x: sx + Math.floor(targetW * 0.5),
+        y: dy - 16,
+        label: 'Space'
+      };
     }
   }
 }
@@ -15726,6 +29679,52 @@ function drawGroundObjectLayer(list, instancePrefix, dyOffset) {
 function drawGroundBackObjects() {
   if (!currentArea || !currentArea.groundBackObjects || currentArea.groundBackObjects.length === 0) return;
   drawGroundObjectLayer(currentArea.groundBackObjects, 'gback', -250);
+}
+
+function drawWorldItems() {
+  if (!currentArea || !Array.isArray(currentArea.worldItems) || currentArea.worldItems.length === 0) return;
+
+  const coverList = __getCoverRectsForCurrentArea();
+
+  for (const item of currentArea.worldItems) {
+    if (!isWorldItemAvailable(item)) continue;
+
+    const m = getWorldItemDrawMetrics(item);
+    if (!m) continue;
+
+    const { icon, targetW, targetH, sx, sy } = m;
+
+    if (icon && icon.ready && icon.img && !icon.failed) {
+      ctx.drawImage(icon.img, Math.floor(sx), Math.floor(sy), targetW, targetH);
+    } else {
+      const cx = Math.floor(sx + targetW * 0.5);
+      const cy = Math.floor(sy + targetH * 0.75);
+      ctx.save();
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.beginPath();
+      ctx.arc(cx, cy, Math.max(6, Math.floor(targetH * 0.12)), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    const isFocused = !!(currentItemInteract && currentItemInteract.instanceKey === item.instanceKey);
+    const canInteract = isFocused && !isWorldItemCoveredWithCoverList(item.instanceKey, coverList);
+
+    if (isFocused && canInteract && !currentObjectInteract) {
+      __lastInteractItemRect = {
+        x: Math.floor(sx),
+        y: Math.floor(sy),
+        w: Math.floor(targetW),
+        h: Math.floor(targetH),
+        instanceKey: item.instanceKey
+      };
+      __pendingInteractIcon = {
+        x: Math.floor(sx + targetW * 0.5),
+        y: Math.floor(sy - 16),
+        label: 'Space'
+      };
+    }
+  }
 }
 
 function drawGroundForeObjects() {
@@ -15753,7 +29752,7 @@ function drawForegroundObjects() {
       if (Math.abs((player.worldX || 0) - s.worldX) > nearPx) continue;
 
       // Estimate draw rect for foreground object (screen space)
-      const nowMs = performance.now();
+      const nowMs = getGameNowMs();
       const base = objectBaseFromKey(obj.key || obj.name || obj.filename);
       const resolved = resolvePlacedObjectRender(obj, base, nowMs);
       const entry = resolved.entry;
@@ -16081,6 +30080,9 @@ function triggerPlayerPassOut() {
   }
 
   startFadeTransfer(() => {
+    // Pass-out time skip happens during the fade midpoint.
+    __advanceWorldTimeByMinutes(30, { source: 'passout' });
+
     // If we have no known safe place yet, fall back to the first safe place in this area (if any)
     if (!lastSafePlace && Array.isArray(worldSafePlaces) && worldSafePlaces.length) {
       const sp = worldSafePlaces[0];
@@ -16099,9 +30101,14 @@ function triggerPlayerPassOut() {
       return;
     }
 
+    // Remember where the player woke up (for prompt expiry timing)
+    __passoutSafeplaceId = lastSafePlace.id || null;
+    __passoutSafeplaceArea = lastSafePlace.area || null;
+
     // Move to safe place area, then pin exact X
     snapshotNPCsToRegistry();
     snapshotMobsToRegistry({ stripPlayerTargets: true });
+
 
     // ALSO move any "unconscious party members" to the safe place as recovered world NPCs
     if (unconsciousNamesAtPassout.length) {
@@ -16115,9 +30122,14 @@ function triggerPlayerPassOut() {
     player.worldX = lastSafePlace.worldX;
     player.vx = 0;
     player.vy = 0;
+    resetActorTeleportState(player);
 
     // Bring party to the safe place too (random positions within 500 worldX)
     scatterPartyNearPlayer(500);
+    for (const m of party) {
+      if (!m) continue;
+      resetActorTeleportState(m);
+    }
 
     // Recover PLAYER + all current party members
     recoverPlayerOnPassOut();
@@ -16259,21 +30271,33 @@ function drawFadeOverlay() {
 
 
 
+const MAX_PHYSICS_DT = 1 / 30; // clamp physics to avoid tunneling on long pauses
+
 function gameLoop(ts) {
-  if (!lastTs) lastTs = ts;
-  const dt = (ts - lastTs) / 1000;
+  if (!lastTs) {
+    lastTs = ts;
+    __gameNowMs = performance.now();
+  }
+  const dtReal = (ts - lastTs) / 1000;
+  const dt = Math.min(dtReal, MAX_PHYSICS_DT);
   lastTs = ts;
 
-  update(dt);
-  updateFade(dt);       // NEW: advance fade state
+  if (!shouldFreezeWorldTime()) {
+    __gameNowMs += dtReal * 1000;
+  }
+
+  update(dt, dtReal);
+  updateFade(dtReal);       // NEW: advance fade state
 
     // ===== World render (affected by camera zoom) =====
   ctx.save();
   applyCameraZoomTransform();
+  __lastInteractIconRect = null;
+  __lastInteractObjectRect = null;
+  __lastInteractItemRect = null;
+  __pendingInteractIcon = null;
 
   drawScenery();
-
-  drawExitProximityIcon();
 
   if (loading) {
 
@@ -16285,10 +30309,30 @@ function gameLoop(ts) {
     ctx.fillRect(0, 0, WIDTH, HEIGHT);
     ctx.globalAlpha = 1;
     ctx.fillStyle = '#fff';
-    ctx.font = '60px monospace';
+    ctx.font = uiFont(60);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(loadingMessage || 'Loading...', WIDTH / 2, HEIGHT / 2);
+
+    const prog = __getBlockingLoadProgress();
+    if (prog.total > 0) {
+      const barW = Math.min(WIDTH * 0.6, 520);
+      const barH = 14;
+      const barX = (WIDTH - barW) / 2;
+      const barY = (HEIGHT / 2) + 60;
+      const frac = Math.max(0, Math.min(1, prog.done / prog.total));
+
+      ctx.fillStyle = 'rgba(255,255,255,0.2)';
+      ctx.fillRect(barX, barY, barW, barH);
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(barX, barY, barW * frac, barH);
+
+      ctx.font = uiFont(24);
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(`Loading ${prog.done}/${prog.total}`, WIDTH / 2, barY + barH + 10);
+    }
     ctx.restore();
 
     drawFadeOverlay();
@@ -16296,6 +30340,10 @@ function gameLoop(ts) {
     return;
   }
 
+  __pendingNameLabels = [];
+  __pendingHeadBars = [];
+
+  drawAbilityRangeIndicators();
   drawCharacters();
   drawPlayer();
 
@@ -16307,13 +30355,33 @@ function gameLoop(ts) {
   // --- Time-of-day darkening: Group C (true foreground objects) ---
   drawTimeDarkenOverlay('C');
 
+  drawForegroundObjects();
+
   // ===== Above-head UI (recruit icons + dialog prompt bubbles) =====
   const headStack = new Map(); // npc -> current yOffset used
+  __lastRecruitIcons = [];
+  __lastPromptLayouts = [];
 
+  if (__pendingInteractIcon) {
+    __lastInteractIconRect = drawInteractionIcon(
+      __pendingInteractIcon.x,
+      __pendingInteractIcon.y,
+      __pendingInteractIcon.label
+    );
+  }
 
+  drawExitProximityIcon();
+  drawManualTargetingOverlay();
   drawStatChangeFloaters(ctx);
   drawItemFoundFloaters(ctx);
 
+  // Head bars (above all world objects)
+  for (const hb of __pendingHeadBars) {
+    if (!hb) continue;
+    if (hb.kind === 'player') drawPlayerHeadBars(hb.x, hb.yBottom);
+    else if (hb.kind === 'npc') drawNpcHeadBars(hb.actor, hb.x, hb.y);
+    else if (hb.kind === 'mob') drawMobHeadBars(hb.actor, hb.x, hb.y);
+  }
 
   // 1) Recruit icon for recruitable WORLD NPCs within interaction radius
   for (const npc of npcs) {
@@ -16329,36 +30397,163 @@ function gameLoop(ts) {
   }
 
   // 2) Dialog prompt speech bubbles (stack above anything already drawn)
-for (let i = 0; i < activeDialogPrompts.length; i++) {
-  const p = activeDialogPrompts[i];
-  if (!p || !p.npc) continue;
+  const promptLayouts = [];
 
-  const actor = p.npc;
+  for (let i = 0; i < activeDialogPrompts.length; i++) {
+    const p = activeDialogPrompts[i];
+    if (!p || !p.npc) continue;
 
-  let yOffset = headStack.get(actor) || 0;
-let keyLabel = 'T';
-if (party.includes(actor)) {
-  keyLabel = (Number.isFinite(p.keyNum) && p.keyNum > 0) ? String(p.keyNum) : null;
-}
+    const actor = p.npc;
+    if (isActorUnconscious(actor)) continue;
+    let yOffset = headStack.get(actor) || 0;
 
-  const used = drawSpeechBubbleForNpc(actor, p.prompt, keyLabel, yOffset);
+    let keyLabel = 'T';
+    if (party.includes(actor)) {
+      keyLabel = (Number.isFinite(p.keyNum) && p.keyNum > 0) ? String(p.keyNum) : null;
+    }
 
-  headStack.set(actor, yOffset + used);
-}
+    const metrics = buildPromptBubbleMetrics(p.prompt, keyLabel);
+    const sx = actor.worldX - cameraX + actor.w / 2;
+    const sy = actor.y - 10 - yOffset;
 
+    let x = Math.floor(sx - metrics.boxW / 2);
+    let y = Math.floor(sy - metrics.boxH);
 
-  drawForegroundObjects();
+    const pad = 4;
+    if (x < pad) x = pad;
+    if (x + metrics.boxW > WIDTH - pad) x = Math.max(pad, WIDTH - metrics.boxW - pad);
+    if (y < pad) y = pad;
+    if (y + metrics.boxH > HEIGHT - pad) y = Math.max(pad, HEIGHT - metrics.boxH - pad);
+
+    const offscreen = (sx < 0 || sx > WIDTH);
+    let tag = null;
+    let tagH = 0;
+    if (offscreen) {
+      const icon = getPromptIconEntry(actor.name);
+      const showName = !icon || icon.failed || !icon.ready;
+      tag = { icon: icon && icon.ready ? icon : null, name: showName ? actor.name : null };
+      tagH = tag.icon ? 40 : (tag.name ? 28 : 0);
+
+      const tagMargin = 4;
+      if (y - tagH - tagMargin < pad) {
+        y = Math.min(HEIGHT - metrics.boxH - pad, pad + tagH + tagMargin);
+      }
+    }
+
+    const totalH = metrics.boxH + metrics.pointerH + 6 + (tagH ? (tagH + 4) : 0);
+
+    promptLayouts.push({
+      p,
+      actor,
+      promptIndex: i,
+      keyLabel,
+      metrics,
+      x,
+      y,
+      w: metrics.boxW,
+      h: totalH,
+      tag
+    });
+
+    headStack.set(actor, yOffset + totalH);
+  }
+
+  // Resolve overlaps: lower trigger ids are higher
+  promptLayouts.sort((a, b) => {
+    const ida = String(a.p.triggerKey || a.p.__promptId || '');
+    const idb = String(b.p.triggerKey || b.p.__promptId || '');
+    return ida.localeCompare(idb);
+  });
+
+  const placed = [];
+  for (const item of promptLayouts) {
+    for (const prev of placed) {
+      const overlapX = !(item.x + item.w <= prev.x || item.x >= prev.x + prev.w);
+      const overlapY = !(item.y + item.h <= prev.y || item.y >= prev.y + prev.h);
+      if (overlapX && overlapY) {
+        item.y = prev.y + prev.h + 6;
+      }
+    }
+    placed.push(item);
+  }
+
+  const promptTopByActor = new Map();
+  for (const item of placed) {
+    if (!item.actor) continue;
+    const prev = promptTopByActor.get(item.actor);
+    const top = Number(item.y);
+    if (!isFinite(top)) continue;
+    if (prev == null || top < prev) promptTopByActor.set(item.actor, top);
+  }
+
+  // Draw with smooth vertical slide
+  const visiblePromptIds = new Set();
+  for (const item of promptLayouts) {
+    const promptId = item.p.__promptId || `${lc(item.actor.name)}:${item.p.triggerKey || ''}`;
+    visiblePromptIds.add(promptId);
+
+    const prevY = __promptAnimYById.has(promptId) ? __promptAnimYById.get(promptId) : item.y;
+    const easedY = prevY + (item.y - prevY) * 0.2;
+    __promptAnimYById.set(promptId, easedY);
+
+    __lastPromptLayouts.push({
+      promptIndex: item.promptIndex,
+      x: item.x,
+      y: easedY,
+      w: item.w,
+      h: item.h
+    });
+
+    const used = drawSpeechBubbleForNpc(
+      item.actor,
+      item.p.prompt,
+      item.keyLabel,
+      0,
+      { x: item.x, y: easedY, tag: item.tag, metrics: item.metrics }
+    );
+
+    headStack.set(item.actor, used);
+  }
+
+  // Clear animations for prompts no longer visible
+  for (const [pid] of __promptAnimYById) {
+    if (!visiblePromptIds.has(pid)) __promptAnimYById.delete(pid);
+  }
+
+  // Draw character names after prompts so they can sit above any visible prompt bubbles
+  if (__pendingNameLabels.length > 0) {
+    for (const info of __pendingNameLabels) {
+      if (!info) continue;
+      let nameY = Number(info.defaultY);
+      const top = promptTopByActor.get(info.actor);
+      if (isFinite(top)) {
+        nameY = Math.min(nameY, Math.floor(top) - 6);
+      }
+
+      ctx.save();
+      ctx.font = uiFont(Number(info.fontPx) || 48);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillStyle = '#fff';
+      if (info.showStroke) {
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 2;
+        ctx.strokeText(String(info.label), info.cx, nameY);
+      }
+      ctx.fillText(String(info.label), info.cx, nameY);
+      ctx.restore();
+    }
+  }
 
   ctx.restore(); // end world zoom render
 
   // ===== Screen-space overlays (NOT affected by zoom) =====
   // ===== Screen-space overlays (NOT affected by zoom) =====
-  drawAreaBanner();
-  drawSectionBanner();
-
   drawTimeOfDayWidget();
+  drawMiniMap();
+  drawFullMapOverlay();
 
-  drawItemFoundToast();
+  drawWorldToast();
   drawFadeOverlay();
 
 
@@ -16366,4 +30561,3 @@ if (party.includes(actor)) {
   requestAnimationFrame(gameLoop);
 
 }
-

@@ -1,0 +1,2770 @@
+{
+  "start": "mist_entry_branch",
+  "phrases": {
+    "start_game_wakeup": {
+      "text": "You awake, in a calm forest grove next to a river.",
+      "speaker": "narrator",
+      "next": "start_game_wakeup_2"
+    },
+    "start_game_wakeup_2": {
+      "text": "Something seems strange about this. Were you here before?",
+      "speaker": "narrator",
+      "next": "start_game_wakeup_3"
+    },
+    "start_game_wakeup_3": {
+      "text": "Use the left + right arrow keys to move",
+      "speaker": "guide",
+      "next": null
+    },
+    "guide_explain_interact": {
+      "speaker": "guide",
+      "text": "When you can interact with an object, you'll see an icon above it.",
+      "next": "guide_explain_interact_2"
+    },
+    "guide_explain_interact_2": {
+      "speaker": "guide",
+      "text": "Press the space bar or enter key to interact with it.",
+      "next": "guide_explain_interact_3"
+    },
+    "guide_explain_interact_3": {
+      "speaker": "guide",
+      "text": "Certain items require certain party members to be able to interact with them.",
+      "next": null
+    },
+    "narrator_explain_recruit": {
+      "speaker": "narrator",
+      "text": "You get the feeling you've said something right. A good thing too, you're probably going to need some friends.",
+      "next": "guide_explain_recruit"
+    },
+    "guide_explain_recruit": {
+      "speaker": "guide",
+      "text": "When you can recruit a character, you'll see an icon above them.",
+      "next": "guide_explain_recruit_2"
+    },
+    "guide_explain_recruit_2": {
+      "speaker": "guide",
+      "text": "Press the R key to recruit them to your party.",
+      "next": "guide_explain_recruit_3"
+    },
+    "guide_explain_recruit_3": {
+      "speaker": "guide",
+      "text": "You can only have four characters (including yourself) in your party at a time.",
+      "next": null
+    },
+    "forest_enter": {
+      "speaker": "Rowyn",
+      "text": "If you keep going straight, this path will eventually take you to Lunara Village.",
+      "reaction": "neutral",
+      "next": "forest_enter_2"
+    },
+    "forest_enter_2": {
+      "speaker": "Rowyn",
+      "text": "It's quite far. Hopefully we can make it before dark.",
+      "reaction": "worried",
+      "options": {
+        "forest_enter_lets_go": {
+          "text": "Let's hurry then",
+          "next": null,
+          "effects": [
+            {
+              "type": "updateStat",
+              "npc": "Rowyn",
+              "stat": "alignment",
+              "delta": 1
+            }
+          ]
+        },
+        "forest_enter_question": {
+          "text": "What happens after dark?",
+          "next": "forest_enter_3"
+        }
+      }
+    },
+    "forest_enter_3": {
+      "speaker": "Rowyn",
+      "text": "The veil is already thin in these woods. Magic is easy, and things sometimes slip thorugh from the other side.",
+      "reaction": "neutral",
+      "next": "forest_enter_4"
+    },
+    "forest_enter_4": {
+      "speaker": "Rowyn",
+      "text": "At night, the barrier is even weaker, and the things that come are less friendly...",
+      "reaction": "worried",
+      "options": {
+        "forest_enter_lets_go_2": {
+          "text": "Let's hurry then",
+          "next": null
+        },
+        "forest_enter_question_2": {
+          "text": "What sort of things?",
+          "next": "forest_enter_5",
+          "effects": [
+            {
+              "type": "updateStat",
+              "npc": "Rowyn",
+              "stat": "alignment",
+              "delta": -1
+            }
+          ]
+        }
+      }
+    },
+    "forest_enter_5": {
+      "speaker": "Rowyn",
+      "text": "Let's just... go quickly, ok? We can talk about it back at the village.",
+      "reaction": "worried",
+      "next": null
+    },
+    "guide_dialog_prompts": {
+      "speaker": "narrator",
+      "text": "You notice that the friendly young woman who's following you, is trying to get your attention.",
+      "next": "guide_dialog_prompts_2"
+    },
+    "guide_dialog_prompts_2": {
+      "speaker": "guide",
+      "text": "Dialog prompts appear above the heads of party members",
+      "next": "guide_dialog_prompts_3"
+    },
+    "guide_dialog_prompts_3": {
+      "speaker": "guide",
+      "text": "Each has a number assigned to it. Press that number key to start a conversation",
+      "next": null
+    },
+    "mist_entry_branch": {
+      "text": "A heavy mist drifts across the river, obscuring the way ahead...",
+      "speaker": "narrator",
+      "next": {
+        "mist_with_rowyn_explain": {
+          "when": {
+            "party": {
+              "hasAll": [
+                "Rowyn"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "mist_with_rowyn_explain": {
+      "speaker": "Rowyn",
+      "text": "Careful. That mist isn’t natural. It’s leaking through from the spirit world.",
+      "reaction": "worried",
+      "next": "rowyn_protect_from_mist"
+    },
+    "rowyn_protect_from_mist": {
+      "speaker": "Rowyn",
+      "text": "I know a spell that can strengthen the veil around me a little. Maybe it will clear the mist?",
+      "reaction": "neutral",
+      "next": "abilities_menu"
+    },
+    "abilities_menu": {
+      "speaker": "guide",
+      "text": "Press A to open the Abilities menu.",
+      "next": null
+    },
+    "rowyn_running_from_mist": {
+      "speaker": "Rowyn",
+      "text": "Hey!",
+      "reaction": "upset",
+      "next": "player_faces_rowyn"
+    },
+    "player_faces_rowyn": {
+      "action": {
+        "type": "moveTo",
+        "actor": "player",
+        "forward": "30",
+        "speedFactor": 2
+      },
+      "next": "player_faces_rowyn_2"
+    },
+    "player_faces_rowyn_2": {
+      "action": {
+        "type": "moveTo",
+        "actor": "player",
+        "forward": "-10",
+        "speedFactor": 2
+      },
+      "next": "rowyn_runs_to_player_mist"
+    },
+    "rowyn_runs_to_player_mist": {
+      "action": {
+        "type": "moveTo",
+        "actor": "Rowyn",
+        "toChar": "player",
+        "speedFactor": 2
+      },
+      "next": "rowyn_left_in_mist"
+    },
+    "rowyn_left_in_mist": {
+      "speaker": "Rowyn",
+      "text": "It's fine if you want to go on your own, but don't leave me in there!",
+      "reaction": "upset",
+      "next": null
+    },
+    "rowyn_mist_unfollowed": {
+      "speaker": "Rowyn",
+      "text": "Aggressive spirits won't follow us into the mist!",
+      "reaction": "worried",
+      "next": "rowyn_mist_unfollowed_2"
+    },
+    "rowyn_mist_unfollowed_2": {
+      "speaker": "Rowyn",
+      "text": "If I clear the mist with my spell, they might follow again. But without the spell, we can't see what's in here...",
+      "reaction": "worried",
+      "next": null
+    },
+    "splitpath_bridge_just_rowyn_from_left": {
+      "speaker": "Rowyn",
+      "text": "If you keep going straight, the path will eventually take you to Lunara Village.",
+      "reaction": "worried",
+      "next": {
+        "splitpath_warning_night": {
+          "when": {
+            "timePhase": "night"
+          }
+        },
+        "splitpath_warning_not_night": {
+          "when": {}
+        }
+      }
+    },
+    "splitpath_bridge_just_rowyn_from_right": {
+      "speaker": "Rowyn",
+      "text": "Lunara Village is back the other way.",
+      "reaction": "worried",
+      "next": {
+        "splitpath_warning_night": {
+          "when": {
+            "timePhase": "night"
+          }
+        },
+        "splitpath_warning_not_night": {
+          "when": {}
+        }
+      }
+    },
+    "splitpath_warning_not_night": {
+      "speaker": "Rowyn",
+      "text": "The forest across the river is far too dangerous, even during the day. This path is longer, but we can still make it if we hurry.",
+      "reaction": "worried",
+      "next": {
+        "splitpath_bridge_mira_2": {
+          "when": {
+            "party": {
+              "hasAll": [
+                "Mira"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "splitpath_warning_night": {
+      "speaker": "Rowyn",
+      "text": "The forest across the river is far too dangerous, especially at night.",
+      "reaction": "worried",
+      "next": {
+        "splitpath_bridge_mira_2": {
+          "when": {
+            "party": {
+              "hasAll": [
+                "Mira"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "splitpath_bridge_mira": {
+      "speaker": "Mira",
+      "text": "If we cross the river here, the path to Lunara Village is much quicker",
+      "reaction": "neutral",
+      "next": {
+        "splitpath_warning_not_night": {
+          "when": {
+            "party": {
+              "hasAll": [
+                "Rowyn"
+              ]
+            }
+          }
+        },
+        "splitpath_bridge_mira_2": {
+          "when": {
+            "party": {
+              "lacks": [
+                "Rowyn"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "splitpath_bridge_mira_2": {
+      "speaker": "Mira",
+      "text": "It's not that dangerous, we just need to be careful...",
+      "reaction": "neutral",
+      "next": "splitpath_bridge_mira_3"
+    },
+    "splitpath_bridge_mira_3": {
+      "speaker": "Mira",
+      "text": "... and anyway, it's already too late to make it by the long path...",
+      "reaction": "neutral",
+      "next": {
+        "splitpath_bridge_rowyn_2": {
+          "when": {
+            "party": {
+              "hasAll": [
+                "Rowyn"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "splitpath_bridge_rowyn_2": {
+      "speaker": "Rowyn",
+      "text": "...",
+      "reaction": "worried",
+      "next": null
+    },
+    "mira_longpath_1": {
+      "speaker": "Mira",
+      "text": "This is slower. If we go back to the bridge and cross the river, it’s quicker.",
+      "reaction": "neutral",
+      "next": {
+        "rowyn_disagree_1": {
+          "when": {
+            "party": {
+              "hasAll": [
+                "Rowyn"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "rowyn_disagree_1": {
+      "speaker": "Rowyn",
+      "text": "It’s safer this way. Faster doesn’t help if we don’t make it there.",
+      "reaction": "worried",
+      "next": null
+    },
+    "mira_longpath_2": {
+      "speaker": "Mira",
+      "text": "We’re wasting time. The bridge was right there. We should turn back now.",
+      "reaction": "upset",
+      "next": {
+        "rowyn_disagree_2": {
+          "when": {
+            "party": {
+              "hasAll": [
+                "Rowyn"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "rowyn_disagree_2": {
+      "speaker": "Rowyn",
+      "text": "I’m not crossing into a thinner veil at dusk. Not for a shortcut.",
+      "reaction": "worried",
+      "next": null
+    },
+    "mira_longpath_3": {
+      "speaker": "Mira",
+      "text": "I told you. The other way is faster...",
+      "reaction": "upset",
+      "next": {
+        "rowyn_disagree_3": {
+          "when": {
+            "party": {
+              "hasAll": [
+                "Rowyn"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "rowyn_disagree_3": {
+      "speaker": "Rowyn",
+      "text": "And I told you: I won’t risk the river path. Not with the veil like this.",
+      "reaction": "upset",
+      "next": null
+    },
+    "mira_leaves_low_alignment": {
+      "speaker": "Mira",
+      "text": "I can’t go any further with you....",
+      "reaction": "upset",
+      "next": "mira_leaves_walk_left"
+    },
+    "mira_leaves_walk_left": {
+      "action": {
+        "type": "moveTo",
+        "actor": "Mira",
+        "forward": -600,
+        "speedFactor": 2
+      },
+      "effects": [
+        {
+          "type": "updateStat",
+          "npc": "Mira",
+          "stat": "alignment",
+          "delta": 1
+        }
+      ],
+      "next": null
+    },
+    "rowyn_wisp_intro_1": {
+      "speaker": "Rowyn",
+      "text": "Oh no!",
+      "reaction": "worried",
+      "next": "rowyn_wisp_intro_1_1"
+    },
+    "rowyn_wisp_intro_1_1": {
+      "action": {
+        "type": "moveTo",
+        "actor": "Rowyn",
+        "toChar": "player",
+        "speedFactor": 4
+      },
+      "next": "rowyn_wisp_intro_2"
+    },
+    "rowyn_wisp_intro_2": {
+      "action": {
+        "type": "moveTo",
+        "actor": "Rowyn",
+        "forward": 300,
+        "speedFactor": 4
+      },
+      "next": "rowyn_wisp_intro_3"
+    },
+    "rowyn_wisp_intro_3": {
+      "speaker": "Rowyn",
+      "text": "I didn't realise it was so late.",
+      "reaction": "worried",
+      "next": "rowyn_wisp_intro_4"
+    },
+    "rowyn_wisp_intro_4": {
+      "action": {
+        "type": "camera",
+        "focus": {
+          "type": "mob",
+          "id": "spirit_wisp"
+        },
+        "durationMs": 2000
+      },
+      "next": "rowyn_wisp_intro_5"
+    },
+    "rowyn_wisp_intro_5": {
+      "speaker": "Rowyn",
+      "text": "It can be dangerous to let these spirits touch you, but they're not agressive.",
+      "reaction": "neutral",
+      "next": "rowyn_wisp_intro_6"
+    },
+    "rowyn_wisp_intro_6": {
+      "speaker": "Rowyn",
+      "text": "I'm used to the effect they have on me, but you might feel sleepy or disoriented if one gets too close.",
+      "reaction": "worried",
+      "next": "rowyn_wisp_intro_7"
+    },
+    "rowyn_wisp_intro_7": {
+      "speaker": "Rowyn",
+      "text": "So don't worry about me, but whatever you do, don't stop until you're past it.",
+      "reaction": "worried",
+      "next": "rowyn_wisp_intro_8"
+    },
+    "rowyn_wisp_intro_8": {
+      "action": {
+        "type": "camera",
+        "reset": true,
+        "durationMs": 3000
+      },
+      "next": null
+    },
+    "rowyn_diversion": {
+      "speaker": "Rowyn",
+      "text": "Oh wow...",
+      "reaction": "worried",
+      "next": "rowyn_diversion_2"
+    },
+    "rowyn_diversion_2": {
+      "action": {
+        "type": "moveTo",
+        "actor": "Rowyn",
+        "forward": 1200,
+        "speedFactor": 4
+      },
+      "next": "rowyn_diversion_3"
+    },
+    "rowyn_diversion_3": {
+      "action": {
+        "type": "camera",
+        "focus": {
+          "type": "object",
+          "id": "veil_tear"
+        },
+        "durationMs": 2000
+      },
+      "next": "rowyn_diversion_4"
+    },
+    "rowyn_diversion_4": {
+      "speaker": "Rowyn",
+      "text": "I never stay in the forest this late. The veil is starting to tear. We'll have to find another way around.",
+      "reaction": "worried",
+      "next": "rowyn_diversion_5"
+    },
+    "rowyn_diversion_5": {
+      "speaker": "guide",
+      "text": "Exits are marked with an arrow. Press the UP or DOWN arrow key when near an exit to move to another area",
+      "next": "rowyn_diversion_6"
+    },
+    "rowyn_diversion_6": {
+      "action": {
+        "type": "camera",
+        "reset": true,
+        "durationMs": 2000
+      },
+      "next": null
+    },
+    "rowyn_nightfall": {
+      "speaker": "Rowyn",
+      "text": "It's night already... I hoped we'd be back to the village by now.",
+      "reaction": "worried",
+      "next": "rowyn_nightfall_2"
+    },
+    "rowyn_nightfall_2": {
+      "speaker": "Rowyn",
+      "text": "With the veil so thin, it's extremely dangerous out here.",
+      "reaction": "worried",
+      "next": "rowyn_nightfall_3"
+    },
+    "rowyn_nightfall_3": {
+      "speaker": "Rowyn",
+      "text": "Some spirits can be aggressive, and there are things that will play tricks on our senses.",
+      "reaction": "worried",
+      "next": "rowyn_nightfall_4"
+    },
+    "rowyn_nightfall_4": {
+      "speaker": "Rowyn",
+      "text": "Even just get too close to a rift in the veil, and you might slip through, or fall asleep and never wake up.",
+      "reaction": "worried",
+      "next": "rowyn_nightfall_5"
+    },
+    "rowyn_nightfall_5": {
+      "speaker": "Rowyn",
+      "text": "Be careful, is what I'm saying. Stay on course, and let's get out of the forest as quick as possible.",
+      "reaction": "neutral",
+      "next": {
+        "mira_nightfall_1": {
+          "when": {
+            "party": {
+              "hasAll": [
+                "Mira"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "mira_nightfall_1": {
+      "speaker": "Mira",
+      "text": "The route through the forest across the river is much quicker...",
+      "reaction": "neutral",
+      "next": {
+        "rowyn_nightfall_6": {
+          "when": {
+            "party": {
+              "hasAll": [
+                "Mira"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "rowyn_nightfall_6": {
+      "speaker": "Rowyn",
+      "text": "And MUCH more dangerous!",
+      "reaction": "upset",
+      "next": null
+    },
+    "rowyn_barrier": {
+      "speaker": "Rowyn",
+      "text": "Monuments like these are littered throughout the forest. The stories say they've been here since before Lunara village was even founded.",
+      "reaction": "neutral",
+      "next": "rowyn_barrier_2"
+    },
+    "rowyn_barrier_2": {
+      "speaker": "Rowyn",
+      "text": "There are different types. Some are maybe just decorative, but some are clearly magical.",
+      "reaction": "neutral",
+      "next": "rowyn_barrier_3"
+    },
+    "rowyn_barrier_3": {
+      "speaker": "Rowyn",
+      "text": "I've been studying these ones, to try and copy their magic. They can generate a sort of invisible barrier.",
+      "reaction": "neutral",
+      "next": "rowyn_barrier_4"
+    },
+    "rowyn_barrier_4": {
+      "speaker": "Rowyn",
+      "text": "You can switch them on and off just by touching them, but these ones will reset back to how they were after a short time.",
+      "reaction": "neutral",
+      "next": {
+        "mira_barrier_5": {
+          "when": {
+            "party": {
+              "hasAll": [
+                "Mira"
+              ]
+            },
+            "area": "eldertide_forest_riverside",
+            "sections": [
+              "eldertide_forest_riverside_guardian"
+            ]
+          }
+        },
+        "rowyn_barrier_5": {
+          "when": {
+            "area": "eldertide_forest_riverside",
+            "sections": [
+              "eldertide_forest_riverside_guardian"
+            ]
+          }
+        }
+      }
+    },
+    "mira_barrier_5": {
+      "speaker": "Mira",
+      "text": "It's holding back that creature... It looks very dangerous...",
+      "reaction": "worried",
+      "next": "rowyn_barrier_6"
+    },
+    "rowyn_barrier_6": {
+      "speaker": "Rowyn",
+      "text": "Yeah.",
+      "reaction": "worried",
+      "next": "rowyn_barrier_5"
+    },
+    "rowyn_barrier_5": {
+      "speaker": "Rowyn",
+      "text": "Probably best not to switch this one off... Let's try to find another way around.",
+      "reaction": "worried",
+      "next": {
+        "mira_barrier_6": {
+          "when": {
+            "party": {
+              "hasAll": [
+                "Mira"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "mira_barrier_6": {
+      "speaker": "Mira",
+      "text": "There IS another way... Across the river...",
+      "reaction": "worried",
+      "next": "rowyn_barrier_7"
+    },
+    "mira_barrier": {
+      "speaker": "Mira",
+      "text": "I really don't think it's safe to go this way...",
+      "reaction": "worried",
+      "next": "mira_barrier_2"
+    },
+    "mira_barrier_2": {
+      "speaker": "Mira",
+      "text": "That barrier is blocking the way, but if we open it, that thing will get to us...",
+      "reaction": "worried",
+      "next": "mira_barrier_3"
+    },
+    "mira_barrier_3": {
+      "speaker": "Mira",
+      "text": "If we go back and cross the river...",
+      "reaction": "worried",
+      "next": {
+        "rowyn_barrier_7": {
+          "when": {
+            "party": {
+              "hasAll": [
+                "Rowyn"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "rowyn_barrier_7": {
+      "speaker": "Rowyn",
+      "text": "That way is NOT safer!.",
+      "reaction": "upset",
+      "next": "mira_barrier_4"
+    },
+    "mira_barrier_4": {
+      "speaker": "Mira",
+      "text": "Maybe you can go this way, and we'll go that way...",
+      "reaction": "neutral",
+      "next": "guide_drop_npc"
+    },
+    "guide_drop_npc": {
+      "speaker": "guide",
+      "text": "You can drop a character from your party by holding SHIFT and pressing their number.",
+      "next": null
+    },
+    "rowyn_follower": {
+      "action": {
+        "type": "moveTo",
+        "actor": "Rowyn",
+        "toChar": "player",
+        "speedFactor": 4
+      },
+      "next": "rowyn_follower_1"
+    },
+    "rowyn_follower_1": {
+      "action": {
+        "type": "moveTo",
+        "actor": "Rowyn",
+        "forward": "300",
+        "speedFactor": 4
+      },
+      "next": "rowyn_follower_2"
+    },
+    "mira_follower": {
+      "action": {
+        "type": "moveTo",
+        "actor": "Mira",
+        "forward": 1500,
+        "speedFactor": 4
+      },
+      "next": "mira_follower_1"
+    },
+    "mira_follower_1": {
+      "action": {
+        "type": "moveTo",
+        "actor": "Mira",
+        "forward": "300",
+        "speedFactor": 4
+      },
+      "next": "rowyn_follower_2"
+    },
+    "rowyn_follower_2": {
+      "speaker": "Rowyn",
+      "text": "Be careful, there's something strange about that spirit.",
+      "reaction": "worried",
+      "next": "follower_3"
+    },
+    "mira_follower_2": {
+      "speaker": "Mira",
+      "text": "Let's turn back...",
+      "reaction": "worried",
+      "next": "follower_3"
+    },
+    "follower_3": {
+      "action": {
+        "type": "camera",
+        "focus": {
+          "type": "mob",
+          "id": "spirit_wisp_forest"
+        },
+        "durationMs": 2000
+      },
+      "next": {
+        "rowyn_follower_3": {
+          "when": {
+            "party": {
+              "hasAll": [
+                "Rowyn"
+              ]
+            }
+          }
+        },
+        "mira_follower_3": {
+          "when": {
+            "party": {
+              "hasAll": [
+                "Mira"
+              ]
+            }
+          }
+        },
+        "follower_4": {}
+      }
+    },
+    "rowyn_follower_3": {
+      "speaker": "Rowyn",
+      "text": "It feels more aggressive than the normal type. I think it might attack if we get too close.",
+      "reaction": "worried",
+      "next": {
+        "mira_follower_3": {
+          "when": {
+            "party": {
+              "hasAll": [
+                "Mira"
+              ]
+            }
+          }
+        },
+        "follower_4": {}
+      }
+    },
+    "mira_follower_3": {
+      "speaker": "Mira",
+      "text": "That type of spirit can track your aura. Once it starts following you, it's very difficult to lose it...",
+      "reaction": "worried",
+      "next": "follower_4"
+    },
+    "follower_4": {
+      "action": {
+        "type": "camera",
+        "reset": true,
+        "durationMs": 2000
+      },
+      "next": null
+    },
+    "rowyn_followers": {
+      "action": {
+        "type": "moveTo",
+        "actor": "Rowyn",
+        "toChar": "player",
+        "speedFactor": 4
+      },
+      "next": "rowyn_followers_1"
+    },
+    "rowyn_followers_1": {
+      "action": {
+        "type": "moveTo",
+        "actor": "Rowyn",
+        "forward": "300",
+        "speedFactor": 4
+      },
+      "next": "followers_3"
+    },
+    "mira_followers": {
+      "action": {
+        "type": "moveTo",
+        "actor": "Mira",
+        "forward": 1500,
+        "speedFactor": 4
+      },
+      "next": "mira_followers_1"
+    },
+    "mira_followers_1": {
+      "action": {
+        "type": "moveTo",
+        "actor": "Mira",
+        "forward": "300",
+        "speedFactor": 4
+      },
+      "next": "followers_3"
+    },
+    "followers_3": {
+      "action": {
+        "type": "camera",
+        "focus": {
+          "type": "mob",
+          "id": "spirit_wisp_forest"
+        },
+        "durationMs": 2000
+      },
+      "next": {
+        "rowyn_followers_2": {
+          "when": {
+            "party": {
+              "hasAll": [
+                "Rowyn"
+              ]
+            }
+          }
+        },
+        "mira_followers_2": {
+          "when": {
+            "party": {
+              "hasAll": [
+                "Mira"
+              ]
+            }
+          }
+        },
+        "follower_4": {}
+      }
+    },
+    "rowyn_followers_2": {
+      "speaker": "Rowyn",
+      "text": "...",
+      "reaction": "worried",
+      "next": {
+        "mira_follower_3": {
+          "when": {
+            "party": {
+              "hasAll": [
+                "Mira"
+              ]
+            }
+          }
+        },
+        "follower_4": {}
+      }
+    },
+    "mira_followers_2": {
+      "speaker": "Mira",
+      "text": "...",
+      "reaction": "worried",
+      "next": "followers_4"
+    },
+    "followers_4": {
+      "action": {
+        "type": "camera",
+        "reset": true,
+        "durationMs": 2000
+      },
+      "next": null
+    },
+    "mira_forest_north_2_event": {
+      "action": {
+        "type": "leaveParty",
+        "actor": "Mira"
+      },
+      "effects": [
+        {
+          "type": "setActorParam",
+          "actor": "Mira",
+          "key": "autoCastRules",
+          "value": "disabled"
+        },
+        {
+          "type": "setFlag",
+          "scope": "global",
+          "key": "mira_forest_north_2_event_started",
+          "value": true,
+          "atEnd": true
+        },
+        {
+          "type": "setStat",
+          "npc": "Mira",
+          "stat": "alignment",
+          "field": "current",
+          "value": 0
+        },
+        {
+          "type": "setStat",
+          "npc": "Mira",
+          "stat": "affection",
+          "field": "current",
+          "value": 0
+        },
+        {
+          "type": "setStat",
+          "npc": "Mira",
+          "stat": "minAlignment",
+          "field": "current",
+          "value": 6
+        }
+      ],
+      "next": "mira_forest_north_2_event_2"
+    },
+    "mira_forest_north_2_event_2": {
+      "lockPlayer": false,
+      "action": {
+        "type": "moveTo",
+        "actor": "mira",
+        "worldX": 8000,
+        "speedFactor": 4
+      },
+      "next": "mira_forest_north_2_event_3_mira_known"
+    },
+    "mira_forest_north_2_event_3_mira_known": {
+      "speaker": "Mira",
+      "text": "Finally, you're here...",
+      "reaction": "neutral",
+      "effects": [
+        {
+          "type": "setActorParam",
+          "actor": "Mira",
+          "key": "allianceByInstance.mob:mira_colossus:mira_colossus_event_1",
+          "value": 3
+        },
+        {
+          "type": "setActorParam",
+          "actor": "Mira",
+          "key": "allianceByFaction.mira_colossus",
+          "value": 3
+        },
+        {
+          "type": "setActorParam",
+          "actor": "Mira",
+          "key": "aiMovementTargeting",
+          "value": {
+            "priority": [
+              "player"
+            ],
+            "allowed": [
+              "player"
+            ],
+            "sort": [
+              {
+                "by": "distance",
+                "order": "asc"
+              }
+            ],
+            "resort": {
+              "when": "always"
+            },
+            "action": {
+              "stopRangePx": 1800
+            },
+            "onEmpty": {
+              "type": "idle"
+            }
+          }
+        },
+        {
+          "type": "setActorParam",
+          "actor": "Mira",
+          "key": "aiMode",
+          "value": "moving"
+        }
+      ],
+      "next": "mira_forest_north_2_event_4"
+    },
+    "mira_forest_north_2_event_3_mira_not_known": {
+      "speaker": "Mira",
+      "text": "New prey... without even a lure to attract them...",
+      "reaction": "neutral",
+      "effects": [
+        {
+          "type": "setActorParam",
+          "actor": "Mira",
+          "key": "allianceByInstance.mob:mira_colossus:mira_colossus_event_1",
+          "value": 3
+        },
+        {
+          "type": "setActorParam",
+          "actor": "Mira",
+          "key": "allianceByFaction.mira_colossus",
+          "value": 3
+        },
+        {
+          "type": "setActorParam",
+          "actor": "Mira",
+          "key": "aiMovementTargeting",
+          "value": {
+            "priority": [
+              "player"
+            ],
+            "allowed": [
+              "player"
+            ],
+            "sort": [
+              {
+                "by": "distance",
+                "order": "asc"
+              }
+            ],
+            "resort": {
+              "when": "always"
+            },
+            "action": {
+              "stopRangePx": 1800
+            },
+            "onEmpty": {
+              "type": "idle"
+            }
+          }
+        },
+        {
+          "type": "setActorParam",
+          "actor": "Mira",
+          "key": "aiMode",
+          "value": "moving"
+        }
+      ],
+      "next": "mira_forest_north_2_event_4"
+    },
+    "mira_forest_north_2_event_4": {
+      "action": {
+        "type": "camera",
+        "focus": {
+          "type": "npc",
+          "npc": "mira"
+        },
+        "durationMs": 2000,
+        "lockPlayer": true
+      },
+      "next": "mira_forest_north_2_event_5"
+    },
+    "mira_forest_north_2_event_5": {
+      "speaker": "Mira",
+      "text": "You'll keep us fed for a while...",
+      "reaction": "neutral",
+      "effects": [
+        {
+          "type": "setFlag",
+          "scope": "global",
+          "key": "mira_forest_north_2_event_started",
+          "value": true
+        }
+      ],
+      "next": "mira_forest_north_2_event_6"
+    },
+    "mira_forest_north_2_event_6": {
+      "action": {
+        "type": "wait",
+        "durationMs": 2000
+      },
+      "lockPlayer": true,
+      "next": "mira_forest_north_2_event_7"
+    },
+    "mira_forest_north_2_event_7": {
+      "speaker": "Mira",
+      "text": "Go inside...",
+      "reaction": "neutral",
+      "next": "mira_forest_north_2_event_8"
+    },
+    "mira_forest_north_2_event_8": {
+      "action": {
+        "type": "camera",
+        "reset": true,
+        "durationMs": 1000
+      },
+      "next": null
+    },
+    "forest_north_encounter_1": {
+      "speaker": "shrine_spirit",
+      "text": "Go inside...",
+      "reaction": "neutral",
+      "options": {
+        "what": {
+          "text": "What is that thing?",
+          "next": "forest_north_encounter_what_1",
+          "hideIfChosen": "conversation"
+        },
+        "snap_out": {
+          "text": "Snap out of it! Don't you remember us?",
+          "next": "forest_north_encounter_remember_1",
+          "hideIfChosen": "conversation"
+        },
+        "kill": {
+          "text": "Are you going to kill us, like you did all those others?",
+          "next": "forest_north_encounter_hunger"
+        },
+        "trapped": {
+          "text": "I think you're trapped here, more than we are",
+          "next": "forest_north_encounter_trapped_1",
+          "hideIfChosen": "conversation"
+        }
+      }
+    },
+    "forest_north_encounter_hunger": {
+      "speaker": "shrine_spirit",
+      "text": "I hunger...",
+      "reaction": "neutral",
+      "next": "forest_north_encounter_hunger_2"
+    },
+    "forest_north_encounter_hunger_2": {
+      "speaker": "mira",
+      "text": "Others...",
+      "reaction": "worried",
+      "next": "forest_north_encounter_hunger_3"
+    },
+    "forest_north_encounter_hunger_3": {
+      "speaker": "shrine_spirit",
+      "text": "Just prey... like you...",
+      "reaction": "neutral",
+      "options": {
+        "bodies": {
+          "text": "How many bodies are there inside?",
+          "hideIfChosen": "conversation",
+          "next": "forest_north_encounter_hunger_4"
+        },
+        "caira": {
+          "text": "Like Caira?",
+          "hideIfChosen": "conversation",
+          "next": "forest_north_encounter_hunger_5"
+        },
+        "suffer": {
+          "text": "How long did you make them suffer?",
+          "hideIfChosen": "conversation",
+          "next": "forest_north_encounter_suffer"
+        }
+      },
+      "next": null
+    },
+    "forest_north_encounter_hunger_4": {
+      "speaker": "mira",
+      "text": "So... many...",
+      "reaction": "anguished",
+      "effects": [
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "alignment",
+          "delta": 1
+        },
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "composure",
+          "delta": -1
+        }
+      ],
+      "next": "forest_north_encounter_hunger_3"
+    },
+    "forest_north_encounter_hunger_5": {
+      "speaker": "shrine_spirit",
+      "text": "All are alike...",
+      "reaction": "neutral",
+      "next": "forest_north_encounter_hunger_6"
+    },
+    "forest_north_encounter_hunger_6": {
+      "speaker": "mira",
+      "text": "Caira... mother...",
+      "reaction": "neutral",
+      "next": "forest_north_encounter_hunger_7"
+    },
+    "forest_north_encounter_hunger_7": {
+      "speaker": "mira",
+      "text": "Mother?",
+      "reaction": "anguished",
+      "effects": [
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "alignment",
+          "delta": 1
+        },
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "composure",
+          "delta": -1
+        }
+      ],
+      "next": "forest_north_encounter_hunger_3"
+    },
+    "forest_north_encounter_suffer": {
+      "speaker": "shrine_spirit",
+      "text": "Their suffering sustains us...",
+      "reaction": "neutral",
+      "options": {
+        "boy": {
+          "text": "The young boy, how much did he suffer?",
+          "next": "forest_north_encounter_suffer_2"
+        },
+        "another": {
+          "text": "Maybe we can find another way to sustain you?",
+          "next": "forest_north_encounter_suffer_4"
+        }
+      },
+      "next": null
+    },
+    "forest_north_encounter_suffer_2": {
+      "speaker": "shrine_spirit",
+      "text": "Not enough... never enough...",
+      "reaction": "neutral",
+      "next": "forest_north_encounter_suffer_3"
+    },
+    "forest_north_encounter_suffer_3": {
+      "speaker": "mira",
+      "text": "No! NO!!",
+      "reaction": "anguished",
+      "effects": [
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "alignment",
+          "delta": 1
+        },
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "composure",
+          "delta": -1
+        }
+      ],
+      "next": null
+    },
+    "forest_north_encounter_suffer_4": {
+      "speaker": "shrine_spirit",
+      "text": "Why...? Why change...?",
+      "reaction": "neutral",
+      "next": null
+    },
+    "shrine_front_left_encounter_1": {
+      "speaker": "shrine_spirit",
+      "text": "Now... run...",
+      "reaction": "neutral",
+      "next": "shrine_front_left_encounter_1_a"
+    },
+    "shrine_front_left_encounter_2": {
+      "speaker": "shrine_spirit",
+      "text": "Yes... you are...",
+      "reaction": "neutral",
+      "next": null
+    },
+    "shrine_front_left_encounter_3": {
+      "speaker": "shrine_spirit",
+      "text": "Just prey... like you...",
+      "reaction": "neutral",
+      "options": {
+        "long": {
+          "text": "How long have you been here?",
+          "next": "shrine_front_left_encounter_4"
+        },
+        "spirits": {
+          "text": "Are you responsible for all the spirits in the forest?",
+          "next": "shrine_front_left_encounter_7"
+        }
+      },
+      "next": null
+    },
+    "shrine_front_left_encounter_4": {
+      "speaker": "shrine_spirit",
+      "text": "Always... always here...",
+      "reaction": "neutral",
+      "options": {
+        "where": {
+          "text": "Where did you come from?",
+          "next": "shrine_front_left_encounter_4",
+          "when": {}
+        },
+        "killed": {
+          "text": "How many have you killed?",
+          "hideIfChosen": "conversation",
+          "next": "shrine_front_left_encounter_5"
+        }
+      },
+      "next": null
+    },
+    "shrine_front_left_encounter_5": {
+      "speaker": "shrine_spirit",
+      "text": "Not enough... never enough...",
+      "reaction": "neutral",
+      "next": "shrine_front_left_encounter_6"
+    },
+    "shrine_front_left_encounter_6": {
+      "speaker": "mira",
+      "text": "...killed?",
+      "reaction": "worried",
+      "effects": [
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "alignment",
+          "delta": 1
+        },
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "composure",
+          "delta": -1
+        }
+      ],
+      "next": "shrine_front_left_encounter_1_a"
+    },
+    "shrine_front_left_encounter_7": {
+      "speaker": "shrine_spirit",
+      "text": "You understand nothing...",
+      "reaction": "neutral",
+      "next": null
+    },
+    "shrine_front_left_encounter_man_1": {
+      "speaker": "shrine_spirit",
+      "text": "Just prey... like you...",
+      "reaction": "neutral",
+      "next": {
+        "shrine_front_left_encounter_man_2": {
+          "when": {
+            "stat": {
+              "actor": "Mira",
+              "stat": "alignment",
+              "field": "current",
+              "op": "gte",
+              "rhs": 1
+            }
+          }
+        }
+      }
+    },
+    "shrine_front_left_encounter_man_2": {
+      "speaker": "mira",
+      "text": "...",
+      "reaction": "anguished",
+      "effects": [
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "alignment",
+          "delta": 1
+        },
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "composure",
+          "delta": -1
+        }
+      ],
+      "options": {
+        "mira": {
+          "text": "He called out for Mira",
+          "next": "shrine_front_left_encounter_man_3"
+        },
+        "caira": {
+          "text": "He called out for Caira",
+          "next": "shrine_front_left_encounter_man_5"
+        }
+      },
+      "next": null
+    },
+    "shrine_front_left_encounter_man_3": {
+      "speaker": "shrine_spirit",
+      "text": "Only prey...",
+      "reaction": "neutral",
+      "next": "shrine_front_left_encounter_man_4"
+    },
+    "shrine_front_left_encounter_man_4": {
+      "speaker": "mira",
+      "text": "...father?",
+      "reaction": "worried",
+      "effects": [
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "alignment",
+          "delta": 1
+        },
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "composure",
+          "delta": -1
+        }
+      ],
+      "next": "shrine_front_left_encounter_man_2"
+    },
+    "shrine_front_left_encounter_man_5": {
+      "speaker": "shrine_spirit",
+      "text": "Only prey...",
+      "reaction": "neutral",
+      "next": "shrine_front_left_encounter_man_6"
+    },
+    "shrine_front_left_encounter_man_6": {
+      "speaker": "mira",
+      "text": "Caira... mother?",
+      "reaction": "anguished",
+      "effects": [
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "alignment",
+          "delta": 1
+        },
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "composure",
+          "delta": -1
+        }
+      ],
+      "next": "shrine_front_left_encounter_man_2"
+    },
+    "shrine_back_encounter_1": {
+      "speaker": "shrine_spirit",
+      "text": "You will never escape",
+      "reaction": "neutral",
+      "options": {
+        "never": {
+          "text": "We'll never give up!",
+          "next": "shrine_back_encounter_2"
+        },
+        "place": {
+          "text": "What is this place?",
+          "next": "shrine_back_encounter_place_1"
+        }
+      }
+    },
+    "shrine_back_encounter_2": {
+      "speaker": "shrine_spirit",
+      "text": "So many have said that...",
+      "reaction": "neutral",
+      "options": {
+        "daylight": {
+          "text": "We can just wait until daylight",
+          "next": "shrine_back_encounter_3"
+        },
+        "caira": {
+          "text": "Did Caira say that?",
+          "next": "shrine_back_encounter_5"
+        }
+      },
+      "next": null
+    },
+    "shrine_back_encounter_3": {
+      "speaker": "shrine_spirit",
+      "text": "I do not hide from the sun... like lesser spirits",
+      "reaction": "neutral",
+      "next": "shrine_back_encounter_4"
+    },
+    "shrine_back_encounter_4": {
+      "speaker": "shrine_spirit",
+      "text": "My home is here...",
+      "reaction": "neutral",
+      "next": {
+        "shrine_back_encounter_home_1": {
+          "when": {
+            "party": {
+              "hasAll": [
+                "Rowyn"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "shrine_back_encounter_home_1": {
+      "speaker": "Rowyn",
+      "text": "But you only leave the northern forest at night",
+      "reaction": "neutral",
+      "next": "shrine_back_encounter_home_2"
+    },
+    "shrine_back_encounter_home_2": {
+      "speaker": "Rowyn",
+      "text": "You're trapped here",
+      "reaction": "neutral",
+      "next": "shrine_back_encounter_home_3"
+    },
+    "shrine_back_encounter_home_3": {
+      "speaker": "shrine_spirit",
+      "text": "My home is here...",
+      "reaction": "neutral",
+      "options": {
+        "ereham": {
+          "text": "What about Ereham?",
+          "next": "shrine_back_encounter_home_4",
+          "hideIfChosen": "conversation"
+        },
+        "escape": {
+          "text": "We could help you escape",
+          "next": "shrine_back_encounter_home_5"
+        }
+      }
+    },
+    "shrine_back_encounter_home_4": {
+      "speaker": "mira",
+      "text": "my... home...",
+      "reaction": "worried",
+      "effects": [
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "alignment",
+          "delta": 1
+        },
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "composure",
+          "delta": -1
+        }
+      ],
+      "next": "shrine_back_encounter_home_5"
+    },
+    "shrine_back_encounter_home_5": {
+      "speaker": "shrine_spirit",
+      "text": "MY HOME IS HERE!",
+      "reaction": "angry",
+      "next": "shrine_back_encounter_1"
+    },
+    "shrine_back_encounter_5": {
+      "speaker": "shrine_spirit",
+      "text": "I will consume you... as I did her...",
+      "reaction": "neutral",
+      "next": "shrine_back_encounter_6"
+    },
+    "shrine_back_encounter_6": {
+      "speaker": "mira",
+      "text": "Caira... mother?",
+      "reaction": "worried",
+      "effects": [
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "alignment",
+          "delta": 1
+        },
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "composure",
+          "delta": -1
+        }
+      ],
+      "next": null
+    },
+    "shrine_back_encounter_place_1": {
+      "speaker": "shrine_spirit",
+      "text": "This is my domain...",
+      "reaction": "neutral",
+      "options": {
+        "engravings": {
+          "text": "Are these engravings about you?",
+          "next": "shrine_back_encounter_place_6"
+        },
+        "ruins": {
+          "text": "These are ruins",
+          "next": "shrine_back_encounter_place_2"
+        }
+      },
+      "next": null
+    },
+    "shrine_back_encounter_place_2": {
+      "speaker": "shrine_spirit",
+      "text": "Once... it was glorious...",
+      "reaction": "neutral",
+      "next": "shrine_back_encounter_place_3"
+    },
+    "shrine_back_encounter_place_3": {
+      "speaker": "shrine_spirit",
+      "text": "I came... and I feasted...",
+      "reaction": "neutral",
+      "options": {
+        "feast": {
+          "text": "And now? Do you still feast?",
+          "next": "shrine_back_encounter_place_4",
+          "hideIfChosen": "conversation"
+        },
+        "caira": {
+          "text": "Why don't you just leave?",
+          "next": "shrine_back_encounter_home_3"
+        }
+      },
+      "next": null
+    },
+    "shrine_back_encounter_place_4": {
+      "speaker": "shrine_spirit",
+      "text": "So hungry...",
+      "reaction": "neutral",
+      "next": "shrine_back_encounter_place_5"
+    },
+    "shrine_back_encounter_place_5": {
+      "speaker": "mira",
+      "text": "please... no...",
+      "reaction": "worried",
+      "effects": [
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "alignment",
+          "delta": 1
+        },
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "composure",
+          "delta": -1
+        }
+      ],
+      "next": "shrine_back_encounter_place_3"
+    },
+    "shrine_back_encounter_place_6": {
+      "speaker": "shrine_spirit",
+      "text": "They worshipped me... fed me... long ago...",
+      "reaction": "neutral",
+      "next": "shrine_back_encounter_place_7"
+    },
+    "shrine_back_encounter_place_7": {
+      "speaker": "shrine_spirit",
+      "text": "It has been so long... since I was full...",
+      "reaction": "neutral",
+      "options": {
+        "people": {
+          "text": "How many people have you killed?",
+          "next": "shrine_back_encounter_place_8"
+        },
+        "woman": {
+          "text": "The woman in the engravings looks different",
+          "effects": [
+            {
+              "type": "updateStat",
+              "npc": "mira",
+              "stat": "alignment",
+              "delta": 1
+            },
+            {
+              "type": "updateStat",
+              "npc": "mira",
+              "stat": "composure",
+              "delta": -1
+            }
+          ],
+          "next": "shrine_back_encounter_priestess_1"
+        }
+      },
+      "next": null
+    },
+    "shrine_back_encounter_place_8": {
+      "speaker": "shrine_spirit",
+      "text": "Never enough...",
+      "reaction": "neutral",
+      "next": "shrine_back_encounter_place_9"
+    },
+    "shrine_back_encounter_place_9": {
+      "speaker": "mira",
+      "text": "So many...",
+      "reaction": "worried",
+      "effects": [
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "alignment",
+          "delta": 1
+        },
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "composure",
+          "delta": -1
+        }
+      ],
+      "options": {
+        "father": {
+          "text": "You killed your father",
+          "next": "shrine_back_encounter_place_10",
+          "hideIfChosen": "conversation"
+        },
+        "mother": {
+          "text": "You killed your mother",
+          "next": "shrine_back_encounter_place_11",
+          "hideIfChosen": "conversation"
+        }
+      },
+      "next": null,
+      "effectsOnce": true
+    },
+    "shrine_back_encounter_place_10": {
+      "speaker": "mira",
+      "text": "No! NO!! FATHER!!",
+      "reaction": "anguished",
+      "effects": [
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "alignment",
+          "delta": 1
+        },
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "composure",
+          "delta": -1
+        }
+      ],
+      "next": "shrine_back_encounter_place_9"
+    },
+    "shrine_back_encounter_place_11": {
+      "speaker": "mira",
+      "text": "MOTHER!! MOTHER!!",
+      "reaction": "anguished",
+      "effects": [
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "alignment",
+          "delta": 1
+        },
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "composure",
+          "delta": -1
+        }
+      ],
+      "next": null
+    },
+    "shrine_front_left_encounter_1_a": {
+      "speaker": "shrine_spirit",
+      "reaction": "neutral",
+      "text": "In here... you are my prey...",
+      "options": {
+        "afraid_rowyn": {
+          "text": "I'm not afraid of you!",
+          "next": "shrine_front_left_encounter_rowyn_1",
+          "when": {
+            "party": [
+              "rowyn"
+            ]
+          }
+        },
+        "afraid_alone": {
+          "text": "I'm not afraid of you!",
+          "next": "shrine_front_left_encounter_2",
+          "when": {
+            "party": {
+              "hasAll": [],
+              "hasAny": [],
+              "lacks": [
+                "rowyn"
+              ]
+            }
+          }
+        },
+        "people": {
+          "text": "Who were these people?",
+          "next": "shrine_front_left_encounter_3"
+        },
+        "man": {
+          "text": "Who was this man?",
+          "next": "shrine_front_left_encounter_man_1"
+        }
+      }
+    },
+    "shrine_front_left_encounter_rowyn_1": {
+      "speaker": "rowyn",
+      "reaction": "worried",
+      "text": "We're NOT afraid",
+      "next": "shrine_front_left_encounter_2"
+    },
+    "forest_north_encounter_what_1": {
+      "speaker": "shrine_spirit",
+      "reaction": "neutral",
+      "text": "I'm Mira... don't you recognise me?",
+      "options": {
+        "real": {
+          "text": "Was Mira ever real?",
+          "next": "forest_north_encounter_what_3",
+          "when": {
+            "party": {
+              "hasAll": [],
+              "hasAny": [],
+              "lacks": [
+                "rowyn"
+              ]
+            }
+          }
+        }
+      },
+      "next": "forest_north_encounter_what_2"
+    },
+    "forest_north_encounter_what_2": {
+      "speaker": "Rowyn",
+      "reaction": "worried",
+      "text": "Was there ever a real Mira?",
+      "next": "forest_north_encounter_what_3"
+    },
+    "forest_north_encounter_what_3": {
+      "speaker": "shrine_spirit",
+      "reaction": "neutral",
+      "text": "She is the perfect lure...",
+      "next": "forest_north_encounter_what_4"
+    },
+    "forest_north_encounter_what_4": {
+      "speaker": "shrine_spirit",
+      "reaction": "neutral",
+      "text": "Prey always follows her here...",
+      "next": "forest_north_encounter_what_5"
+    },
+    "forest_north_encounter_what_5": {
+      "speaker": "mira",
+      "reaction": "worried",
+      "text": "...",
+      "effects": [
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "alignment",
+          "delta": 1,
+          "field": "current"
+        },
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "composure",
+          "delta": -1,
+          "field": "current"
+        }
+      ],
+      "next": "forest_north_encounter_1"
+    },
+    "forest_north_encounter_remember_1": {
+      "speaker": "shrine_spirit",
+      "text": "Of course I remember... I brought you here...",
+      "reaction": "neutral",
+      "next": null
+    },
+    "forest_north_encounter_trapped_2": {
+      "speaker": "rowyn",
+      "reaction": "neutral",
+      "text": "But you can't leave the forest",
+      "next": "forest_north_encounter_trapped_3"
+    },
+    "forest_north_encounter_trapped_1": {
+      "speaker": "shrine_spirit",
+      "reaction": "neutral",
+      "text": "This is my home... my domain...",
+      "next": {
+        "forest_north_encounter_trapped_2": {
+          "when": {
+            "party": [
+              "rowyn"
+            ]
+          }
+        }
+      }
+    },
+    "forest_north_encounter_trapped_3": {
+      "speaker": "rowyn",
+      "reaction": "neutral",
+      "text": "You can't even leave this shrine during the day",
+      "next": "forest_north_encounter_trapped_4"
+    },
+    "forest_north_encounter_trapped_4": {
+      "text": "How long has it been since you've seen the outside world? The sun?",
+      "speaker": "rowyn",
+      "reaction": "neutral",
+      "next": "forest_north_encounter_trapped_5"
+    },
+    "forest_north_encounter_trapped_5": {
+      "speaker": "shrine_spirit",
+      "reaction": "neutral",
+      "text": "Why would I leave?",
+      "options": {
+        "ereham": {
+          "text": "What about Mira's home? Ereham?",
+          "next": "forest_north_encounter_trapped_6"
+        },
+        "prey": {
+          "text": "You could find more prey",
+          "next": "forest_north_encounter_trapped_9"
+        },
+        "world": {
+          "text": "The world is so beautiful",
+          "next": "forest_north_encounter_trapped_8",
+          "when": {}
+        }
+      }
+    },
+    "forest_north_encounter_trapped_6": {
+      "speaker": "shrine_spirit",
+      "reaction": "neutral",
+      "text": "This is my home...",
+      "next": "forest_north_encounter_trapped_7"
+    },
+    "forest_north_encounter_trapped_7": {
+      "speaker": "mira",
+      "reaction": "worried",
+      "text": "...home...",
+      "effects": [
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "alignment",
+          "delta": 1,
+          "field": "current"
+        },
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "composure",
+          "delta": -1,
+          "field": "current"
+        }
+      ],
+      "next": "forest_north_encounter_1"
+    },
+    "forest_north_encounter_trapped_8": {
+      "speaker": "shrine_spirit",
+      "reaction": "neutral",
+      "text": "...",
+      "next": "forest_north_encounter_trapped_1"
+    },
+    "forest_north_encounter_trapped_9": {
+      "speaker": "shrine_spirit",
+      "reaction": "neutral",
+      "text": "I have enough prey right here... right now..."
+    },
+    "shrine_back_encounter_priestess_1": {
+      "speaker": "shrine_spirit",
+      "reaction": "neutral",
+      "text": "My priestess...",
+      "options": {
+        "first": {
+          "text": "You possessed someone else before Mira?",
+          "next": "shrine_back_encounter_priestess_4",
+          "when": {
+            "party": {
+              "hasAll": [],
+              "hasAny": [],
+              "lacks": [
+                "rowyn"
+              ]
+            }
+          }
+        }
+      },
+      "next": {
+        "shrine_back_encounter_priestess_2": {
+          "when": {
+            "party": [
+              "rowyn"
+            ]
+          }
+        }
+      }
+    },
+    "shrine_back_encounter_priestess_2": {
+      "speaker": "rowyn",
+      "reaction": "neutral",
+      "text": "But there's been no-one living here for hundreds of years",
+      "next": "shrine_back_encounter_priestess_3"
+    },
+    "shrine_back_encounter_priestess_3": {
+      "speaker": "shrine_spirit",
+      "reaction": "neutral",
+      "text": "Time is irrelevant..."
+    },
+    "shrine_back_encounter_priestess_4": {
+      "speaker": "shrine_spirit",
+      "reaction": "neutral",
+      "text": "Then... I had no need for a lure...",
+      "next": "shrine_back_encounter_place_6"
+    },
+    "forest_shrine_front_right_encounter": {
+      "speaker": "shrine_spirit",
+      "reaction": "neutral",
+      "text": "There's no way out...",
+      "options": {
+        "boy": {
+          "text": "Who was this boy?",
+          "next": "forest_shrine_front_right_encounter_2"
+        },
+        "killed": {
+          "text": "How many people have you killed?",
+          "next": "forest_shrine_front_right_encounter_4"
+        }
+      }
+    },
+    "forest_shrine_front_right_encounter_2": {
+      "speaker": "shrine_spirit",
+      "reaction": "neutral",
+      "text": "Just more prey...",
+      "next": "forest_shrine_front_right_encounter_3"
+    },
+    "forest_shrine_front_right_encounter_3": {
+      "speaker": "mira",
+      "reaction": "anguished",
+      "text": "...he was so small...",
+      "effects": [
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "alignment",
+          "delta": 1,
+          "field": "current"
+        },
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "composure",
+          "delta": -1,
+          "field": "current"
+        }
+      ]
+    },
+    "forest_shrine_front_right_encounter_4": {
+      "speaker": "shrine spirit",
+      "reaction": "neutral",
+      "text": "I take what I need...",
+      "next": "forest_shrine_front_right_encounter_5"
+    },
+    "forest_shrine_front_right_encounter_5": {
+      "speaker": "shrine_spirit",
+      "reaction": "neutral",
+      "text": "They were all just prey... like you...",
+      "options": {
+        "caira": {
+          "text": "Was Caira just prey?",
+          "next": "forest_shrine_front_right_encounter_6"
+        },
+        "mira": {
+          "text": "How long have you used Mira to lure prey?",
+          "next": "forest_shrine_front_right_mira_1"
+        }
+      }
+    },
+    "forest_shrine_front_right_encounter_6": {
+      "speaker": "shrine_spirit",
+      "reaction": "neutral",
+      "text": "Your names are meaningless to me... you are just my food...",
+      "next": "forest_shrine_front_right_encounter_7"
+    },
+    "forest_shrine_front_right_encounter_7": {
+      "speaker": "mira",
+      "reaction": "worried",
+      "text": "Caira... mother... Mother?",
+      "effects": [
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "alignment",
+          "delta": 1,
+          "field": "current"
+        },
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "composure",
+          "delta": -1,
+          "field": "current"
+        }
+      ],
+      "options": {
+        "parents": {
+          "text": "Do you remember your parents, Mira?",
+          "next": "forest_shrine_front_right_encounter_8"
+        },
+        "pendant": {
+          "text": "Do you recognise this pendant?",
+          "next": "forest_shrine_front_right_pendant_1"
+        }
+      }
+    },
+    "forest_shrine_front_right_encounter_9": {
+      "speaker": "shrine_spirit",
+      "reaction": "neutral",
+      "text": "...and she <b>will</b> remember nothing...",
+      "next": "forest_shrine_front_right_encounter_10"
+    },
+    "forest_shrine_front_right_encounter_10": {
+      "speaker": "mira",
+      "reaction": "anguished",
+      "text": "Father... Mother...",
+      "effects": [
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "alignment",
+          "delta": 1,
+          "field": "current"
+        },
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "composure",
+          "delta": -1,
+          "field": "current"
+        }
+      ],
+      "next": "forest_shrine_front_right_encounter_11"
+    },
+    "forest_shrine_front_right_encounter_8": {
+      "speaker": "shrine_spirit",
+      "reaction": "neutral",
+      "text": "She remembers nothing...",
+      "next": "forest_shrine_front_right_encounter_9"
+    },
+    "forest_shrine_front_right_encounter_11": {
+      "speaker": "mira ",
+      "reaction": "worried",
+      "text": "I don't want to forget again...",
+      "next": "forest_shrine_front_right_encounter_12"
+    },
+    "forest_shrine_front_right_encounter_12": {
+      "speaker": "mira",
+      "reaction": "worried",
+      "text": "I need something..."
+    },
+    "forest_shrine_front_right_pendant_1": {
+      "speaker": "shrine_spirit",
+      "reaction": "neutral",
+      "text": "That is nothing... and she remembers nothing...",
+      "next": "forest_shrine_front_right_pendant_2"
+    },
+    "forest_shrine_front_right_pendant_2": {
+      "speaker": "mira",
+      "reaction": "anguished",
+      "text": "...mother's pendant...",
+      "next": "forest_shrine_front_right_pendant_3",
+      "effects": [
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "alignment",
+          "delta": 1,
+          "field": "current"
+        },
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "composure",
+          "delta": -1,
+          "field": "current"
+        }
+      ]
+    },
+    "forest_shrine_front_right_pendant_3": {
+      "speaker": "mira",
+      "reaction": "anguished",
+      "text": "...please..."
+    },
+    "forest_shrine_front_right_mira_1": {
+      "speaker": "shrine_spirit",
+      "reaction": "neutral",
+      "text": "She is perfect... she has brought me so many meals...",
+      "next": "forest_shrine_front_right_mira_2"
+    },
+    "forest_shrine_front_right_mira_2": {
+      "speaker": "mira",
+      "reaction": "neutral",
+      "text": "...so many...",
+      "options": {
+        "break": {
+          "text": "You can stop it Mira! Break free!",
+          "next": "forest_shrine_front_right_mira_3"
+        },
+        "remember": {
+          "text": "Do you remember killing them, Mira?",
+          "next": "forest_shrine_front_right_mira_5"
+        }
+      }
+    },
+    "forest_shrine_front_right_mira_3": {
+      "speaker": "shrine_spirit",
+      "reaction": "neutral",
+      "text": "I will consume you... and she will remember nothing...",
+      "next": "forest_shrine_front_right_mira_4"
+    },
+    "forest_shrine_front_right_mira_4": {
+      "speaker": "mira",
+      "reaction": "anguished",
+      "text": "Please...",
+      "effects": [
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "alignment",
+          "delta": 1,
+          "field": "current"
+        },
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "composure",
+          "delta": -1,
+          "field": "current"
+        }
+      ]
+    },
+    "forest_shrine_front_right_mira_5": {
+      "speaker": "shrine_spirit",
+      "reaction": "neutral",
+      "text": "She remembers nothing...",
+      "next": "forest_shrine_front_right_mira_6"
+    },
+    "forest_shrine_front_right_mira_6": {
+      "speaker": "mira",
+      "reaction": "anguished",
+      "text": "...so so many...",
+      "effects": [
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "alignment",
+          "delta": 1,
+          "field": "current"
+        },
+        {
+          "type": "updateStat",
+          "npc": "mira",
+          "stat": "composure",
+          "delta": -1,
+          "field": "current"
+        }
+      ],
+      "next": "forest_shrine_front_right_encounter_4"
+    },
+
+
+    "etiram_skeleton_scene_1": {
+      "action": {
+        "type": "wait",
+        "durationMs": 100
+      },
+      "next": "etiram_skeleton_scene_2"
+    },
+    "etiram_skeleton_scene_2": {
+      "speaker": "etiram",
+      "reaction": "worried",
+      "text": "Mira!",
+      "effects": [
+        {
+          "type": "setFlagTimed",
+          "scope": "global",
+          "key": "etiram_skeleton_scene_done",
+          "value": true,
+          "durationMs": 200,
+          "atEnd": true
+        }
+      ],
+      "next": "etiram_skeleton_scene_3"
+    },
+    "etiram_skeleton_scene_3": {
+      "speaker": "etiram",
+      "reaction": "worried",
+      "text": "Mira! Come away from that thing!",
+      "next": "etiram_skeleton_scene_4"
+    },
+    "etiram_skeleton_scene_4": {
+      "action": {
+        "type": "moveTo",
+        "actor": "Etiram",
+        "left": -1500,
+        "speedFactor": 4
+      },
+      "next": "etiram_skeleton_scene_5"
+    },
+    "etiram_skeleton_scene_5": {
+      "effects": [
+        {
+          "type": "stun",
+          "actor": "etiram",
+          "durationMs": 3000
+        },
+        {
+          "type": "push",
+          "actor": "etiram",
+          "direction": "left",
+          "distance": 1000,
+          "speedFactor": 4
+        }
+      ],
+      "next": "etiram_skeleton_scene_6"
+    },
+    "etiram_skeleton_scene_6": {
+      "action": {
+        "type": "wait",
+        "durationMs": 2000
+      },
+      "next": "etiram_skeleton_scene_7"
+    },
+    "etiram_skeleton_scene_7": {
+      "speaker": "etiram",
+      "reaction": "neutral",
+      "text": "Caira... where are you?",
+      "next": "etiram_skeleton_scene_8"
+    },
+    "etiram_skeleton_scene_8": {
+      "effects": [
+        {
+          "type": "setFlag",
+          "scope": "global",
+          "key": "etiram_skeleton_scene_done",
+          "value": true
+        }
+      ],
+      "next": "etiram_skeleton_scene_8_wait"
+    },
+    "etiram_skeleton_scene_8_wait": {
+      "action": {
+        "type": "wait",
+        "durationMs": 500
+      },
+      "next": "etiram_skeleton_narrator_1"
+    },
+    "etiram_skeleton_narrator_1": {
+      "speaker": "narrator",
+      "text": "You've seen some strange things so far, but was that a ghost?",
+      "next": {
+        "etiram_skeleton_rowyn_1": {
+          "when": {
+            "party": [
+              "rowyn"
+            ]
+          }
+        },
+        "etiram_skeleton_narrator_2": {
+          "when": null
+        }
+      }
+    },
+    "etiram_skeleton_rowyn_1": {
+      "speaker": "rowyn",
+      "reaction": "neutral",
+      "text": "An echo. The last moments of this man, forever playing out in the spirit world.",
+      "next": "etiram_skeleton_rowyn_2"
+    },
+    "etiram_skeleton_rowyn_2": {
+      "speaker": "rowyn",
+      "reaction": "neutral",
+      "text": "He said Mira's name. He knew her, maybe?",
+      "next": "etiram_skeleton_rowyn_3"
+    },
+    "etiram_skeleton_rowyn_3": {
+      "speaker": "rowyn",
+      "reaction": "neutral",
+      "text": "But this body is so old. Its been here for a very long time.",
+      "next": "etiram_skeleton_rowyn_4"
+    },
+    "etiram_skeleton_rowyn_4": {
+      "speaker": "rowyn",
+      "reaction": "neutral",
+      "text": "What's that on the ground?",
+      "next": "etiram_skeleton_narrator_2"
+    },
+    "etiram_skeleton_narrator_2": {
+      "speaker": "narrator",
+      "text": "You see a sealed leather tube laying next to the skeleton. Old and fragile, but still intact. You look inside, and find..."
+    },
+
+
+    "caira_skeleton_scene_1": {
+      "action": {
+        "type": "wait",
+        "durationMs": 100
+      },
+      "next": "caira_skeleton_scene_2"
+    },
+    "caira_skeleton_scene_2": {
+      "speaker": "caira",
+      "reaction": "anguished",
+      "text": "Mira! Mira! Why did you bring us here?",
+      "effects": [
+        {
+          "type": "setFlag",
+          "scope": "global",
+          "key": "caira_skeleton_scene_done",
+          "value": true,
+          "atEnd": true
+        },
+        {
+          "type": "updateStat",
+          "npc": "caira",
+          "stat": "composure",
+          "delta": -1,
+          "field": "current"
+        }
+      ],
+      "next": "caira_skeleton_scene_2_wait"
+    },
+    "caira_skeleton_scene_2_wait": {
+      "action": {
+        "type": "wait",
+        "durationMs": 1000
+      },
+      "next": "caira_skeleton_scene_3"
+    },
+    "caira_skeleton_scene_3": {
+      "speaker": "caira",
+      "reaction": "anguished",
+      "text": "Where is your father?",
+      "effects": [
+        {
+          "type": "updateStat",
+          "npc": "caira",
+          "stat": "composure",
+          "delta": -1,
+          "field": "current"
+        }
+      ],
+      "next": "caira_skeleton_scene_3_wait"
+    },
+    "caira_skeleton_scene_3_wait": {
+      "action": {
+        "type": "wait",
+        "durationMs": 1000
+      },
+      "next": "caira_skeleton_scene_4"
+    },
+    "caira_skeleton_scene_4": {
+      "speaker": "caira",
+      "reaction": "anguished",
+      "text": "Why? Why? Why did you leave camp?",
+      "effects": [
+        {
+          "type": "updateStat",
+          "npc": "caira",
+          "stat": "composure",
+          "delta": -1,
+          "field": "current"
+        }
+      ],
+      "next": "caira_skeleton_scene_4_wait"
+    },
+    "caira_skeleton_scene_4_wait": {
+      "action": {
+        "type": "wait",
+        "durationMs": 1000
+      },
+      "next": "caira_skeleton_scene_5"
+    },
+    "caira_skeleton_scene_5": {
+      "effects": [
+        {
+          "type": "setFlag",
+          "scope": "global",
+          "key": "caira_skeleton_scene_done",
+          "value": true
+        }
+      ],
+      "next": "caira_skeleton_scene_5_wait"
+    },
+    "caira_skeleton_scene_5_wait": {
+      "action": {
+        "type": "wait",
+        "durationMs": 500
+      },
+      "next": {
+        "caira_skeleton_rowyn_1": {
+          "when": {
+            "party": [
+              "rowyn"
+            ]
+          }
+        }
+      }
+    },
+    "caira_skeleton_rowyn_1": {
+      "speaker": "rowyn",
+      "reaction": "worried",
+      "text": "Mira's... mother?",
+      "next": "caira_skeleton_rowyn_2"
+    },
+    "caira_skeleton_rowyn_2": {
+      "speaker": "rowyn",
+      "reaction": "worried",
+      "text": "Is there anything else here? Anything that might give us more information?",
+      "next": null
+    },
+
+
+    "caira_skeleton_second": {
+      "speaker": "narrator",
+      "text": "You look over the long-decomposed remains of a woman",
+      "next": {
+        "caira_skeleton_second_1": {
+          "when": {
+            "globalFlags": {
+              "blue_pendant_taken": false
+            }
+          }
+        }
+      }
+    },
+    "caira_skeleton_second_1": {
+      "speaker": "narrator",
+      "text": "Apart from bones and crumbling scraps of clothing, the only thing here is a tarnished necklace with a blue stone.",
+      "next": {
+        "caira_skeleton_second_rowyn": {
+          "when": {
+            "party": [
+              "rowyn"
+            ]
+          }
+        },
+        "caira_skeleton_second_narrator_1": {
+          "when": {
+            "party": {
+              "hasAll": [],
+              "hasAny": [],
+              "lacks": [
+                "rowyn"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "caira_skeleton_second_rowyn": {
+      "speaker": "rowyn",
+      "reaction": "neutral",
+      "text": "I don't feel right taking things from the dead. Maybe we should leave it alone.",
+      "options": {
+        "take": {
+          "text": "*take the necklace*",
+          "effects": [
+            {
+              "type": "addItem",
+              "id": "blue_pendant",
+              "qty": 1
+            },
+            {
+              "type": "updateStat",
+              "npc": "rowyn",
+              "field": "current",
+              "delta": -1,
+              "stat": "alignment"
+            },
+            {
+              "type": "setFlag",
+              "scope": "global",
+              "key": "blue_pendant_taken",
+              "value": true
+            }
+          ],
+          "next": null
+        },
+        "leave": {
+          "text": "*leave it alone*",
+          "next": null,
+          "effects": [
+            {
+              "type": "updateStat",
+              "npc": "rowyn",
+              "stat": "alignment",
+              "delta": 1,
+              "field": "current"
+            }
+          ]
+        }
+      }
+    },
+    "caira_skeleton_second_narrator_1": {
+      "speaker": "narrator",
+      "text": "You wonder if taking the trinket is a good idea.",
+      "options": {
+        "take": {
+          "text": "*take the necklace*",
+          "effects": [
+            {
+              "type": "addItem",
+              "id": "blue_pendant",
+              "qty": 1
+            },
+            {
+              "type": "setFlag",
+              "scope": "global",
+              "key": "blue_pendant_taken",
+              "value": true
+            }
+          ],
+          "next": null
+        },
+        "leave": {
+          "text": "*leave it alone*",
+          "next": null
+        }
+      }
+    },
+
+
+    "aiden_skeleton_scene_1": {
+      "action": {
+        "type": "wait",
+        "durationMs": 100
+      },
+      "next": "aiden_skeleton_scene_2"
+    },
+    "aiden_skeleton_scene_2": {
+      "speaker": "aiden",
+      "reaction": "terrified",
+      "text": "AAAAAAHHHHHHH",
+      "effects": [
+        {
+          "type": "setFlagTimed",
+          "scope": "global",
+          "key": "aiden_skeleton_scene_done",
+          "value": true,
+          "durationMs": 200,
+          "atEnd": true
+        }
+      ],
+      "next": {
+        "aiden_skeleton_rowyn": {
+          "when": {
+            "party": {
+              "hasAll": [
+                "Rowyn"
+              ]
+            }
+          }
+        },
+        "aiden_skeleton_scene_3": {
+          "when": {
+            "party": {
+              "lacks": [
+                "rowyn"
+              ]
+            }
+          }
+        }
+      }
+    },
+    "aiden_skeleton_rowyn": {
+      "action": {
+        "type": "faceTo",
+        "actor": "Rowyn",
+        "toChar": "aiden"
+      },
+      "next": "aiden_skeleton_rowyn_2"
+    },
+    "aiden_skeleton_rowyn_2": {
+      "action": {
+        "type": "moveTo",
+        "actor": "Rowyn",
+        "forward": 50
+      },
+      "next": "aiden_skeleton_rowyn_3"
+    },
+    "aiden_skeleton_rowyn_3": {
+      "speaker": "Rowyn",
+      "reaction": "worried",
+      "text": "Aiden...",
+      "next": "aiden_skeleton_scene_3"
+    },
+    "aiden_skeleton_scene_3": {
+      "speaker": "aiden",
+      "reaction": "terrified",
+      "text": "MOMMY! DADDY!",
+      "next": "aiden_skeleton_scene_4"
+    },
+    "aiden_skeleton_scene_4": {
+      "effects": [
+        {
+          "type": "setFlag",
+          "scope": "global",
+          "key": "aiden_skeleton_scene_done",
+          "value": true
+        }
+      ],
+      "next": "aiden_skeleton_scene_4_wait"
+    },
+    "aiden_skeleton_scene_4_wait": {
+      "action": {
+        "type": "wait",
+        "durationMs": 500
+      },
+      "next": {
+        "aiden_skeleton_rowyn_4": {
+          "when": {
+            "party": [
+              "rowyn"
+            ]
+          }
+        },
+        "aiden_skeleton_narrator_1": {
+          "when": null
+        }
+      }
+    },
+    "aiden_skeleton_narrator_1": {
+      "speaker": "narrator",
+      "text": "The boy looked very young, and you can't help but notice that his body hasn't been here as long as the others.",
+      "next": null
+    },
+    "aiden_skeleton_rowyn_4": {
+      "speaker": "rowyn",
+      "reaction": "angry",
+      "text": "Aiden disappeared from Lunara a few months ago.",
+      "next": "aiden_skeleton_rowyn_5"
+    },
+    "aiden_skeleton_rowyn_5": {
+      "speaker": "rowyn",
+      "reaction": "angry",
+      "text": "We searched for weeks. His mother hasn't left her house since the search was called off.",
+      "next": null
+    }
+  }
+}

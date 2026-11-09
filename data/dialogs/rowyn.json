@@ -42,23 +42,74 @@
           "next": "first_meeting_introduction",
           "effects": [
             { "type": "updateStat", "npc": "Rowyn", "stat": "affection", "delta": 1 }
-          ]
+          ],
+          "effectsOnce": true,
+          "hideIfChosen": true
         },
         "first_meeting_where": {
           "text": "Where am I?",
           "next": "first_meeting_forest",
           "effects": [
             { "type": "updateStat", "npc": "Rowyn", "stat": "alignment", "delta": 1 }
-          ]
+          ],
+          "effectsOnce": true,
+          "hideIfChosen": true
         },
         "first_meeting_veil": {
           "text": "What is the veil?",
           "next": "first_meeting_veil",
           "effects": [
             { "type": "updateStat", "npc": "Rowyn", "stat": "alignment", "delta": 1 }
-          ]
+          ],
+          "effectsOnce": true,
+          "hideIfChosen": true
+        },
+        "first_meeting_need_help": {
+          "text": "I need your help",
+          "effects": [
+            { "type": "updateStat", "npc": "Rowyn", "stat": "affection", "delta": 1 }
+          ],
+          "when": {
+            "globalFlags": {
+              "dialogOptionChosen:rowyn:first_meeting_2:first_meeting_who": true,
+              "dialogOptionChosen:rowyn:first_meeting_2:first_meeting_where": true,
+              "dialogOptionChosen:rowyn:first_meeting_2:first_meeting_veil": true
+            },
+            "statSum": {
+              "actor": "Rowyn",
+              "stats": ["alignment", "affection"],
+              "op": "<",
+              "rhs": "minAlignment"
+            }
+          },
+          "next": {
+            "first_meeting_need_help_accept": {
+              "when": {
+                "statSum": {
+                  "actor": "Rowyn",
+                  "stats": ["alignment", "affection"],
+                  "op": ">=",
+                  "rhs": "minAlignment"
+                }
+              }
+            },
+            "first_meeting_need_help_decline": {}
+          }
         }
-      }
+      },
+      "next": "first_meeting_forest_2"
+    },
+    "first_meeting_need_help_accept": {
+      "speaker": "Rowyn",
+      "text": "You're right, we shouldn't split up.",
+      "reaction": "happy",
+      "next": "first_meeting_forest_2"
+    },
+    "first_meeting_need_help_decline": {
+      "speaker": "Rowyn",
+      "text": "...",
+      "reaction": "neutral",
+      "next": null
     },
     "first_meeting_introduction": {
       "speaker": "Rowyn",
@@ -135,13 +186,13 @@
     },
     "first_meeting_fadeout_4": {
       "action": { "type": "fade", "opacity": 0, "durationMs": 100 },
+      "effects": [
+        { "type": "updateStat", "npc": "player", "stat": "composure", "delta": -1 }
+      ],
       "next": "first_meeting_fadeout_5"
     },
     "first_meeting_fadeout_5": {
       "action": { "type": "fade", "opacity": 100, "durationMs": 100 },
-      "effects": [
-        { "type": "updateStat", "npc": "player", "stat": "composure", "delta": -1 }
-      ],
       "next": "first_meeting_wait"
     },
     "first_meeting_wait": {
@@ -193,29 +244,6 @@
       "next": "first_meeting_end_convo"
     },
 
-
-
-
-
-
-    "flag_test_branch": {
-      "speaker": "Rowyn",
-      "text": "…",
-      "next": {
-        "flag_test_rowyn": {
-          "when": { "areaFlags": { "metMira": true } }
-        },
-        "0": {}
-      }
-    },
-    "lock_test": {
-      "speaker": "Rowyn",
-      "text": "Don’t move.",
-      "effects": [
-        { "type": "lockControls" }
-      ],
-      "next": null
-    },
     "scene_test_0": {
       "speaker": "Rowyn",
       "text": "Watch this—I'm going to walk forward, then talk again.",
@@ -245,83 +273,44 @@
       "next": null
     },
 
-    "scene_action_only_test": {
-      "action": { "type": "wait", "durationMs": 1500 },
-      "next": "scene_test_2"
-    },
-    "scene_letta_bush": {
-      "speaker": "Rowyn",
-      "text": "Okay! I walked forward. Scene worked.",
-      "next": "scene_test_join"
-    },
-    
-    "rowyn_walks_to_bush": {
-      "action": {
-        "type": "moveTo",
-        "actor": "Rowyn",
-        "toActiveObject": true,
-        "speedFactor": 4
-      },
-      "next": {
-        "first_letta_bush": {
-          "when": {
-            "globalFlags": {
-              "activeObjectType": "letta_bush",
-              "objectTypeInteractedBefore:letta_bush": false
-            }
-          }
-        },
-        "first_tua_bush": {
-          "when": {
-            "globalFlags": {
-              "activeObjectType": "tua_bush",
-              "objectTypeInteractedBefore:tua_bush": false
-            }
-          }
-        },
-        "rowyn_stands_up": {}
-        
-      }
-    },
-    "first_letta_bush": {
+
+    "letta_bush_first_type": {
       "speaker": "Rowyn",
       "text": "There's a ripe letta berry here!",
       "reaction": "happy",
-      "next": "first_letta_bush_2"
+      "next": "letta_bush_first_type_2"
     },
-    "first_letta_bush_2": {
+    "letta_bush_first_type_2": {
       "speaker": "Rowyn",
       "text": "If you eat these, they'll help keep your energy up. They also have a mild pain relief effect. Save this for if you need it.",
       "reaction": "neutral",
-      "next": "rowyn_stands_up"
+      "next": null
     },
-    "first_tua_bush": {
+
+    "letta_bush_effect": {
+      "action": { "type": "interactionEffect" },
+      "next": null
+    },
+
+    "tua_bush_first_type": {
       "speaker": "Rowyn",
       "text": "This is a tua bush.",
       "reaction": "happy",
-      "next": "first_tua_bush_2"
+      "next": "tua_bush_first_type_2"
     },
-    "first_tua_bush_2": {
+    "tua_bush_first_type_2": {
       "speaker": "Rowyn",
       "text": "If we make a tea from the dried leaves, it's incredibly calming. Chewing on the leaves directly will work in a pinch, too.",
       "reaction": "neutral",
-      "next": "first_tua_bush_3"
+      "next": "tua_bush_first_type_3"
     },
-    "first_tua_bush_3": {
+    "tua_bush_first_type_3": {
       "speaker": "Rowyn",
       "text": "They do taste horrible though.",
       "reaction": "upset",
-      "next": "rowyn_stands_up"
-    },
-    "rowyn_stands_up": {
-      "action": {
-        "type": "moveTo",
-        "actor": "Rowyn",
-        "forward": -200,
-        "speedFactor": 2
-      },
       "next": null
     },
+    
     "first_recover_composure": {
       "speaker": "Rowyn",
       "text": "You look a little shaken. You should chew on one of those tua leaves.",
@@ -331,6 +320,23 @@
     "first_recover_composure_2": {
       "speaker": "guide",
       "text": "Press I to open the Items menu directly.",
+      "next": null
+    },
+    
+    "first_give_tua_leaves": {
+      "speaker": "Rowyn",
+      "text": "You look a little shaken. Here, take some of these tua leaves.",
+      "reaction": "worried",
+      "next": "first_give_tua_leaves_2"
+    },
+    "first_give_tua_leaves_2": {
+      "speaker": "guide",
+      "text": "Each party member has their own inventory. You can access it by pressing P to access the party menu, then selecting the party member, and scrolling down to their inventory.",
+      "next": "first_give_tua_leaves_3"
+    },
+    "first_give_tua_leaves_3": {
+      "speaker": "guide",
+      "text": "You can drag and drop items between inventories, or hold shift and press the number hotkey for an item to give it to another character.",
       "next": null
     }
   }

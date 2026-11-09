@@ -1,0 +1,11 @@
+{
+  "baseAlliance": {
+    "party": {
+      "party": 1
+    },
+    "mob": {
+      "party": -1,
+      "npc": -1
+    }
+  }
+}

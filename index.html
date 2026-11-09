@@ -2,16 +2,24 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Pixel Forest Runner</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Veil</title>
   <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/touch-controls.css">
 </head>
 <body>
   <div id="gameContainer">
     <div id="viewport">
+      <div id="menuTopTabs"></div>
       <canvas id="gameCanvas" width="640" height="360"></canvas>
-      <div id="info">Left/Right: Move, Space/Up: Jump</div>
       <div id="prompt"></div>
       <div id="dialogPromptContainer"></div>
+      <div id="miniMap">
+        <canvas id="miniMapCanvas" width="500" height="500"></canvas>
+      </div>
+      <div id="mapOverlay">
+        <canvas id="mapCanvas" width="520" height="360"></canvas>
+      </div>
 
       <div id="conversationOverlay">
         <img id="conversationPortrait" src="" alt="Portrait">
@@ -19,16 +27,8 @@
         <div id="optionsBox"></div>
       </div>
       <div id="playerMenuOverlay">
-        <div id="playerMenuFrame">
-          <div id="playerMenuHeader">
-            <div id="playerMenuError" style="display:none; color:#ffb0b0; font-size:13px;"></div>
-            <div id="playerMenuTitle">Menu</div>
-            <div id="playerMenuHint">M: Menu  •  Esc/X: Close</div>
-          </div>
-
-          <div id="playerMenuTabs"></div>
-          <div id="playerMenuContent"></div>
-        </div>
+        <div id="playerMenuError" style="display:none; color:#ffb0b0; font-size:13px;"></div>
+        <div id="playerMenuContent"></div>
       </div>
 
     </div>
@@ -38,5 +38,6 @@
        operates in the global scope and does not rely on ES module
        imports. -->
   <script src="js/main.js"></script>
+  <script src="js/touch-controls.js"></script>
 </body>
 </html>

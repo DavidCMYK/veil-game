@@ -1,4 +1,9 @@
 /* Base styles for the game container and canvas */
+:root {
+  --ui-font-family: "Parchment MF", serif;
+  --ui-font-scale: 2.00;
+}
+
 html, body {
   margin: 0;
   padding: 0;
@@ -7,7 +12,13 @@ html, body {
   overflow: hidden;
   background: #1a1c2c;
   color: #fff;
-  font-family: sans-serif;
+  font-family: var(--ui-font-family);
+}
+@font-face {
+  font-family: "Parchment MF";
+  src: url('../assets/fonts/Parchment%20MF.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
 }
 #gameContainer {
   width: 100vw;
@@ -20,6 +31,7 @@ html, body {
 /* The scaled “presentation” box that keeps aspect ratio */
 #viewport {
   height: 100vh;
+  position: relative;
 }
 /* Canvas fills viewport exactly (NO stretching beyond viewport) */
 #gameCanvas {
@@ -36,7 +48,7 @@ html, body {
   background: rgba(0, 0, 0, 0.5);
   padding: 4px 6px;
   border-radius: 4px;
-  font-size: 14px;
+  font-size: calc(14px * var(--ui-font-scale));
 }
 #prompt {
   position: absolute;
@@ -47,9 +59,99 @@ html, body {
   color: black;
   padding: 4px 8px;
   border-radius: 4px;
-  font-size: 14px;
+  font-size: calc(14px * var(--ui-font-scale));
   display: none;
   z-index: 10;
+}
+
+#miniMap {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 12;
+  padding: 0;
+  background: rgba(10, 10, 12, 0.8);
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-radius: 50%;
+  overflow: hidden;
+  width: min(500px, 32vmin);
+  height: min(500px, 32vmin);
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+#miniMapCanvas {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  image-rendering: pixelated;
+  display: block;
+}
+
+#mapOverlay {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 70;
+  background: rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+}
+
+#mapCanvas {
+  width: min(92vw, 1200px);
+  height: calc((100vh - var(--menu-top-tabs-height, 120px)) * 0.8);
+  background: rgba(10, 10, 12, 0.92);
+  border: 3px solid rgba(255, 255, 255, 0.55);
+  border-radius: 10px;
+  image-rendering: pixelated;
+  display: block;
+  pointer-events: auto;
+}
+
+#menuTopTabs {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%) scale(var(--menu-tabs-fit-scale, 1));
+  transform-origin: top center;
+  display: flex;
+  gap: 6px;
+  flex-wrap: nowrap;
+  z-index: 60;
+  pointer-events: auto;
+  padding-top: 0;
+  --menu-top-tabs-height: 120px;
+  --menu-tab-scale: 1;
+  --menu-tabs-fit-scale: 1;
+}
+
+#menuTopTabs.isHidden {
+  display: none;
+  pointer-events: none;
+}
+
+#menuTopTabs .playerMenuTabBtn {
+  flex: 0 0 auto;
+  text-align: center;
+  font-family: var(--ui-font-family);
+  border-radius: 0 0 10px 10px;
+  border-top: 0;
+  padding: 24px 34px 20px;
+  font-size: calc(24px * var(--ui-font-scale));
+  box-shadow: 0 6px 0 rgba(0,0,0,0.35);
+  transform: translateY(-16px) scale(var(--menu-tab-scale, 1));
+  transform-origin: top center;
+}
+
+#menuTopTabs .playerMenuTabBtn.active {
+  transform: translateY(-2px) scale(var(--menu-tab-scale, 1));
+  box-shadow: 0 10px 0 rgba(0,0,0,0.45);
+}
+
+#menuTopTabs .playerMenuTabBtn:not(.active) {
+  opacity: 0.9;
 }
 
 #dialogPromptContainer {
@@ -82,7 +184,7 @@ html, body {
 }
 
 .dialogPromptText {
-  font-size: 14px;
+  font-size: calc(14px * var(--ui-font-scale));
   margin-right: 6px;
 }
 
@@ -117,9 +219,112 @@ html, body {
   color: #000;
   padding: 8px;
   overflow-y: auto;
-  font-size: 16px;
+  font-size: calc(16px * var(--ui-font-scale));
   line-height: 1.25;
-  border: 6px solid rgba(0, 0, 0, 1);
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+  border-radius: 12px;
+  box-sizing: border-box;
+}
+
+.dialogText {
+  position: relative;
+  z-index: 1;
+}
+
+.dialogBoxStackItem {
+  position: absolute;
+  background: rgba(255, 255, 255, 1);
+  color: #000;
+  padding: 8px;
+  overflow: visible;
+  font-size: calc(16px * var(--ui-font-scale));
+  line-height: 1.25;
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+  border-radius: 12px;
+  box-sizing: border-box;
+}
+
+.dialogStackItem {
+  position: absolute;
+  background: rgba(255, 255, 255, 1);
+  color: #000;
+  padding: 8px;
+  overflow: visible;
+  font-size: calc(16px * var(--ui-font-scale));
+  line-height: 1.25;
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+  border-radius: 12px;
+  box-sizing: border-box;
+  z-index: 1;
+}
+
+.dialogStackNpc {
+  text-align: left;
+}
+
+.dialogStackPlayer {
+  text-align: left;
+}
+
+.dialogStackText {
+  white-space: pre-wrap;
+  position: relative;
+  z-index: 1;
+}
+
+.dialogStackPointer {
+  position: absolute;
+  width: 0;
+  height: 0;
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 12px solid #ffffff;
+  outline: 0 !important;
+  box-shadow: none !important;
+}
+
+.dialogStackLink {
+  position: absolute;
+  width: 8px;
+  background: #ffffff;
+  border-radius: 2px;
+  outline: 0 !important;
+  box-shadow: none !important;
+}
+
+.dialogStackUpPointer {
+  position: absolute;
+  width: 0;
+  height: 0;
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-bottom: 12px solid #ffffff;
+  outline: 0 !important;
+  box-shadow: none !important;
+}
+
+.dialogStackRectLink {
+  position: absolute;
+  width: 8px;
+  background: #ffffff;
+  border-radius: 2px;
+  outline: 0 !important;
+  box-shadow: none !important;
+}
+
+.dialogChoiceItem {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.95);
+  color: #000;
+  padding: 8px;
+  font-size: calc(16px * var(--ui-font-scale));
+  line-height: 1.25;
   border-radius: 12px;
   box-sizing: border-box;
 }
@@ -142,13 +347,50 @@ html, body {
 
 #optionsBox {
   position: absolute;
-  background: rgba(0, 0, 0, 0.8);
+  background: transparent;
   padding: 8px;
-  font-size: 16px;
+  font-size: calc(16px * var(--ui-font-scale));
   line-height: 1.25;
-  border: 1px solid rgba(255,255,255,0.18);
-  border-radius: 6px;
+  border: none;
+  border-radius: 0;
   box-sizing: border-box;
+  z-index: 60;
+}
+
+#optionsBox > [data-option-index] {
+  position: relative;
+  margin: 6px 0;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.95);
+  color: #000;
+  border: 2px solid #000;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+#optionsBox > [data-option-index]:hover {
+  background: #fff;
+}
+
+.dialogOptionKeyBadge {
+  position: absolute;
+  left: calc(-2 * var(--badge-r) + var(--badge-overlap-x));
+  top: calc(-2 * var(--badge-r) + var(--badge-overlap-y));
+  width: calc(var(--badge-r) * 2);
+  height: calc(var(--badge-r) * 2);
+  border-radius: 50%;
+  background: #000;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(20px * var(--ui-font-scale));
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.dialogOptionText {
+  flex: 1 1 auto;
 }
 
 /* ===== Player Menu ===== */
@@ -157,77 +399,525 @@ html, body {
   inset: 0;
   display: none;
   z-index: 50;
-  background: rgba(0,0,0,0.65);
+  background: transparent;
 }
 
-#playerMenuFrame {
+#playerMenuError {
   position: absolute;
+  top: calc(var(--menu-top-tabs-height, 120px) + 8px);
   left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: min(920px, 92vw);
-  height: min(560px, 86vh);
-  background: rgba(10,10,14,0.92);
-  border: 2px solid rgba(255,255,255,0.20);
-  box-shadow: 0 10px 40px rgba(0,0,0,0.55);
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-#playerMenuHeader {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-#playerMenuTitle {
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-}
-
-#playerMenuHint {
-  font-size: 12px;
-  opacity: 0.85;
-}
-
-#playerMenuTabs {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+  transform: translateX(-50%);
+  z-index: 51;
 }
 
 .playerMenuTabBtn {
-  border: 1px solid rgba(255,255,255,0.22);
-  background: rgba(255,255,255,0.06);
-  color: #fff;
-  padding: 6px 10px;
+  border: 1px solid rgba(0,0,0,0.6);
+  background: #ffffff;
+  color: #000;
+  padding: 6px 12px;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: calc(13px * var(--ui-font-scale));
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  transition: transform 120ms ease, background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.playerMenuTabHotkey {
+  font-weight: 800;
+  text-decoration: underline;
 }
 
 .playerMenuTabBtn.active {
-  background: rgba(255,255,255,0.16);
-  border-color: rgba(255,255,255,0.35);
+  background: #000;
+  color: #fff;
+  border-color: #000;
+  font-size: calc(15px * var(--ui-font-scale));
+  transform: translateY(-1px);
 }
 
 #playerMenuContent {
-  flex: 1;
-  overflow: auto;
-  border: 1px solid rgba(255,255,255,0.12);
-  background: rgba(0,0,0,0.25);
-  border-radius: 8px;
-  padding: 10px;
+  position: absolute;
+  top: calc(var(--menu-top-tabs-height, 120px) + 24px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(92vw, 1200px);
+  height: calc((100vh - var(--menu-top-tabs-height, 120px)) * 0.8);
+  overflow: visible;
+  background: transparent;
+  border: none;
+  padding: 0;
 }
 
 .playerMenuGrid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+
+.abilitiesCardGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.abilityCard {
+  position: relative;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 12px;
+  padding: 10px;
+  color: #fff;
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  box-shadow: 0 8px 18px rgba(0,0,0,0.22);
+}
+
+.hotkeyBadge {
+  position: absolute;
+  left: calc(-2 * var(--badge-r) + var(--badge-overlap-x));
+  top: calc(-2 * var(--badge-r) + var(--badge-overlap-y));
+  width: calc(var(--badge-r) * 2);
+  height: calc(var(--badge-r) * 2);
+  border-radius: 50%;
+  background: #000;
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(var(--badge-font-size, 20px) * var(--ui-font-scale));
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.abilityCard.selected {
+  outline: 2px solid rgba(255,255,255,0.9);
+}
+
+.abilityCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.abilityCard {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.abilityCardContent {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.abilityCardPortrait {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgba(0,0,0,0.25);
+  flex: 0 0 auto;
+  margin: 2px;
+}
+
+.abilityCardPortrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.abilityCardPortrait.no-img img {
+  display: none;
+}
+
+.abilityCardPortraitName {
+  position: absolute;
+  left: 4px;
+  bottom: 3px;
+  font-size: calc(9px * var(--ui-font-scale));
+  background: rgba(0,0,0,0.55);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+.abilityCardTargets {
+  font-size: calc(12px * var(--ui-font-scale));
+  opacity: 0.9;
+}
+
+.abilityCardTargetPriority {
+  font-weight: 700;
+}
+
+.partyAbilityCardList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.partyAbilityCardList .abilityCard {
+  box-shadow: none;
+}
+
+
+.abilityCardTitle {
+  font-weight: 800;
+  font-size: calc(15px * var(--ui-font-scale));
+  letter-spacing: 0.2px;
+}
+
+.abilityCard--hotkeyIndent .abilityCardTitle {
+  padding-left: calc((var(--badge-r, 10px) - var(--badge-overlap-x, 0px)) + 12px);
+}
+
+.abilityCardMeta {
+  font-size: calc(12px * var(--ui-font-scale));
+  opacity: 0.9;
+}
+
+.abilityCardDesc {
+  font-size: calc(13px * var(--ui-font-scale));
+  line-height: 1.3;
+  opacity: 0.95;
+}
+
+.abilityCard--sepia { background: #5b4a33; }
+.abilityCard--green { background: #2f6a3a; }
+.abilityCard--blue  { background: #294d7a; }
+.abilityCard--red   { background: #6b2b2b; }
+.abilityCard--yellow { background: #6b5a21; }
+
+.partyCardsGrid {
+  display: flex;
+  gap: 18px;
+  height: 100%;
+  align-items: flex-start;
+  overflow: visible;
+  padding-bottom: 6px;
+  padding-left: 18px;
+  padding-right: 18px;
+  justify-content: center;
+  --party-card-height: 240px;
+  --party-card-width: 160px;
+  --party-card-scaled-height: 240px;
+  --party-card-scaled-width: 160px;
+}
+
+.partyCard {
+  border: 1px solid rgba(255,255,255,0.18);
+  background: #5b4a33;
+  border-radius: 12px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: var(--party-card-height);
+  width: var(--party-card-width);
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+
+.partyCard.selected {
+  outline: 3px solid rgba(255,255,255,0.95);
+  box-shadow: 0 0 0 2px rgba(0,0,0,0.35), 0 8px 24px rgba(0,0,0,0.35);
+}
+
+.partyCard.partyCard--scaled {
+  height: var(--party-card-scaled-height);
+  width: var(--party-card-scaled-width);
+}
+
+.partyCardSlot {
+  position: relative;
+  width: var(--party-card-width);
+  height: var(--party-card-height);
+  flex: 0 0 auto;
+  overflow: visible;
+  margin-right: 18px;
+}
+
+.partyCardSlot:last-child {
+  margin-right: 0;
+}
+
+.partyCardSlot.scaled {
+  width: var(--party-card-scaled-width);
+  height: var(--party-card-scaled-height);
+}
+
+.partyCardPanel {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.partyCardStageFull {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.partyCardAnim {
+  position: absolute;
+  inset: 0;
+  animation-duration: 1000ms;
+  animation-timing-function: ease;
+  animation-fill-mode: both;
+}
+
+.partyCardAnim.incoming {
+  z-index: 3;
+}
+
+.partyCardAnim.outgoing {
+  z-index: 2;
+}
+
+@keyframes cardInFromDown {
+  from { transform: translateY(35%); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes cardInFromUp {
+  from { transform: translateY(-35%); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes cardOutToUp {
+  from { transform: translateY(0); opacity: 1; }
+  to   { transform: translateY(-35%); opacity: 0; }
+}
+
+@keyframes cardOutToDown {
+  from { transform: translateY(0); opacity: 1; }
+  to   { transform: translateY(35%); opacity: 0; }
+}
+
+.partyCardAnim.from-down { animation-name: cardInFromDown; }
+.partyCardAnim.from-up { animation-name: cardInFromUp; }
+.partyCardAnim.to-up { animation-name: cardOutToUp; }
+.partyCardAnim.to-down { animation-name: cardOutToDown; }
+
+.partyCardSectionTitle {
+  font-weight: 700;
+  font-size: calc(12px * var(--ui-font-scale));
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.partyCardList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.partyCardListRow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.partyCardListName {
+  font-weight: 700;
+}
+
+.partyTagLine {
+  font-size: calc(12px * var(--ui-font-scale));
+  opacity: 0.9;
+}
+
+.partyTagList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.partyTagPill {
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(0,0,0,0.2);
+  font-size: calc(11px * var(--ui-font-scale));
+}
+
+.partyTagDuration {
+  opacity: 0.8;
+}
+
+.partyCardInventory .playerMenuItemsGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.partyInventoryOverlay {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1005;
+  width: auto;
+}
+
+.partyInventoryOverlay .partyCard {
+  height: var(--party-card-height);
+  width: var(--party-card-width);
+}
+
+.inventoryFlashBad {
+  animation: inventoryFlashBad 220ms ease 0ms 2;
+}
+
+@keyframes inventoryFlashBad {
+  0% { background: rgba(120,0,0,0.25); }
+  50% { background: rgba(120,0,0,0.65); }
+  100% { background: rgba(120,0,0,0.25); }
+}
+
+.playerMenuItemTile.itemJustAdded {
+  animation: itemFadeIn 1000ms ease;
+}
+
+@keyframes itemFadeIn {
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.partyCardHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.partyCardName {
+  font-size: calc(14px * var(--ui-font-scale));
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+.partyCardPortrait {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(0,0,0,0.2);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.partyCardPortrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+}
+
+.partyCardStatsCard {
+  position: relative;
+  padding: 8px;
+}
+
+.partyCardStatsCard .partyCardPortrait {
+  height: 100%;
+  border: 1px solid rgba(0,0,0,0.25);
+  background-repeat: no-repeat;
+  background-position: center bottom;
+  background-size: auto 100%;
+}
+
+.partyCardOverlay {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 12px;
+  bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.partyOverlayBlock {
+  background: rgba(255,255,255,0.6);
+  color: #000;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+.partyOverlayBlock .partyCardName {
+  color: #000;
+}
+
+.partyOverlayBlock .partyCardStats td {
+  border-bottom: 1px solid rgba(0,0,0,0.12);
+}
+
+.partyCardStats {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: calc(12px * var(--ui-font-scale));
+}
+
+.partyCardStats td {
+  padding: 3px 6px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  vertical-align: top;
+}
+
+.partyStatBar {
+  position: relative;
+  height: 14px;
+  border-radius: 6px;
+  background: rgba(0,0,0,0.35);
+  border: 1px solid rgba(255,255,255,0.18);
+  overflow: hidden;
+}
+
+.partyStatBarFill {
+  position: absolute;
+  inset: 0;
+  width: 0%;
+  background: linear-gradient(90deg, rgba(120,220,120,0.9), rgba(80,170,220,0.9));
+}
+
+.partyStatBarText {
+  position: relative;
+  z-index: 1;
+  font-size: calc(11px * var(--ui-font-scale));
+  line-height: 14px;
+  text-align: center;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+}
+
+.partyStatMod.pos {
+  color: #1b7a3a;
+  font-weight: 700;
+}
+
+.partyStatMod.neg {
+  color: #7a1b1b;
+  font-weight: 700;
+}
+
+.partyStatCurrent {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.partyStatBaseWrap {
+  color: #ffffff;
 }
 
 .playerMenuCard {
@@ -245,7 +935,7 @@ html, body {
 .playerMenuTable {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: calc(13px * var(--ui-font-scale));
 }
 
 .playerMenuTable td {
@@ -256,7 +946,7 @@ html, body {
 
 .playerMenuMuted {
   opacity: 0.85;
-  font-size: 12px;
+  font-size: calc(12px * var(--ui-font-scale));
 }
 
 /* ===== Items Page ===== */
@@ -275,17 +965,21 @@ html, body {
 .playerMenuItemName {
   position: absolute;
   top: 6px;
-  left: 8px;
+  right: 8px;
+  left: auto;
+  text-align: right;
   font-weight: 700;
-  font-size: 14px;
+  font-size: calc(14px * var(--ui-font-scale));
   z-index: 2;
 }
 
 .playerMenuItemCount {
   position: absolute;
   top: 26px;
-  left: 8px;
-  font-size: 13px;
+  right: 8px;
+  left: auto;
+  text-align: right;
+  font-size: calc(13px * var(--ui-font-scale));
   opacity: 0.9;
   z-index: 2;
 }
@@ -294,14 +988,14 @@ html, body {
   position: absolute;
   inset: 0;
   border-radius: 8px;
-  background: rgba(255,255,255,0.06);
+  background: #6a5a44;
   width: 100%;
   height: 100%;
   overflow: hidden;
 }
 
 .playerMenuItemImgBoxMissing {
-  background: rgba(255,255,255,0.04);
+  background: #5f5240;
 }
 
 .playerMenuItemImg {
@@ -326,7 +1020,7 @@ html, body {
   padding: 4px 6px;
   border-radius: 6px;
   background: rgba(0,0,0,0.55);
-  font-size: 12px;
+  font-size: calc(12px * var(--ui-font-scale));
   line-height: 1.15;
   overflow: hidden;
   display: -webkit-box;
@@ -339,11 +1033,10 @@ html, body {
   top: 6px;
   right: 8px;
   font-weight: 700;
-  font-size: 14px;
+  font-size: calc(14px * var(--ui-font-scale));
   opacity: 0.85;
   z-index: 2;
   padding: 2px 6px;
   border-radius: 6px;
   background: rgba(0,0,0,0.45);
 }
-

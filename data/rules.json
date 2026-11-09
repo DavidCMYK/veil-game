@@ -9,11 +9,63 @@
         "dialog": { "prompt": "Oh, you're awake!", "npc": "Rowyn", "start": "rowyn.first_meeting" }
     },
     {
-        "id": "rowyn_forest1_keep_going_prompt",
+        "id": "rowyn_goal_need_tua_leaves",
+        "state": [
+            { "type": "npcInParty", "npc": "Rowyn", "is": true },
+            { "type": "stat", "actor": "player", "stat": "composure", "field": "current", "op": "lt", "rhs": { "field": "base" } },
+            { "type": "inventory", "actor": "@party", "id": "tua_leaves", "measure": "count", "op": "eq", "rhs": 0 }
+        ],
+        "effects": [
+            {
+                "type": "addGoal",
+                "npc": "Rowyn",
+                "goal": {
+                    "id": "rowyn_acquire_tua_leaves",
+                    "name": "Acquire Tua Leaves",
+                    "description": "Rowyn wants the party to obtain tua leaves.",
+                    "visibility": "public",
+                    "maxCompletions": 1,
+                    "triggerWhen": {
+                        "event": "inventory_change",
+                        "item": "tua_leaves"
+                    },
+                    "state": [
+                        { "type": "inventory", "actor": "@party", "id": "tua_leaves", "measure": "count", "op": "gte", "rhs": 1 }
+                    ]
+                }
+            }
+        ]
+    },
+    {
+        "id": "explain_interact_object",
+        "triggerWhen": {
+            "event": "proximity_enter",
+            "kind": "object",
+            "interactable": true,
+            "interactsOk": true,
+            "ignoreCover": false
+        },
+        "scene": {
+            "start": "eldertide_forest.guide_explain_interact"
+        },
+        "once": true
+    },
+    {
+        "id": "explain_recruit",
+        "state": [
+            { "type": "playerInProximity", "kind": "npc", "recruitable": true }
+        ],
+        "scene": {
+            "start": "eldertide_forest.narrator_explain_recruit"
+        },
+        "once": true
+    },
+    {
+        "id": "rowyn_eldertide_forest_riverside_keep_going_prompt",
         "triggerWhen": {
             "event": "section_enter",
-            "area": "Forest1",
-            "section": "forest1_start",
+            "area": "eldertide_forest_riverside",
+            "section": "eldertide_forest_riverside_start",
             "from": "left"
         },
         "state": [
@@ -22,18 +74,18 @@
         "dialog": {
             "prompt": "Keep going...",
             "npc": "Rowyn",
-            "start": "forest1.forest1_enter"
+            "start": "eldertide_forest.forest_enter"
         },
         "scene": {
-            "start": "forest1.guide_dialog_prompts"
+            "start": "eldertide_forest.guide_dialog_prompts"
         }
     },
     {
-        "id": "rowyn_forest1_wrong_way_prompt",
+        "id": "rowyn_eldertide_forest_riverside_wrong_way_prompt",
         "triggerWhen": {
             "event": "section_enter",
-            "area": "Forest1",
-            "section": "forest1_start",
+            "area": "eldertide_forest_riverside",
+            "section": "eldertide_forest_riverside_start",
             "from": "right"
         },
         "state": [
@@ -42,41 +94,41 @@
         "dialog": {
             "prompt": "Wrong way...",
             "npc": "Rowyn",
-            "start": "forest1.splitpath_bridge_just_rowyn_from_right"
+            "start": "eldertide_forest.splitpath_bridge_just_rowyn_from_right"
         }
     },
     {
-        "id": "forest1_mist_entry_scene",
+        "id": "eldertide_forest_riverside_mist_entry_scene",
         "triggerWhen": {
             "event": "section_enter",
-            "area": "Forest1",
-            "section": "forest1_mist"
+            "area": "eldertide_forest_riverside",
+            "section": "eldertide_forest_riverside_mist"
         },
         "state": [
-            { "type": "playerInArea", "area": "Forest1" },
-            { "type": "flag", "scope": "global", "key": "mistPass", "is": false }
+            { "type": "playerInArea", "area": "eldertide_forest_riverside" },
+            { "type": "tag", "actor": "player", "tag": "veil_pass", "is": false }
         ],
         "scene": {
-            "start": "forest1.mist_entry_branch"
+            "start": "eldertide_forest.mist_entry_branch"
         },
         "once":true
     },
     {
-        "id": "rowyn_released_in_forest1_mist_runs_to_player",
+        "id": "rowyn_released_in_eldertide_forest_riverside_mist_runs_to_player",
         "triggerWhen": {
             "event": "section_leave",
-            "area": "Forest1",
-            "section": "forest1_mist"
+            "area": "eldertide_forest_riverside",
+            "section": "eldertide_forest_riverside_mist"
         },
         "state": [
             { "type": "npcInParty", "npc": "Rowyn", "is": false },
-            { "type": "npcInSection", "npc": "Rowyn", "section": "forest1_mist" }
+            { "type": "npcInSection", "npc": "Rowyn", "section": "eldertide_forest_riverside_mist" }
         ],
         "effects": [
             { "type": "updateStat", "npc": "Rowyn", "stat": "affection", "delta": -2 }
         ],
         "scene": {
-            "start": "forest1.rowyn_running_from_mist"
+            "start": "eldertide_forest.rowyn_running_from_mist"
         }
     },
     {
@@ -94,7 +146,7 @@
         "dialog": {
             "npc": "Rowyn",
             "prompt": "Don't cross the river...",
-            "start": "forest1.splitpath_bridge_just_rowyn_from_left"
+            "start": "eldertide_forest.splitpath_bridge_just_rowyn_from_left"
         }
     },
     {
@@ -112,7 +164,7 @@
         "dialog": {
             "npc": "Rowyn",
             "prompt": "Wrong way...",
-            "start": "forest1.splitpath_bridge_just_rowyn_from_right"
+            "start": "eldertide_forest.splitpath_bridge_just_rowyn_from_right"
         }
     },
     {
@@ -128,26 +180,91 @@
         "dialog": {
             "npc": "Mira",
             "prompt": "Let's cross here...",
-            "start": "forest1.splitpath_bridge_mira"
+            "start": "eldertide_forest.splitpath_bridge_mira"
         }
     },
     {
         "id": "mira_first_meeting",
         "state": [
+            { "any": [
+                { "type": "playerInArea", "area": "eldertide_forest_riverside" },
+                { "type": "playerInArea", "area": "eldertide_forest_south" }
+            ] },
             { "type": "playerInProximity", "npc": "Mira" },
             { "type": "npcInParty", "npc": "Mira", "is": false }
         ],
         "dialog": {
             "npc": "Mira",
             "prompt": "Please...",
-            "start": "mira.first_meeting_forest1"
+            "start": "mira.first_meeting_eldertide_forest"
         }
     },
     {
-        "id": "mira_alignment_step_right_forest1",
+        "id": "mira_add_goal_splitpath_on_meet",
+        "triggerWhen": {
+            "event": "dialog_option",
+            "npc": "Mira",
+            "phrase": "first_meeting_eldertide_forest"
+        },
+        "state": [
+            { "type": "flag", "scope": "global", "key": "mira_forest_north_2_event_started", "is": false }
+        ],
+        "effects": [
+            {
+                "type": "addGoal",
+                "npc": "Mira",
+                "goal": {
+                    "id": "mira_reach_splitpath1",
+                    "name": "Reach the Split Path",
+                    "description": "Mira wants to reach the split in the Riverside Path.",
+                    "visibility": "public",
+                    "maxCompletions": 1,
+                    "progress": {
+                        "type": "location",
+                        "actor": "Mira",
+                        "target": { "area": "eldertide_forest_riverside", "section": "splitpath1" },
+                        "closerEffects": [
+                            { "type": "updateStat", "npc": "Mira", "stat": "alignment", "delta": 1 }
+                        ],
+                        "fartherEffects": [
+                            { "type": "updateStat", "npc": "Mira", "stat": "alignment", "delta": -1 }
+                        ]
+                    },
+                    "state": [
+                        {
+                            "type": "npcInSection",
+                            "npc": "Mira",
+                            "area": "eldertide_forest_riverside",
+                            "section": "splitpath1"
+                        }
+                    ],
+                    "effects": [
+                        {
+                            "type": "addGoal",
+                            "npc": "Mira",
+                            "goal": {
+                                "id": "mira_player_reach_shrine",
+                                "name": "Find the Northern Woods",
+                                "description": "Mira wants you to reach the shrine in the norther woods.",
+                                "visibility": "public",
+                                "maxCompletions": 1,
+                                "triggerWhen": {
+                                    "event": "section_enter",
+                                    "area": "eldertide_forest_north",
+                                    "section": "forest_north_3"
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    {
+        "id": "mira_alignment_step_right_eldertide_forest_riverside",
         "triggerWhen": {
             "event": "section_enter",
-            "area": "Forest1",
+            "area": "eldertide_forest_riverside",
             "from": "left",
             "npc": "Player"
         },
@@ -159,10 +276,10 @@
         ]
     },
     {
-        "id": "mira_alignment_step_left_forest1",
+        "id": "mira_alignment_step_left_eldertide_forest_riverside",
         "triggerWhen": {
             "event": "section_enter",
-            "area": "Forest1",
+            "area": "eldertide_forest_riverside",
             "from": "right",
             "npc": "Player"
         },
@@ -174,10 +291,430 @@
         ]
     },
     {
+        "id": "rowyn_mist_unfollowed_prompt",
+        "triggerWhen": {
+            "event": "section_enter",
+            "area": "eldertide_forest_riverside",
+            "section": "forest_1_unfollowed",
+            "npc": "Player"
+        },
+        "state": [
+            { "type": "npcInParty", "npc": "Rowyn", "is": true }
+        ],
+        "dialog": {
+            "npc": "Rowyn",
+            "prompt": "Into the mist!",
+            "start": "eldertide_forest.rowyn_mist_unfollowed"
+        },
+        "once": true
+    },
+    {
+        "id": "mira_forest_north_2_event_start_with_mira",
+        "triggerWhen": {
+            "event": "section_enter",
+            "area": "eldertide_forest_north",
+            "section": "forest_north_3",
+            "npc": "Player"
+        },
+        "state": [
+            { "type": "npcInParty", "npc": "Mira", "is": true },
+            { "type": "flag", "scope": "global", "key": "mira_forest_north_2_event_started", "is": false }
+        ],
+        "scene": {
+            "start": "eldertide_forest.mira_forest_north_2_event"
+        }
+    },
+    {
+        "id": "mira_forest_north_2_event_start_without_mira",
+        "triggerWhen": {
+            "event": "section_enter",
+            "area": "eldertide_forest_north",
+            "section": "forest_north_3",
+            "npc": "Player"
+        },
+        "state": [
+            { "type": "npcInParty", "npc": "Mira", "is": false },
+            { "type": "flag", "scope": "global", "key": "mira_forest_north_2_event_started", "is": false }
+        ],
+        "effects": [
+            {
+            "type": "setActorParam",
+            "actor": "Mira",
+            "key": "autoCastRules",
+            "value": "disabled"
+            },
+            {
+            "type": "setFlag",
+            "scope": "global",
+            "key": "mira_forest_north_2_event_started",
+            "value": true
+            },
+            {
+            "type": "setStat",
+            "npc": "Mira",
+            "stat": "alignment",
+            "field": "current",
+            "value": 0
+            },
+            {
+            "type": "setStat",
+            "npc": "Mira",
+            "stat": "affection",
+            "field": "current",
+            "value": 0
+            },
+            {
+            "type": "setStat",
+            "npc": "Mira",
+            "stat": "minAlignment",
+            "field": "current",
+            "value": 6
+            },
+            {
+                "type": "setMovement",
+                "actor": "Mira",
+                "mode": "moving"
+            },
+            {
+                "type": "setActorParam",
+                "actor": "Mira",
+                "key": "worldX",
+                "value": 8000
+            },
+            {
+                "type": "setActorParam",
+                "actor": "Mira",
+                "key": "aiMovementTargeting",
+                "value": {
+                    "priority": ["player"],
+                    "allowed": ["player"],
+                    "sort": [
+                        { "by": "distance", "order": "asc" }
+                    ],
+                    "resort": { "when": "always" },
+                    "action": { "stopRangePx": 1800 },
+                    "onEmpty": { "type": "idle" }
+                }
+            },
+            {
+                "type": "setActorParam",
+                "actor": "Mira",
+                "key": "aiMode",
+                "value": "moving"
+            }
+        ],
+        "scene": {
+            "start": "eldertide_forest.mira_forest_north_2_event_3_mira_not_known"
+        }
+    },
+    {
+        "id": "mira_forest_north_event_prompt",
+        "state": [
+            { "type": "flag", "scope": "global", "key": "mira_forest_north_2_event_started", "is": true },
+            { "type": "playerInArea", "area": "eldertide_forest_north" },
+            { "type": "npcInParty", "npc": "Mira", "is": false },
+            { "type": "playerInProximity", "npc": "Mira" },
+            { "type": "flag", "scope": "global", "key": "mira_forest_north_prompt_1_done", "is": false }
+        ],
+        "dialog": {
+            "npc": "Mira",
+            "prompt": "Go inside...",
+            "persistence": 2,
+            "start": "eldertide_forest.forest_north_encounter_1"
+        }
+    },
+    {
+        "id": "mira_forest_north_end_on_recruit",
+        "state": [
+            { "type": "flag", "scope": "global", "key": "mira_forest_north_2_event_started", "is": true },
+            { "type": "flag", "scope": "global", "key": "mira_forest_north_2_event_finished", "is": false },
+            { "type": "npcInParty", "npc": "Mira", "is": true }
+        ],
+        "effects": [
+            { "type": "setFlag", "scope": "global", "key": "mira_forest_north_2_event_finished", "value": true }
+        ]
+    },
+    {
+        "id": "mira_shrine_front_left_prompt",
+        "state": [
+            { "type": "flag", "scope": "global", "key": "mira_forest_north_2_event_started", "is": true },
+            { "type": "playerInSection", "area": "eldertide_forest_shrine_front", "section": "forest_shrine_front_left" },
+            { "type": "npcInParty", "npc": "Mira", "is": false },
+            { "type": "playerInProximity", "npc": "Mira" }
+        ],
+        "dialog": {
+            "npc": "Mira",
+            "prompt": "Now... run...",
+            "persistence": 0,
+            "start": "eldertide_forest.shrine_front_left_encounter_1"
+        }
+    },
+    {
+        "id": "mira_shrine_front_right_prompt",
+        "state": [
+            { "type": "flag", "scope": "global", "key": "mira_forest_north_2_event_started", "is": true },
+            { "type": "flag", "scope": "global", "key": "mira_forest_north_2_event_finished", "is": false },
+            { "type": "playerInSection", "area": "eldertide_forest_shrine_front", "section": "forest_shrine_front_right" },
+            { "type": "npcInParty", "npc": "Mira", "is": false },
+            { "type": "playerInProximity", "npc": "Mira" }
+        ],
+        "dialog": {
+            "npc": "Mira",
+            "prompt": "There's no way out...",
+            "persistence": 0,
+            "start": "eldertide_forest.forest_shrine_front_right_encounter"
+        }
+    },
+    {
+        "id": "mira_shrine_back_middle_prompt",
+        "state": [
+            { "type": "flag", "scope": "global", "key": "mira_forest_north_2_event_started", "is": true },
+            { "type": "flag", "scope": "global", "key": "mira_forest_north_2_event_finished", "is": false },
+            { "type": "playerInArea", "area": "eldertide_forest_shrine_back" },
+            { "type": "npcInParty", "npc": "Mira", "is": false },
+            { "type": "playerInProximity", "npc": "Mira" }
+        ],
+        "dialog": {
+            "npc": "Mira",
+            "prompt": "You will never escape",
+            "persistence": 0,
+            "start": "eldertide_forest.shrine_back_encounter_1"
+        }
+    },
+    {
+        "id": "mira_shrine_front_left_spawn",
+        "triggerWhen": {
+            "event": "section_enter",
+            "area": "eldertide_forest_shrine_front",
+            "section": "forest_shrine_front_left",
+            "npc": "Player"
+        },
+        "state": [
+            { "type": "npcInParty", "npc": "Mira", "is": false },
+            { "type": "npcInArea", "npc": "Mira", "area": "eldertide_forest_shrine_front", "is": false }
+        ],
+        "effects": [
+            {
+                "type": "setMovement",
+                "actor": "Mira",
+                "mode": "moving"
+            },
+            {
+                "type": "setActorParam",
+                "actor": "Mira",
+                "key": "worldX",
+                "value": 7050
+            },
+            {
+                "type": "setActorParam",
+                "actor": "Mira",
+                "key": "aiMovementTargeting",
+                "value": {
+                    "priority": ["player"],
+                    "allowed": ["player"],
+                    "sort": [
+                        { "by": "distance", "order": "asc" }
+                    ],
+                    "resort": { "when": "always" },
+                    "action": { "stopRangePx": 1000 },
+                    "onEmpty": { "type": "idle" }
+                }
+            },
+            {
+                "type": "setActorParam",
+                "actor": "Mira",
+                "key": "allianceByFaction.mira_colossus",
+                "value": 3
+            },
+            {
+                "type": "setActorParam",
+                "actor": "Mira",
+                "key": "aiMode",
+                "value": "moving"
+            },
+            {
+                "type": "setActorParam",
+                "actor": "Mira",
+                "key": "dialogStart",
+                "value": "eldertide_forest.shrine_front_left_encounter_1"
+            }
+        ]
+    },
+    {
+        "id": "mira_shrine_front_right_spawn",
+        "triggerWhen": {
+            "event": "section_enter",
+            "area": "eldertide_forest_shrine_front",
+            "section": "forest_shrine_front_right",
+            "npc": "Player"
+        },
+        "state": [
+            { "type": "flag", "scope": "global", "key": "mira_forest_north_2_event_started", "is": true },
+            { "type": "flag", "scope": "global", "key": "mira_forest_north_2_event_finished", "is": false },
+            { "type": "npcInParty", "npc": "Mira", "is": false }
+        ],
+        "effects": [
+            {
+                "type": "setMovement",
+                "actor": "Mira",
+                "mode": "moving"
+            },
+            {
+                "type": "setActorParam",
+                "actor": "Mira",
+                "key": "section",
+                "value": "forest_shrine_front_middle"
+            },
+            {
+                "type": "setActorParam",
+                "actor": "Mira",
+                "key": "sectionX",
+                "value": 4000
+            },
+            {
+                "type": "setActorParam",
+                "actor": "Mira",
+                "key": "aiMovementTargeting",
+                "value": {
+                    "priority": ["player"],
+                    "allowed": ["player"],
+                    "sort": [
+                        { "by": "distance", "order": "asc" }
+                    ],
+                    "resort": { "when": "always" },
+                    "action": { "stopRangePx": 1000 },
+                    "onEmpty": { "type": "idle" }
+                }
+            },
+            {
+                "type": "setActorParam",
+                "actor": "Mira",
+                "key": "allianceByFaction.mira_colossus",
+                "value": 3
+            },
+            {
+                "type": "setActorParam",
+                "actor": "Mira",
+                "key": "aiMode",
+                "value": "moving"
+            },
+            {
+                "type": "setActorParam",
+                "actor": "Mira",
+                "key": "dialogStart",
+                "value": "eldertide_forest.forest_shrine_front_right_encounter"
+            }
+        ]
+    },
+    {
+        "id": "mira_shrine_back_middle_spawn",
+        "triggerWhen": {
+            "event": "area_enter",
+            "area": "eldertide_forest_shrine_back"
+        },
+        "state": [
+            { "type": "npcInParty", "npc": "Mira", "is": false },
+            { "type": "npcInArea", "npc": "Mira", "area": "eldertide_forest_shrine_back", "is": false }
+        ],
+        "effects": [
+            {
+                "type": "setMovement",
+                "actor": "Mira",
+                "mode": "moving"
+            },
+            {
+                "type": "setActorParam",
+                "actor": "Mira",
+                "key": "worldX",
+                "value": 7500
+            },
+            {
+                "type": "setActorParam",
+                "actor": "Mira",
+                "key": "aiMovementTargeting",
+                "value": {
+                    "priority": ["player"],
+                    "allowed": ["player"],
+                    "sort": [
+                        { "by": "distance", "order": "asc" }
+                    ],
+                    "resort": { "when": "always" },
+                    "action": { "stopRangePx": 1000 },
+                    "onEmpty": { "type": "idle" }
+                }
+            },
+            {
+                "type": "setActorParam",
+                "actor": "Mira",
+                "key": "allianceByFaction.mira_colossus",
+                "value": 3
+            },
+            {
+                "type": "setActorParam",
+                "actor": "Mira",
+                "key": "aiMode",
+                "value": "moving"
+            },
+            {
+                "type": "setActorParam",
+                "actor": "Mira",
+                "key": "dialogStart",
+                "value": "eldertide_forest.shrine_back_encounter_1"
+            }
+        ]
+    },
+    {
+        "id": "mira_forest_north_return_during_event",
+        "triggerWhen": {
+            "event": "section_enter",
+            "area": "eldertide_forest_north",
+            "section": "forest_north_3",
+            "npc": "Player"
+        },
+        "state": [
+            { "type": "flag", "scope": "global", "key": "mira_forest_north_2_event_started", "is": true },
+            { "type": "npcInParty", "npc": "Mira", "is": false }
+        ],
+        "effects": [
+            {
+                "type": "setMovement",
+                "actor": "Mira",
+                "mode": "moving"
+            },
+            {
+                "type": "setActorParam",
+                "actor": "Mira",
+                "key": "worldX",
+                "value": 8000
+            },
+            {
+                "type": "setActorParam",
+                "actor": "Mira",
+                "key": "aiMovementTargeting",
+                "value": {
+                    "priority": ["player"],
+                    "allowed": ["player"],
+                    "sort": [
+                        { "by": "distance", "order": "asc" }
+                    ],
+                    "resort": { "when": "always" },
+                    "action": { "stopRangePx": 1800 },
+                    "onEmpty": { "type": "idle" }
+                }
+            },
+            {
+                "type": "setActorParam",
+                "actor": "Mira",
+                "key": "aiMode",
+                "value": "moving"
+            }
+        ]
+    },
+    {
         "id": "mira_longpath_complaint_1_mirapoint",
         "triggerWhen": {
             "event": "section_enter",
-            "area": "Forest1",
+            "area": "eldertide_forest_riverside",
             "section": "mirapoint",
             "from": "left",
             "npc": "Player"
@@ -188,14 +725,14 @@
         "dialog": {
             "npc": "Mira",
             "prompt": "Not that way...",
-            "start": "forest1.mira_longpath_1"
+            "start": "eldertide_forest.mira_longpath_1"
         }
     },
     {
         "id": "mira_longpath_complaint_1_pastmira",
         "triggerWhen": {
             "event": "section_enter",
-            "area": "Forest1",
+            "area": "eldertide_forest_riverside",
             "section": "pastmira",
             "from": "left",
             "npc": "Player"
@@ -206,14 +743,14 @@
         "dialog": {
             "npc": "Mira",
             "prompt": "We should go back...",
-            "start": "forest1.mira_longpath_1"
+            "start": "eldertide_forest.mira_longpath_1"
         }
     },
     {
         "id": "mira_longpath_complaint_2_pastmira2",
         "triggerWhen": {
             "event": "section_enter",
-            "area": "Forest1",
+            "area": "eldertide_forest_riverside",
             "section": "pastmira2",
             "from": "left",
             "npc": "Player"
@@ -224,14 +761,14 @@
         "dialog": {
             "npc": "Mira",
             "prompt": "This is taking forever...",
-            "start": "forest1.mira_longpath_2"
+            "start": "eldertide_forest.mira_longpath_2"
         }
     },
     {
         "id": "mira_longpath_complaint_3_forest_end",
         "triggerWhen": {
             "event": "section_enter",
-            "area": "Forest1",
+            "area": "eldertide_forest_riverside",
             "section": "forest_1_end",
             "from": "left",
             "npc": "Player"
@@ -242,18 +779,18 @@
         "dialog": {
             "npc": "Mira",
             "prompt": "I told you...",
-            "start": "forest1.mira_longpath_3"
+            "start": "eldertide_forest.mira_longpath_3"
         }
     },
     {
-        "id": "mira_leaves_party_low_alignment_scene_forest1",
+        "id": "mira_leaves_party_low_alignment_scene_eldertide_forest_riverside",
         "triggerWhen": {
             "event": "party_leave",
-            "area": "Forest1",
+            "area": "eldertide_forest_riverside",
             "npc": "Mira"
         },
         "scene": {
-            "start": "forest1.mira_leaves_low_alignment"
+            "start": "eldertide_forest.mira_leaves_low_alignment"
         }
 
 
@@ -293,13 +830,13 @@
         ]
     },
     {
-        "id": "forest1_rowyn_wisp_warning",
+        "id": "eldertide_forest_riverside_rowyn_wisp_warning",
         "state": [
             { "type": "npcInParty", "npc": "Rowyn", "is": true },
-            { "type": "playerInSection", "area": "Forest1", "section": "forest1_wisp" }
+            { "type": "playerInSection", "area": "eldertide_forest_riverside", "section": "eldertide_forest_riverside_wisp" }
         ],
         "scene": {
-            "start": "forest1.rowyn_wisp_intro_1"
+            "start": "eldertide_forest.rowyn_wisp_intro_1"
         },
         "once":true
     },
@@ -307,10 +844,10 @@
         "id": "rowyn_recover_composure_scene",
         "once": true,
         "state": [
-            { "type": "playerInArea", "area": "Forest1", "is": true },
-            { "type": "playerInSection", "area": "Forest1", "section":"forest1_wisp", "is": false },
-            { "type": "playerInSection", "area": "Forest1", "section":"forest1_wisps", "is": false },
-            { "type": "playerInSection", "area": "Forest1", "section":"forest1_blocked", "is": false },
+            { "type": "playerInArea", "area": "eldertide_forest_riverside", "is": true },
+            { "type": "playerInSection", "area": "eldertide_forest_riverside", "section":"eldertide_forest_riverside_wisp", "is": false },
+            { "type": "playerInSection", "area": "eldertide_forest_riverside", "section":"eldertide_forest_riverside_wisps", "is": false },
+            { "type": "playerInSection", "area": "eldertide_forest_riverside", "section":"eldertide_forest_riverside_blocked", "is": false },
             { "type": "npcInParty", "npc": "Rowyn", "is": true },
 
             { "type": "stat",
@@ -322,6 +859,7 @@
             },
 
             { "type": "inventory",
+            "actor": "player",
             "item": "tua_leaves",
             "measure": "uses",
             "op": "gte",
@@ -335,11 +873,51 @@
         }
     },
     {
+        "id": "rowyn_recover_composure_rowyn_has_tua",
+        "once": true,
+        "state": [
+            { "type": "playerInArea", "area": "eldertide_forest_riverside", "is": true },
+            { "type": "playerInSection", "area": "eldertide_forest_riverside", "section":"eldertide_forest_riverside_wisp", "is": false },
+            { "type": "playerInSection", "area": "eldertide_forest_riverside", "section":"eldertide_forest_riverside_wisps", "is": false },
+            { "type": "playerInSection", "area": "eldertide_forest_riverside", "section":"eldertide_forest_riverside_blocked", "is": false },
+            { "type": "npcInParty", "npc": "Rowyn", "is": true },
+
+            { "type": "stat",
+            "actor": "player",
+            "stat": "composure",
+            "field": "current",
+            "op": "lt",
+            "rhs": { "field": "base" }
+            },
+
+            { "type": "inventory",
+            "actor": "player",
+            "item": "tua_leaves",
+            "measure": "uses",
+            "op": "lt",
+            "rhs": 1
+            },
+
+            { "type": "inventory",
+            "actor": "Rowyn",
+            "item": "tua_leaves",
+            "measure": "uses",
+            "op": "gte",
+            "rhs": 1
+            }
+        ],
+        "dialog": {
+            "npc": "Rowyn",
+            "prompt": "Are you ok?",
+            "start": "rowyn.first_give_tua_leaves"
+        }
+    },
+    {
         "id": "rowyn_diversion",
         "triggerWhen": {
             "event": "section_enter",
-            "area": "Forest1",
-            "section": "forest1_blocked",
+            "area": "eldertide_forest_riverside",
+            "section": "eldertide_forest_riverside_blocked",
             "from": "left",
             "npc": "Player"
         },
@@ -347,7 +925,7 @@
             { "type": "npcInParty", "npc": "Rowyn", "is": true }
         ],
         "scene": {
-            "start": "forest1.rowyn_diversion"
+            "start": "eldertide_forest.rowyn_diversion"
         },
         "once":true
     },
@@ -358,23 +936,7 @@
             "area": "Grove"
         },
         "once": true,
-        "scene": { "start": "forest1.start_game_wakeup" }
-    },
-    {
-        "id": "testing_item_menu", 
-        "disabled": true,
-        "triggerWhen": {
-            "event": "area_enter"
-        },
-        "effects": [
-            {
-            "type": "updateStat",
-            "stat": "composure",
-            "delta": -1
-            },
-            { "type": "addItem", "id": "tua_leaves", "qty": 2 },
-            { "type": "addItem", "id": "letta_berry", "qty": 1 }
-        ]
+        "scene": { "start": "eldertide_forest.start_game_wakeup" }
     },
     {
         "id": "rowyn_nightfall",
@@ -383,22 +945,23 @@
             "toPhase": "night"
         },
         "state": [
-            { "type": "playerInArea", "area": "Forest1", "is": true },
+            { "type": "playerInArea", "area": "eldertide_forest_riverside", "is": true },
             { "type": "npcInParty", "npc": "Rowyn", "is": true }
         ],
         "dialog": {
             "npc": "Rowyn",
             "prompt": "It's night already...",
-            "start": "forest1.rowyn_nightfall"
+            "start": "eldertide_forest.rowyn_nightfall"
         },
         "once":true
     },
     {
-        "id": "forest1_barriers_rowyn",
+        "id": "eldertide_forest_riverside_barriers_rowyn",
         "triggerWhen": {
             "event": "proximity_enter",
             "kind": "object",
-            "id": "forest_barrier"
+            "id": "forest_barrier",
+            "ignoreCover": false
         },
         "state": [
             { "type": "npcInParty", "npc": "Rowyn", "is": true }
@@ -406,33 +969,35 @@
         "dialog": {
             "npc": "Rowyn",
             "prompt": "These monuments...",
-            "start": "forest1.rowyn_barrier"
+            "start": "eldertide_forest.rowyn_barrier"
         },
         "once": true
     },
     {
-        "id": "forest1_barriers_mira",
+        "id": "eldertide_forest_riverside_barriers_mira",
         "triggerWhen": {
             "event": "proximity_enter",
             "kind": "object",
-            "id": "forest_barrier"
+            "id": "forest_barrier",
+            "ignoreCover": false
         },
         "state": [
-            { "type": "npcInParty", "npc": "Mira", "is": true }
+            { "type": "npcInParty", "npc": "Mira", "is": true },
+            {"type": "playerInSection", "area": "eldertide_forest_riverside", "section": "eldertide_forest_riverside_guardian", "is": true }
         ],
         "dialog": {
             "npc": "Mira",
             "prompt": "That's worrying...",
-            "start": "forest1.mira_barrier"
+            "start": "eldertide_forest.mira_barrier"
         },
         "once": true
     },
     {
-        "id": "forest1_follower_rowyn",
+        "id": "eldertide_forest_riverside_follower_rowyn",
         "triggerWhen": {
             "event": "section_enter",
-            "area": "Forest1",
-            "section": "forest1_follower",
+            "area": "eldertide_forest_riverside",
+            "section": "eldertide_forest_riverside_follower",
             "from": "left",
             "npc": "Player"
         },
@@ -442,16 +1007,16 @@
         "dialog": {
             "npc": "Rowyn",
             "prompt": "Be careful...",
-            "start": "forest1.rowyn_follower"
+            "start": "eldertide_forest.rowyn_follower"
         },
         "once": true
     },
     {
-        "id": "forest1_follower_mira",
+        "id": "eldertide_forest_riverside_follower_mira",
         "triggerWhen": {
             "event": "section_enter",
-            "area": "Forest1",
-            "section": "forest1_follower",
+            "area": "eldertide_forest_riverside",
+            "section": "eldertide_forest_riverside_follower",
             "from": "left",
             "npc": "Player"
         },
@@ -462,7 +1027,46 @@
         "dialog": {
             "npc": "Mira",
             "prompt": "Let's turn back...",
-            "start": "forest1.mira_follower"
+            "start": "eldertide_forest.mira_follower"
+        },
+        "once": true
+    },
+    {
+        "id": "eldertide_forest_riverside_followers_rowyn",
+        "triggerWhen": {
+            "event": "section_enter",
+            "area": "eldertide_forest_riverside",
+            "section": "eldertide_forest_riverside_followers",
+            "from": "left",
+            "npc": "Player"
+        },
+        "state": [
+            { "type": "npcInParty", "npc": "Rowyn", "is": true }
+        ],
+        "dialog": {
+            "npc": "Rowyn",
+            "prompt": "Oh...",
+            "start": "eldertide_forest.rowyn_followers"
+        },
+        "once": true
+    },
+    {
+        "id": "eldertide_forest_riverside_followers_mira",
+        "triggerWhen": {
+            "event": "section_enter",
+            "area": "eldertide_forest_riverside",
+            "section": "eldertide_forest_riverside_followers",
+            "from": "left",
+            "npc": "Player"
+        },
+        "state": [
+            { "type": "npcInParty", "npc": "Rowyn", "is": false },
+            { "type": "npcInParty", "npc": "Mira", "is": true }
+        ],
+        "dialog": {
+            "npc": "Mira",
+            "prompt": "I don't want to...",
+            "start": "eldertide_forest.mira_followers"
         },
         "once": true
     }

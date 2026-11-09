@@ -80,6 +80,11 @@ button:hover:not(:disabled) { border-color: rgba(122,162,255,0.45); }
   align-items: center;
   gap: 10px;
   margin-bottom: 8px;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg);
+  padding: 8px 0;
 }
 .contentActions { margin-left: auto; display: flex; gap: 8px; }
 
@@ -106,6 +111,7 @@ button:hover:not(:disabled) { border-color: rgba(122,162,255,0.45); }
 }
 .treeItem:hover { background: rgba(122,162,255,0.10); border-color: rgba(122,162,255,0.20); }
 .treeItem.active { background: rgba(122,162,255,0.18); border-color: rgba(122,162,255,0.35); }
+.treeItem.dirty { color: #ff6b6b; font-weight: 700; }
 
 .jsonView {
   height: calc(100% - 40px);
@@ -171,3 +177,650 @@ button:hover:not(:disabled) { border-color: rgba(122,162,255,0.45); }
   opacity: 0.55;
   font-style: italic;
 }
+
+.dialogFlow {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.dialogSearch {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.dialogSearch input {
+  flex: 1;
+  background: #0b0e1a;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.dialogTree {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #0b0e1a;
+  padding: 12px;
+  overflow: auto;
+}
+
+.dialogTreeTitle {
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--muted);
+}
+
+.dialogGraphWrap {
+  position: relative;
+  padding: 8px 8px 20px 8px;
+  min-height: 120px;
+}
+
+.dialogEdges {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: auto;
+  z-index: 1;
+}
+
+.dialogHandles {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.dialogNode {
+  position: absolute;
+  background: var(--panel2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 8px;
+  font-size: 12px;
+  line-height: 1.35;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+  z-index: 2;
+  cursor: grab;
+}
+
+.dialogNode.phrase {
+  border-color: rgba(122,162,255,0.35);
+}
+
+.dialogNode.option {
+  border-radius: 16px;
+  background: #1a203a;
+  border-style: dashed;
+}
+
+.dialogNode.condition {
+  border-radius: 6px;
+  background: #1a1f28;
+  border-style: dotted;
+}
+
+.dialogNodeDelete {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 9px;
+  font-weight: 700;
+  line-height: 16px;
+  background: rgba(255, 107, 107, 0.2);
+  border: 1px solid rgba(255, 107, 107, 0.5);
+  color: #ffd0d0;
+}
+
+.dialogNodeDelete:hover {
+  background: rgba(255, 107, 107, 0.35);
+}
+
+.dialogNodeHeader {
+  font-weight: 700;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+
+.dialogNodeMeta {
+  color: var(--muted);
+}
+
+.dialogNodeText {
+  white-space: pre-wrap;
+  margin-top: 4px;
+}
+
+.dialogNodeAction {
+  margin-top: 4px;
+  color: #a7e1c0;
+}
+
+.dialogNodeEffects {
+  margin-top: 4px;
+  color: #f0c18a;
+}
+
+.dialogNodeCondition {
+  margin-top: 4px;
+  color: #9bd5ff;
+}
+
+.dialogNode.highlight {
+  outline: 2px solid rgba(122,162,255,0.55);
+}
+
+.dialogNode.selected {
+  outline: 2px solid rgba(255, 209, 102, 0.7);
+}
+
+
+.dialogNode.nodeHoverSelf {
+  outline: 2px solid #ffd84a;
+}
+
+.dialogNode.nodeHoverParent {
+  outline: 2px solid #ff9f43;
+}
+
+.dialogNode.nodeHoverChild {
+  outline: 2px solid #6ee7a7;
+}
+
+.dialogNode.orphanNode {
+  outline: 2px dashed rgba(255, 122, 122, 0.85);
+  background: rgba(40, 18, 18, 0.7);
+}
+
+.dialogEdge.edgeHoverParent {
+  stroke: #ff9f43;
+  stroke-width: 2.6px;
+}
+
+.dialogEdge.edgeHoverChild {
+  stroke: #6ee7a7;
+  stroke-width: 2.6px;
+}
+
+.edgeHandle {
+  fill: none;
+  stroke: #ffd84a;
+  stroke-width: 2px;
+  pointer-events: all;
+}
+
+.edgeHandle.nextHandle {
+  stroke: #ffffff;
+}
+
+.edgeHandleHit {
+  fill: transparent;
+  stroke: transparent;
+  pointer-events: all;
+}
+
+.dragLine {
+  stroke: rgba(255, 216, 74, 0.8);
+  stroke-width: 2px;
+  stroke-dasharray: 4 4;
+  fill: none;
+}
+
+.dialogAddChild {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 11px;
+  font-weight: 700;
+  line-height: 20px;
+  z-index: 6;
+  pointer-events: auto;
+}
+
+.dialogAddMenu {
+  position: absolute;
+  display: flex;
+  gap: 6px;
+  background: #0f1220;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+  z-index: 6;
+  pointer-events: auto;
+}
+
+.dialogAddInput {
+  background: #0b0e1a;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+  width: 140px;
+}
+
+.dialogAddNext {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 9px;
+  font-weight: 700;
+  line-height: 16px;
+  z-index: 6;
+  pointer-events: auto;
+}
+
+.dialogModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 10, 18, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.dialogModal {
+  background: #101525;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: min(720px, 92vw);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+}
+
+.dialogModalHeader {
+  padding: 12px 14px;
+  font-weight: 700;
+  border-bottom: 1px solid var(--border);
+}
+
+.dialogModalBody {
+  padding: 12px 14px;
+  overflow: auto;
+}
+
+.dialogModalFooter {
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+
+.dialogNode.multiTree {
+  background: rgba(63, 196, 112, 0.22);
+  border-color: rgba(63, 196, 112, 0.7);
+}
+
+.dialogEdge {
+  stroke: rgba(122,162,255,0.6);
+  stroke-width: 1.6;
+  fill: none;
+  pointer-events: stroke;
+}
+
+.dialogEdgeHit {
+  stroke: rgba(0,0,0,0);
+  stroke-width: 10px;
+  fill: none;
+  pointer-events: stroke;
+}
+
+
+.dialogEdge.hovered {
+  stroke: #ffd84a;
+  stroke-width: 3.5px;
+}
+
+.dialogNode.edgeHover {
+  border-color: #ffd84a;
+  box-shadow: 0 0 0 2px rgba(255, 216, 74, 0.25);
+}
+
+.dialogNode.nodeMissing {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px rgba(255, 107, 107, 0.3);
+}
+
+.dialogNode.dragging {
+  opacity: 0.6;
+  cursor: grabbing;
+}
+
+.dialogNode.dropTarget {
+  outline: 2px solid rgba(122, 162, 255, 0.8);
+  box-shadow: 0 0 0 3px rgba(122, 162, 255, 0.2);
+}
+
+.dialogDragGhost {
+  position: fixed;
+  pointer-events: none;
+  opacity: 0.55;
+  transform: scale(1.02);
+  z-index: 999;
+}
+
+.missingField label {
+  color: var(--danger);
+}
+
+.missingField input,
+.missingField textarea,
+.missingField select {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 1px rgba(255, 107, 107, 0.25);
+}
+
+.missingField div {
+  color: #ffd0d0;
+}
+
+.effectsEditor {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(11, 14, 26, 0.7);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.effectsHeader {
+  font-weight: 700;
+}
+
+.effectsRow {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  background: #0b0e1a;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.effectsRowLine {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+}
+
+.effectsRowLine label {
+  min-width: 70px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.effectsRowLine input,
+.effectsRowLine select {
+  min-width: 140px;
+  flex: 1 1 180px;
+  background: #0b0e1a;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+
+.effectsControls {
+  display: flex;
+  gap: 6px;
+}
+
+.effectsFooter {
+  display: flex;
+  gap: 8px;
+}
+
+.effectsRaw textarea {
+  width: 100%;
+  min-height: 120px;
+  background: #0b0e1a;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.effectsCheckbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.whenEditor {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(11, 14, 26, 0.7);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.whenHeader {
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.whenBlock {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  background: #0b0e1a;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.whenBlockTitle {
+  font-weight: 700;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.whenRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+}
+
+.whenRow input,
+.whenRow select,
+.whenBlock input,
+.whenBlock select {
+  background: #0b0e1a;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+  min-width: 140px;
+  flex: 1 1 180px;
+}
+
+.whenRaw textarea {
+  width: 100%;
+  min-height: 120px;
+  background: #0b0e1a;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.stateEditor {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(11, 14, 26, 0.7);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stateHeader {
+  font-weight: 700;
+}
+
+.stateRow {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  background: #0b0e1a;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stateRowLine {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+}
+
+.stateRowLine label {
+  min-width: 70px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.stateRowLine input,
+.stateRowLine select {
+  min-width: 140px;
+  flex: 1 1 180px;
+  background: #0b0e1a;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+
+.stateControls {
+  display: flex;
+  gap: 6px;
+}
+
+.stateFooter {
+  display: flex;
+  gap: 8px;
+}
+
+.stateRaw textarea {
+  width: 100%;
+  min-height: 120px;
+  background: #0b0e1a;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.diffModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 12, 24, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+}
+
+.diffModal {
+  width: min(1200px, 95vw);
+  height: min(85vh, 900px);
+  background: #0f1220;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+}
+
+.diffModalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: #141936;
+}
+
+.diffTitle {
+  font-weight: 700;
+}
+
+.diffModalBody {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+}
+
+.diffColumns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.diffColumn {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0b0e1a;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow: hidden;
+}
+
+.diffLine {
+  padding: 2px 6px;
+  white-space: pre;
+}
+
+.diffSame {
+  color: #cfd6ff;
+}
+
+.diffAdd {
+  background: rgba(45, 160, 90, 0.25);
+  color: #a8f0c2;
+}
+
+.diffDel {
+  background: rgba(220, 80, 80, 0.25);
+  color: #ffd0d0;
+}
+
+.diffEmpty {
+  color: rgba(255,255,255,0.2);
+}
+

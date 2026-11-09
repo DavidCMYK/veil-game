@@ -1,23 +1,33 @@
 {
   "Player": {
     "startingStats": {
-      "stamina": 5,
-      "composure": 5,
-      "endurance": 0,
-      "fortitude": 0
+      "stamina": { "max": 5, "current": 5 },
+      "composure": { "max": 5, "current": 5 },
+      "endurance": { "base": 0 },
+      "fortitude": { "base": 0 }
     },
+    "factions": ["party"],
+    "abilities": [
+      "veil_charm",
+      "stun_push_burst",
+      "push_burst",
+      "sunder_resolve"
+    ],
     "interacts": ["basic"]
   },
   "Rowyn": {
     "startingStats": {
-      "stamina": 4,
-      "composure": 7,
-      "endurance": 0,
-      "fortitude": 2,
-      "minalignment": 5,
-      "minaffection": 2
+      "stamina": { "max": 4, "current": 4 },
+      "composure": { "max": 7, "current": 7 },
+      "endurance": { "base": 0 },
+      "fortitude": { "base": 2 },
+      "alignment": { "current": 9 },
+      "minalignment": { "base": 5 },
+      "minaffection": { "base": 2 }
     },
+    "factions": ["npc"],
     "interacts": ["plant"],
+    "inventorySize": 3,
     "ai": {
       "waiting": {
         "avgMoveDistancePx": 1000,
@@ -28,87 +38,136 @@
         "speedPxPerSec": 130
       }
     },
-    "abilities": [
+    "goals": [
       {
-        "id": "veil_charm",
-        "name": "Veil Charm",
-        "description": "Parts the mist for a short time.",
-        "animation": "ability",
-        "cooldownMs": 10000,
-        "durationMs": 2000,
-        "stopMoving": true,
-        "effects": [
-          { "type": "addPartyTag", "tag": "veil_pass" }
-        ]
-      }
-    ]
-
-  },
-  "Alden": { "minalignment": 5, "minaffection": 2 },
-  "Mira": {
-    "startingStats": {
-      "stamina": 4,
-      "composure": 3,
-      "endurance": 1,
-      "fortitude": 0,
-      "minalignment": 1,
-      "minaffection": 6
-    },
-    "ai": {
-      "waiting": {
-        "avgMoveDistancePx": 1000,
-        "avgIdleMs": 2000,
-        "speedPxPerSec": 200
-      },
-      "moving": {
-        "speedPxPerSec": 130
-      }
-    },
-    "targeting": {
-      "add": {
-        "includePlayer": false,
-        "includeParty": false,
-        "includeWorldNPCs": false,
-        "includeMobs": true,
-        "withinPx": 3000
-      },
-      "remove": {
-        "maxDistancePx": 3000,
-        "unconscious": true
-      },
-      "sort": [
-        {
-          "by": "distance",
-          "order": "asc"
-        }
-      ],
-      "resort": {
-        "when": "always"
-      },
-      "action": {
-        "stopRangePx": 3000,
-        "abilityId": "mira_ranged_bolt"
-      },
-      "onEmpty": {
-        "type": "idle"
-      }
-    },
-    "abilities": [
-      {
-        "id": "mira_ranged_bolt",
-        "rangePx": 2000,
-        "cooldownMs": 3000,
-        "durationMs": 1000,
-        "effects": [
+        "id": "rowyn_reach_forest_1_end",
+        "name": "Reach the Forest's End",
+        "description": "Rowyn wants to reach the end of the Riverside Path.",
+        "visibility": "public",
+        "maxCompletions": 1,
+        "progress": {
+          "type": "location",
+          "actor": "Rowyn",
+          "target": { "area": "eldertide_forest_riverside", "section": "forest_1_end" },
+          "closerEffects": [
+            { "type": "updateStat", "npc": "Rowyn", "stat": "alignment", "delta": 1 }
+          ],
+          "fartherEffects": [
+            { "type": "updateStat", "npc": "Rowyn", "stat": "alignment", "delta": -1 }
+          ]
+        },
+        "triggerWhen": {
+          "event": "section_enter",
+          "area": "eldertide_forest_riverside",
+          "section": "forest_1_end",
+          "npc": "Rowyn"
+        },
+        "state": [
           {
-            "type": "updateStat",
-            "npc": "@target",
-            "stat": "hp",
-            "delta": -1
+            "type": "npcInSection",
+            "npc": "Rowyn",
+            "area": "eldertide_forest_riverside",
+            "section": "forest_1_end"
           }
         ]
       }
+    ],
+    "abilities": [
+      "veil_charm"
     ]
+  },
+  "Alden": {
+    "startingStats": {
+      "minalignment": { "base": 5 },
+      "minaffection": { "base": 2 }
+    },
+    "factions": ["npc"]
+  },
+  "Mira": {
+    "startingStats": {
+      "stamina": { "max": 4, "current": 4 },
+      "composure": { "max": 4, "current": 4 },
+      "endurance": { "base": 1 },
+      "fortitude": { "base": 0 },
+      "minalignment": { "base": 1 },
+      "minaffection": { "base": 6 },
+      "affection": { "current": 6 }
+    },
+    "factions": ["npc"],
+    "allianceByFaction": {
+      "mob": -1
+    },
+    "inventorySize": 3,
+    "ai": {
+      "waiting": {
+        "avgMoveDistancePx": 1000,
+        "avgIdleMs": 2000,
+        "speedPxPerSec": 200
+      },
+      "moving": {
+        "speedPxPerSec": 200
+      },
+      "autoCastRules": [
+        {
+          "ability": "chilling_sensation",
+          "when": {
+            "eligibleTargetInAbilityRange": true
+          },
+          "sort": [
+            { "by": "distance", "order": "asc" }
+          ]
+        }
+      ],
+      "targeting": {
+        "priority": ["enemy"],
+        "allowed": ["enemy"],
+        "withinPx": 3000,
+        "remove": {
+          "maxDistancePx": 3000,
+          "unconscious": true
+        },
+        "sort": [
+          {
+            "by": "distance",
+            "order": "asc"
+          }
+        ],
+        "resort": {
+          "when": "always"
+        },
+        "action": {
+          "stopRangePx": 3000
+        },
+        "onEmpty": {
+          "type": "idle"
+        }
+      }
+    },
+    "goals": [],
+    "abilities": [
+      "chilling_sensation",
+      "push_burst"
+    ]
+  },
+  "Etiram": {
+    "startingStats": {
+      "composure": 2,
+      "stamina": 7
+    },
+    "factions": ["spirit"]
+  },
+  "Caira": {
+    "startingStats": {
+      "composure": 3,
+      "stamina": 5
+    },
+    "factions": ["spirit"]
+  },
+  "Aiden": {
+    "startingStats": {
+      "composure": 1,
+      "stamina": 1
+    },
+    "factions": ["spirit"]
   }
-
 }
