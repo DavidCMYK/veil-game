@@ -1459,7 +1459,7 @@ function renderMenuPage_PartyCards() {
       const leave = document.createElement('button');
       leave.type = 'button';
       leave.className = 'partyLeaveButton';
-      leave.textContent = 'Leave Party';
+      leave.textContent = 'Leave';
       leave.setAttribute('aria-label', `Ask ${actor.name} to leave the party`);
       leave.addEventListener('click', (e) => {
         e.preventDefault();

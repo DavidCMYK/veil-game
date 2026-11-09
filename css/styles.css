@@ -873,13 +873,13 @@ html, body {
 }
 .partyLeaveButton {
   flex: 0 0 auto;
-  padding: 4px 6px;
-  border: 1px solid #67543a;
+  padding: 2px 4px;
+  border: 1px solid #88775b;
   border-radius: 4px;
   color: #30261b;
   background: #e8d9b9;
-  font-size: calc(11px * var(--ui-font-scale));
-  font-weight: 600;
+  font-size: calc(14px * var(--ui-font-scale));
+  font-weight: 700;
   line-height: 1.2;
   cursor: pointer;
   white-space: nowrap;
