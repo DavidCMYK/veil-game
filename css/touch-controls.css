@@ -169,6 +169,9 @@ html.touch-enabled .abilityCard--hotkeyIndent .abilityCardTitle {
 }
 
 /* Mobile-only party dismissal below each NPC card, outside its swipe surface. */
+html.touch-enabled #playerMenuContent .partyCardsGrid:has(.mobilePartyLeaveBtn) {
+  min-height: calc(var(--party-card-height) + 52px);
+}
 html.touch-enabled #playerMenuContent .mobilePartyLeaveBtn {
   position: absolute;
   top: calc(var(--party-card-height) + 7px);
