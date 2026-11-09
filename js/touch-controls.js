@@ -23,6 +23,34 @@
   let active = null;
   let held = null;
   const isPortrait = () => window.matchMedia('(orientation: portrait)').matches;
+
+  // Browsers cannot hide their address bar just because the phone rotated.
+  // Request real fullscreen on the first user gesture in landscape, without
+  // creating a separate fullscreen button or changing desktop behavior.
+  let fullscreenPending = false;
+  function enterFullscreen() {
+    if (isPortrait() || document.fullscreenElement || fullscreenPending) return;
+    const root = document.documentElement;
+    if (typeof root.requestFullscreen !== 'function') return;
+
+    try {
+      fullscreenPending = true;
+      Promise.resolve(root.requestFullscreen({ navigationUI: 'hide' }))
+        .then(() => {
+          // Rotation lock is only available after entering fullscreen on
+          // supported mobile browsers. The portrait overlay remains fallback.
+          if (screen.orientation && typeof screen.orientation.lock === 'function') {
+            Promise.resolve(screen.orientation.lock('landscape')).catch(() => {});
+          }
+        })
+        .catch(() => {})
+        .finally(() => { fullscreenPending = false; });
+    } catch {
+      fullscreenPending = false;
+    }
+  }
+  document.addEventListener('pointerdown', enterFullscreen, { capture: true, passive: true });
+
   const canSteer = () => !isPortrait() && !loading && !inMenu &&
     !inConversation && !inActionPhrase && !mapOverlayOpen &&
     !controlsLocked && !isPlayerStunned();
