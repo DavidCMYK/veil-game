@@ -190,15 +190,16 @@
     if (active && !canvasEl.contains(e.target)) setDirection(null);
   }, true);
 
-  // Swipe each character's card independently, without keyboard selection.
-  // The abilities overview still uses its existing arrow-key navigation.
+  // Only character cards flip on vertical swipes.
+  // All other menus, including Abilities, scroll natively when content overflows.
   const menuContent = document.getElementById('playerMenuContent');
   let menuSwipe = null;
   if (menuContent) {
     const swipePage = () => {
       if (!inMenu || inManualTargeting || isPortrait()) return null;
-      if (activeMenuPageId === 'party' || activeMenuPageId === 'npcs' ||
-          activeMenuPageId === 'abilities') return activeMenuPageId;
+      if (activeMenuPageId === 'party' || activeMenuPageId === 'npcs') {
+        return activeMenuPageId;
+      }
       return null;
     };
 
@@ -208,9 +209,7 @@
       const page = swipePage();
       if (!page) return;
       const target = e.target;
-      const onCard = page === 'abilities'
-        ? target.closest?.('.abilityCard')
-        : target.closest?.('.partyCardSlot[data-mobile-card-key]');
+      const onCard = target.closest?.('.partyCardSlot[data-mobile-card-key]');
       if (!onCard) return;
       const touch = e.touches[0];
       menuSwipe = {
@@ -249,14 +248,7 @@
       if (Math.abs(dy) < 45 || Math.abs(dy) <= Math.abs(dx) * 1.2) return;
       e.preventDefault(); // avoid an accidental card tap at the end
       const dir = dy < 0 ? 1 : -1;
-      if (gesture.page === 'party' || gesture.page === 'npcs') {
-        advanceMobileCard(gesture.page, gesture.actorKey, dir);
-      } else {
-        const code = dir > 0 ? 'ArrowDown' : 'ArrowUp';
-        window.dispatchEvent(new KeyboardEvent('keydown', {
-          code, key: code, bubbles: true, cancelable: true
-        }));
-      }
+      advanceMobileCard(gesture.page, gesture.actorKey, dir);
     }, { passive: false });
 
     menuContent.addEventListener('touchcancel', () => { menuSwipe = null; });

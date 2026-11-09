@@ -94,6 +94,7 @@ html.touch-enabled #playerMenuContent {
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   padding: 6px;
 }
 html.touch-enabled #playerMenuError {
@@ -130,7 +131,7 @@ html.touch-enabled #optionsBox .dialogOptionKeyBadge {
   display: none !important;
 }
 
-/* Swiping the selected cards changes their pages rather than scrolling. */
+/* Character cards flip vertically; other menu pages scroll naturally. */
 html.touch-enabled #playerMenuContent .partyCardsGrid {
   justify-content: safe center;
   overflow-x: auto;
@@ -140,9 +141,13 @@ html.touch-enabled #playerMenuContent .partyCardsGrid {
   -webkit-overflow-scrolling: touch;
 }
 html.touch-enabled #playerMenuContent .partyCardSlot,
-html.touch-enabled #playerMenuContent .partyCardSlot .partyCardStageFull,
-html.touch-enabled #playerMenuContent .abilityCard {
+html.touch-enabled #playerMenuContent .partyCardSlot .partyCardStageFull {
   touch-action: pan-x;
+}
+/* Do not let ability-card swipe handling block vertical scrolling. */
+html.touch-enabled #playerMenuContent .abilityCard,
+html.touch-enabled #playerMenuContent .playerMenuItemTile {
+  touch-action: pan-y;
 }
 html.touch-enabled #playerMenuContent .partyCardSlot .partyCard {
   outline: none;
