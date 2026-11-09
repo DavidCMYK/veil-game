@@ -24141,8 +24141,10 @@ function __clearDialogStackAll({ keepPendingChoice = false } = {}) {
 }
 
 function __computeDialogStackLayout() {
-  const W = window.innerWidth || 0;
-  const H = window.innerHeight || 0;
+  const touchLayout = document.documentElement.classList.contains('touch-enabled');
+  // The mobile game viewport excludes the reserved menu tab strip.
+  const W = touchLayout ? conversationOverlay.clientWidth : (window.innerWidth || 0);
+  const H = touchLayout ? conversationOverlay.clientHeight : (window.innerHeight || 0);
   const pad = 12;
 
   const hasPortrait = !!(conversationPortrait && conversationPortrait.naturalWidth > 0);
@@ -24161,16 +24163,34 @@ function __computeDialogStackLayout() {
 
   const leftX = Math.ceil(portraitW + pad);
   const avail = Math.max(0, W - leftX - pad);
-  const boxW = Math.max(200, Math.min(avail, H));
+  // Desktop retains its original layout. Mobile dialogue and options occupy
+  // separate columns, so even a long list of options cannot cover the speech.
+  const columnGap = 12;
+  const boxW = touchLayout
+    ? Math.max(140, Math.min(Math.floor(H * 0.9), Math.floor((avail - columnGap) * 0.52)))
+    : Math.max(200, Math.min(avail, H));
   __dialogStackLeftPx = leftX;
   __dialogStackWidthPx = Math.floor(boxW);
-  __dialogStackTopPx = Math.round(H * 0.2);
+  __dialogStackTopPx = Math.round(H * (touchLayout ? 0.13 : 0.2));
 
   if (optionsBox) {
-    optionsBox.style.left = `${__dialogStackLeftPx}px`;
-    optionsBox.style.bottom = `${pad}px`;
-    optionsBox.style.width = `${__dialogStackWidthPx}px`;
-    optionsBox.style.maxWidth = `${Math.floor(H)}px`;
+    if (touchLayout) {
+      const optionsLeft = leftX + __dialogStackWidthPx + columnGap;
+      const optionsWidth = Math.max(1, W - optionsLeft - pad);
+      optionsBox.style.left = `${optionsLeft}px`;
+      optionsBox.style.top = `${__dialogStackTopPx}px`;
+      optionsBox.style.bottom = 'auto';
+      optionsBox.style.width = `${optionsWidth}px`;
+      optionsBox.style.maxWidth = `${optionsWidth}px`;
+      optionsBox.style.maxHeight = `${Math.max(60, H - __dialogStackTopPx - pad)}px`;
+      optionsBox.style.overflowY = 'auto';
+      optionsBox.style.overscrollBehavior = 'contain';
+    } else {
+      optionsBox.style.left = `${__dialogStackLeftPx}px`;
+      optionsBox.style.bottom = `${pad}px`;
+      optionsBox.style.width = `${__dialogStackWidthPx}px`;
+      optionsBox.style.maxWidth = `${Math.floor(H)}px`;
+    }
     optionsBox.style.transform = '';
     optionsBox.style.textAlign = 'left';
   }
@@ -24247,7 +24267,9 @@ function __canAddToStack(pendingItems) {
   const { row, pad } = __getDialogOptionRowHeight();
   const minOptionsHeight = pad + row * 4;
   const overlayH = conversationOverlay?.getBoundingClientRect().height || window.innerHeight || 0;
-  const available = Math.max(0, overlayH - minOptionsHeight - __dialogStackTopPx - 12);
+  // On mobile the options are beside, not below, the dialogue stack.
+  const mobileSideOptions = document.documentElement.classList.contains('touch-enabled');
+  const available = Math.max(0, overlayH - (mobileSideOptions ? 0 : minOptionsHeight) - __dialogStackTopPx - 12);
   return height <= available;
 }
 
@@ -24267,7 +24289,8 @@ function __renderDialogStack(typingIndex = null) {
     const box = document.createElement('div');
     box.className = it.kind === 'player' ? 'dialogStackItem dialogStackPlayer' : 'dialogStackItem dialogStackNpc';
     const maxWidth = __dialogStackWidthPx;
-    const rightEdge = __dialogStackLeftPx + __dialogChoiceOffsetX + maxWidth;
+    const rightEdge = __dialogStackLeftPx + maxWidth +
+      (document.documentElement.classList.contains('touch-enabled') ? 0 : __dialogChoiceOffsetX);
     const left = __dialogStackLeftPx + (it.kind === 'player' ? __dialogChoiceOffsetX : 0);
     box.style.left = `${left}px`;
     box.style.top = `${y}px`;
@@ -27192,7 +27215,8 @@ if (canvas) {
     }
 
     // Exits can be tapped directly on their existing world icons.
-    if (__lastExitIconRect && canvasHitTest(sx, sy, __lastExitIconRect)) {
+    if (document.documentElement.classList.contains('touch-enabled') &&
+        __lastExitIconRect && canvasHitTest(sx, sy, __lastExitIconRect)) {
       const exit = currentExitUp || currentExitDown;
       if (exit) {
         tryUseExit(exit);
