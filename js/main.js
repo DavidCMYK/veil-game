@@ -1448,6 +1448,7 @@ let __lastPromptLayouts = [];
 let __lastInteractIconRect = null;
 let __lastInteractObjectRect = null;
 let __lastInteractItemRect = null;
+let __lastExitIconRect = null;
 let __pendingInteractIcon = null;
 
 function closePartyInventoryOverlay() {
@@ -6419,7 +6420,10 @@ function resizeCanvas() {
 
 function resizeCanvasResolution() {
   canvas.height = WORLD_HEIGHT;
-  canvas.width  = Math.floor(WORLD_HEIGHT * (window.innerWidth / window.innerHeight));
+  const touchLayout = document.documentElement.classList.contains('touch-enabled');
+  const viewW = touchLayout ? viewportEl.clientWidth : window.innerWidth;
+  const viewH = touchLayout ? viewportEl.clientHeight : window.innerHeight;
+  canvas.width  = Math.floor(WORLD_HEIGHT * (viewW / Math.max(1, viewH)));
 
   WIDTH  = canvas.width;
   HEIGHT = canvas.height;
@@ -27061,6 +27065,21 @@ window.addEventListener('resize', () => {
   if (inMenu) renderPlayerMenu();
 });
 
+// Minimum 44 CSS-pixel tap areas for world-space icons on touchscreens.
+function canvasHitTest(sx, sy, r) {
+  if (!r) return false;
+  let padX = 0, padY = 0;
+  if (document.documentElement.classList.contains('touch-enabled')) {
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width && rect.height) {
+      padX = Math.max(0, (44 * canvas.width / rect.width - r.w) / 2);
+      padY = Math.max(0, (44 * canvas.height / rect.height - r.h) / 2);
+    }
+  }
+  return sx >= r.x - padX && sx <= r.x + r.w + padX &&
+         sy >= r.y - padY && sy <= r.y + r.h + padY;
+}
+
 window.addEventListener('mousemove', (e) => {
   if (!manualTargetingDragTile) return;
   const rect = viewportEl?.getBoundingClientRect();
@@ -27124,7 +27143,7 @@ if (canvas) {
     // Prompt bubble click => talk
     for (const p of __lastPromptLayouts) {
       if (!p) continue;
-      if (sx >= p.x && sx <= p.x + p.w && sy >= p.y && sy <= p.y + p.h) {
+      if (canvasHitTest(sx, sy, p)) {
         if (Number.isFinite(p.promptIndex)) {
           void startTriggeredDialog(p.promptIndex);
           e.preventDefault();
@@ -27136,7 +27155,7 @@ if (canvas) {
     // Recruit icon click
     for (const r of __lastRecruitIcons) {
       if (!r) continue;
-      if (sx >= r.x && sx <= r.x + r.w && sy >= r.y && sy <= r.y + r.h) {
+      if (canvasHitTest(sx, sy, r)) {
         recruitNpcToParty(r.npc);
         e.preventDefault();
         return;
@@ -27146,7 +27165,7 @@ if (canvas) {
     // Interaction icon/object click
     if (__lastInteractIconRect) {
       const r = __lastInteractIconRect;
-      if (sx >= r.x && sx <= r.x + r.w && sy >= r.y && sy <= r.y + r.h) {
+      if (canvasHitTest(sx, sy, r)) {
         if (triggerCurrentInteract()) {
           e.preventDefault();
           return;
@@ -27155,7 +27174,7 @@ if (canvas) {
     }
     if (__lastInteractObjectRect) {
       const r = __lastInteractObjectRect;
-      if (sx >= r.x && sx <= r.x + r.w && sy >= r.y && sy <= r.y + r.h) {
+      if (canvasHitTest(sx, sy, r)) {
         if (triggerCurrentInteract()) {
           e.preventDefault();
           return;
@@ -27164,11 +27183,21 @@ if (canvas) {
     }
     if (__lastInteractItemRect) {
       const r = __lastInteractItemRect;
-      if (sx >= r.x && sx <= r.x + r.w && sy >= r.y && sy <= r.y + r.h) {
+      if (canvasHitTest(sx, sy, r)) {
         if (triggerCurrentInteract()) {
           e.preventDefault();
           return;
         }
+      }
+    }
+
+    // Exits can be tapped directly on their existing world icons.
+    if (__lastExitIconRect && canvasHitTest(sx, sy, __lastExitIconRect)) {
+      const exit = currentExitUp || currentExitDown;
+      if (exit) {
+        tryUseExit(exit);
+        e.preventDefault();
+        return;
       }
     }
 
@@ -28795,6 +28824,7 @@ function drawInteractionIcon(x, y, label = 'I') {
 }
 
 function drawExitProximityIcon() {
+  __lastExitIconRect = null;
   // Prefer Up if both happen to be present
   const ex = currentExitUp || currentExitDown;
   if (!ex) return;
@@ -28834,6 +28864,11 @@ function drawExitProximityIcon() {
     Math.floor(sx - img.width * 0.5),
     Math.floor(sy - img.height * 0.5)
   );
+  __lastExitIconRect = {
+    x: Math.floor(sx - img.width * 0.5),
+    y: Math.floor(sy - img.height * 0.5),
+    w: img.width, h: img.height
+  };
 }
 
 

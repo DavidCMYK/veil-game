@@ -1,16 +1,125 @@
-#touchControls { display: none; }
-  #touchControls { position: fixed; inset: auto 0 0; z-index: 100; display: flex; align-items: end; justify-content: space-between; gap: 12px; padding: 8px max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); pointer-events: none; }
-  #touchControls > div { display: flex; flex-wrap: wrap; gap: 5px; max-width: 44%; }
-  #touchControls button { pointer-events: auto; touch-action: none; user-select: none; min-width: 44px; min-height: 44px; border: 1px solid #ffffff75; border-radius: 7px; background: #10121dd9; color: white; font-size: 12px; padding: 6px 9px; }
-  #touchControls button:active { background: #59678a; }
-  #touchControls button[hidden] { display: none; }
-  #touchControls .touchChoices { max-width: 25%; }
-  #touchControls .touchActions { justify-content: flex-end; }
-  @media (pointer: coarse), (any-pointer: coarse) {
-
-
+/* Mobile uses the existing menu tabs, not a second control bar. */
+html.touch-enabled,
+html.touch-enabled body {
+  width: 100%;
+  height: 100%;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+}
+html.touch-enabled #gameContainer {
+  position: relative;
+  box-sizing: border-box;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  padding: calc(40px + env(safe-area-inset-top)) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: stretch;
+  overflow: hidden;
+}
+html.touch-enabled #viewport {
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  width: 100%;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+}
+html.touch-enabled #gameCanvas {
+  display: block;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+html.touch-enabled #menuTopTabs {
+  position: absolute;
+  top: env(safe-area-inset-top);
+  left: env(safe-area-inset-left);
+  width: calc(100% - env(safe-area-inset-left) - env(safe-area-inset-right)) !important;
+  height: 40px;
+  box-sizing: border-box;
+  transform: none !important;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  padding: 2px 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  background: #151811;
+  border-bottom: 1px solid #665c44;
+  scrollbar-width: none;
+}
+html.touch-enabled #menuTopTabs.isHidden { display: none; }
+html.touch-enabled #menuTopTabs .playerMenuTabBtn,
+html.touch-enabled #menuTopTabs .playerMenuTabBtn.active {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  width: auto !important;
+  min-height: 34px;
+  border-radius: 6px;
+  border: 1px solid #777;
+  padding: 3px 12px;
+  font-family: sans-serif;
+  font-size: 14px;
+  line-height: 22px;
+  transform: none !important;
+  box-shadow: none;
+  letter-spacing: 0;
+}
+html.touch-enabled #menuTopTabs .playerMenuTabHotkey { text-decoration: none; }
+html.touch-enabled #menuTopTabs .playerMenuTabBtn.active {
+  border-color: #e5d6a8;
+}
+html.touch-enabled #miniMap {
+  width: min(110px, 24dvh);
+  height: min(110px, 24dvh);
+  top: 6px;
+  right: 6px;
+}
+html.touch-enabled #playerMenuOverlay {
+  overflow: hidden;
+}
+html.touch-enabled #playerMenuContent {
+  box-sizing: border-box;
+  top: 6px;
+  left: 8px;
+  transform: none;
+  width: calc(100% - 16px);
+  height: calc(100% - 12px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+}
+html.touch-enabled #playerMenuError {
+  top: 6px;
+  max-width: 90%;
+}
+html.touch-enabled #mapCanvas {
+  width: min(96%, 1100px);
+  height: min(96%, 650px);
+}
+html.touch-enabled { --ui-font-scale: 1.15; }
+#touchLandscapeNotice { display: none; }
+@media (orientation: portrait) {
+  html.touch-enabled #touchLandscapeNotice {
+    display: flex;
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    align-items: center;
+    justify-content: center;
+    padding: 30px;
+    box-sizing: border-box;
+    background: #151811;
+    color: #fff;
+    font: 600 20px/1.5 sans-serif;
+    text-align: center;
+    pointer-events: auto;
   }
-
-#touchControls { display: none; }
-html.touch-enabled #touchControls { display: flex; }
-@media (pointer: coarse), (any-pointer: coarse) { #touchControls { display: flex; } }
+}
