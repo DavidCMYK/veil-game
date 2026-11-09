@@ -27447,6 +27447,9 @@ function updateSafeplaceRegenAndFlags(nowMs) {
 function update(dt, realDt = null) {
 
   if (!currentArea) return;
+  // Portrait is not a playable mode on touch devices: pause simulation too.
+  if (document.documentElement.classList.contains('touch-enabled') &&
+      window.matchMedia('(orientation: portrait)').matches) return;
   const nowMs = getGameNowMs();
 
   // Timed flags
