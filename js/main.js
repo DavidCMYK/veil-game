@@ -1444,6 +1444,31 @@ function renderMenuPage_PartyCards() {
           () => buildGoalsCard(member)
         ]
       ));
+      if (member !== player) {
+        // Keep the party-management control outside the swipeable card face.
+        // A second tap confirms so scrolling can't accidentally dismiss anyone.
+        const leaveBtn = document.createElement('button');
+        leaveBtn.type = 'button';
+        leaveBtn.className = 'mobilePartyLeaveBtn';
+        leaveBtn.textContent = 'Leave party';
+        leaveBtn.setAttribute('aria-label', `Ask ${member.name} to leave the party`);
+        leaveBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!party.includes(member)) return;
+          if (leaveBtn.dataset.confirm !== '1') {
+            leaveBtn.dataset.confirm = '1';
+            leaveBtn.textContent = 'Confirm leave';
+            leaveBtn.classList.add('confirming');
+            return;
+          }
+          removeNpcFromParty(member);
+          mobileCardPages.party.delete(slot.dataset.mobileCardKey);
+          partyMenuSelectedIndex = Math.min(partyMenuSelectedIndex, party.length);
+          renderPlayerMenu();
+        });
+        slot.appendChild(leaveBtn);
+      }
     } else if (isSelected) {
       const stage = document.createElement('div');
       stage.className = 'partyCardStageFull';

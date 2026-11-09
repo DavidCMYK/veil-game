@@ -167,3 +167,24 @@ html.touch-enabled .playerMenuTabHotkey {
 html.touch-enabled .abilityCard--hotkeyIndent .abilityCardTitle {
   padding-left: 0;
 }
+
+/* Mobile-only party dismissal below each NPC card, outside its swipe surface. */
+html.touch-enabled #playerMenuContent .mobilePartyLeaveBtn {
+  position: absolute;
+  top: calc(var(--party-card-height) + 7px);
+  left: 8px;
+  width: calc(100% - 16px);
+  min-height: 36px;
+  z-index: 4;
+  border: 1px solid #b1a58c;
+  border-radius: 7px;
+  background: #292824;
+  color: #fff;
+  font: 600 13px/1.2 sans-serif;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+html.touch-enabled #playerMenuContent .mobilePartyLeaveBtn.confirming {
+  background: #793a35;
+  border-color: #d69b90;
+}
