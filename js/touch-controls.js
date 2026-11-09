@@ -158,6 +158,74 @@
     if (active && !canvasEl.contains(e.target)) setDirection(null);
   }, true);
 
+  // Swipe vertically on a selected character card to flip its four
+  // sub-cards. Use the existing keyboard navigation so the same selection
+  // and slide animation logic is shared with desktop.
+  const menuContent = document.getElementById('playerMenuContent');
+  let menuSwipe = null;
+  if (menuContent) {
+    const swipePage = () => {
+      if (!inMenu || inManualTargeting || isPortrait()) return null;
+      if (activeMenuPageId === 'party' || activeMenuPageId === 'npcs' ||
+          activeMenuPageId === 'abilities') return activeMenuPageId;
+      return null;
+    };
+
+    menuContent.addEventListener('touchstart', e => {
+      menuSwipe = null;
+      if (e.touches.length !== 1) return;
+      const page = swipePage();
+      if (!page) return;
+      const target = e.target;
+      const onCard = page === 'abilities'
+        ? target.closest?.('.abilityCard')
+        : target.closest?.('.partyCardSlot.selected');
+      if (!onCard) return;
+      const touch = e.touches[0];
+      menuSwipe = {
+        id: touch.identifier,
+        x: touch.clientX, y: touch.clientY,
+        lastX: touch.clientX, lastY: touch.clientY,
+        page
+      };
+    }, { passive: true });
+
+    menuContent.addEventListener('touchmove', e => {
+      if (!menuSwipe || e.touches.length !== 1 || swipePage() !== menuSwipe.page) {
+        menuSwipe = null;
+        return;
+      }
+      const touch = e.touches[0];
+      if (touch.identifier !== menuSwipe.id) return;
+      menuSwipe.lastX = touch.clientX;
+      menuSwipe.lastY = touch.clientY;
+      const dx = touch.clientX - menuSwipe.x;
+      const dy = touch.clientY - menuSwipe.y;
+      if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx) * 1.2) {
+        e.preventDefault(); // swipe cards instead of scrolling the menu
+      }
+    }, { passive: false });
+
+    menuContent.addEventListener('touchend', e => {
+      if (!menuSwipe) return;
+      const touch = Array.from(e.changedTouches).find(t => t.identifier === menuSwipe.id);
+      if (!touch) return;
+      const gesture = menuSwipe;
+      menuSwipe = null;
+      if (swipePage() !== gesture.page) return;
+      const dx = touch.clientX - gesture.x;
+      const dy = touch.clientY - gesture.y;
+      if (Math.abs(dy) < 45 || Math.abs(dy) <= Math.abs(dx) * 1.2) return;
+      e.preventDefault(); // avoid an accidental card tap at the end
+      const code = dy < 0 ? 'ArrowDown' : 'ArrowUp';
+      window.dispatchEvent(new KeyboardEvent('keydown', {
+        code, key: code, bubbles: true, cancelable: true
+      }));
+    }, { passive: false });
+
+    menuContent.addEventListener('touchcancel', () => { menuSwipe = null; });
+  }
+
   // Measure the remaining game viewport after placing tabs outside it.
   requestAnimationFrame(() => {
     resizeCanvas();

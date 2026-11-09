@@ -123,3 +123,16 @@ html.touch-enabled { --ui-font-scale: 1.15; }
     pointer-events: auto;
   }
 }
+
+/* On phones the options are tapped, not selected by number keys. */
+html.touch-enabled #optionsBox .hotkeyBadge,
+html.touch-enabled #optionsBox .dialogOptionKeyBadge {
+  display: none !important;
+}
+
+/* Swiping the selected cards changes their pages rather than scrolling. */
+html.touch-enabled #playerMenuContent .partyCardSlot.selected,
+html.touch-enabled #playerMenuContent .partyCardSlot.selected .partyCardStageFull,
+html.touch-enabled #playerMenuContent .abilityCard {
+  touch-action: pan-x;
+}
