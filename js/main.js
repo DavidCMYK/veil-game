@@ -21,6 +21,8 @@ const menuTopTabs = document.getElementById('menuTopTabs');
 const miniMapEl = document.getElementById('miniMap');
 const miniMapCanvas = document.getElementById('miniMapCanvas');
 const mapOverlayEl = document.getElementById('mapOverlay');
+const mapCloseButton = document.getElementById('mapCloseButton');
+const manualTargetingBackButton = document.getElementById('manualTargetingBackButton');
 const mapCanvas = document.getElementById('mapCanvas');
 const miniMapCtx = miniMapCanvas ? miniMapCanvas.getContext('2d') : null;
 const mapCtx = mapCanvas ? mapCanvas.getContext('2d') : null;
@@ -117,6 +119,29 @@ if (mapOverlayEl) {
       e.preventDefault();
       e.stopPropagation();
     }
+  });
+}
+
+if (mapCloseButton) {
+  mapCloseButton.addEventListener('click', (e) => {
+    setMapOverlayOpen(false);
+    e.preventDefault();
+    e.stopPropagation();
+  });
+}
+
+function setManualTargetingBackVisible(visible) {
+  if (manualTargetingBackButton) {
+    manualTargetingBackButton.style.display = visible ? 'inline-flex' : 'none';
+  }
+}
+
+if (manualTargetingBackButton) {
+  manualTargetingBackButton.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!inManualTargeting || !manualTargetingState) return;
+    endManualTargeting({ openMenuPageId: manualTargetingState.returnPageId || activeMenuPageId });
   });
 }
 
@@ -728,6 +753,7 @@ function closePlayerMenu() {
   inMenu = false;
   inManualTargeting = false;
   manualTargetingState = null;
+  setManualTargetingBackVisible(false);
   closePartyInventoryOverlay();
   playerMenuOverlay.style.display = 'none';
   renderMenuTabs(menuTopTabs, true, true);
@@ -4314,6 +4340,7 @@ function beginManualTargeting(npcName, abilityId) {
   };
 
   __forceHeadBarsVisibleForTargets(candidates);
+  setManualTargetingBackVisible(true);
     // no debug logging
 
   // Hide menu overlay but keep menu state (so game stays paused)
@@ -4406,6 +4433,7 @@ function beginManualItemTargeting(itemId, itemUid = null, preferredTarget = null
   };
 
   __forceHeadBarsVisibleForTargets(candidates);
+  setManualTargetingBackVisible(true);
   // no debug logging
 
   if (playerMenuOverlay) playerMenuOverlay.style.display = 'none';
@@ -4462,6 +4490,7 @@ function beginManualItemTargetingForActor(actor, itemId, itemUid = null, preferr
   };
 
   __forceHeadBarsVisibleForTargets(candidates);
+  setManualTargetingBackVisible(true);
   if (playerMenuOverlay) playerMenuOverlay.style.display = 'none';
   showManualTargetingItemPreview(manualTargetingState);
   applyManualTargetingCamera(manualTargetingState);
@@ -4494,6 +4523,7 @@ function beginManualItemGiveTargeting(itemId, itemUid = null) {
   };
 
   __forceHeadBarsVisibleForTargets(candidates);
+  setManualTargetingBackVisible(true);
 
   if (playerMenuOverlay) playerMenuOverlay.style.display = 'none';
   inMenu = true;
@@ -4529,6 +4559,7 @@ function beginManualItemGiveTargetingForActor(actor, itemId, itemUid = null) {
   };
 
   __forceHeadBarsVisibleForTargets(candidates);
+  setManualTargetingBackVisible(true);
   if (playerMenuOverlay) playerMenuOverlay.style.display = 'none';
   inMenu = true;
   return 'started';
@@ -4538,6 +4569,7 @@ function endManualTargeting({ openMenuPageId = null, closeAll = false } = {}) {
   __restoreHeadBarsVisibility();
   inManualTargeting = false;
   manualTargetingState = null;
+  setManualTargetingBackVisible(false);
   hideManualTargetingItemPreview();
   hideManualTargetingAbilityPreview();
   hideManualTargetingDragTile();
@@ -4580,6 +4612,7 @@ function confirmManualTargetingSelection() {
     __restoreHeadBarsVisibility();
     inManualTargeting = false;
     manualTargetingState = null;
+    setManualTargetingBackVisible(false);
     inMenu = false;
     if (playerMenuOverlay) playerMenuOverlay.style.display = 'none';
 
@@ -26702,8 +26735,13 @@ window.addEventListener('keydown', (e) => {
   // Menu input eats keys (prevents movement, recruiting, exits, etc.)
   if (inMenu) {
     if (inManualTargeting) {
-      // Cancel / exit
-      if (e.code === 'Escape' || e.code === 'KeyX') {
+      // Escape returns to the originating menu; X still closes it entirely.
+      if (e.code === 'Escape') {
+        endManualTargeting({ openMenuPageId: manualTargetingState?.returnPageId || activeMenuPageId });
+        e.preventDefault();
+        return;
+      }
+      if (e.code === 'KeyX') {
         endManualTargeting({ closeAll: true });
         e.preventDefault();
         return;
