@@ -622,11 +622,19 @@ function openPartyLeaveDialog(npc) {
       closePartyLeaveDialog();
     } else if (e.key === 'Tab') {
       e.preventDefault();
+      e.stopImmediatePropagation();
       if (e.shiftKey) {
         (document.activeElement === cancel ? confirm : cancel).focus();
       } else {
         (document.activeElement === confirm ? cancel : confirm).focus();
       }
+    } else if (e.key === 'Enter' || e.key === ' ' || e.code === 'Space') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      (document.activeElement === confirm ? confirm : cancel).click();
+    } else {
+      // Don't let menu shortcuts or movement input act behind a modal.
+      e.stopImmediatePropagation();
     }
   };
   window.addEventListener('keydown', partyLeaveDialogKeydown, true);
