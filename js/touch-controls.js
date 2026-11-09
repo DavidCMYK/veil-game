@@ -82,18 +82,30 @@
     };
   }
 
-  function isActionHit(e) {
-    const {x, y} = toWorld(e);
-    const hit = r => canvasHitTest(x, y, r);
-    if (__lastPromptLayouts.some(hit) || __lastRecruitIcons.some(hit) ||
-        hit(__lastInteractIconRect) || hit(__lastInteractObjectRect) ||
-        hit(__lastInteractItemRect) || hit(__lastExitIconRect)) return true;
-
-    for (const npc of [...npcs, ...party]) {
-      if (!npc || npc === player) continue;
-      if (hit({x: npc.worldX - cameraX, y: npc.y, w: npc.w, h: npc.h})) return true;
+  function steerTowardFinger() {
+    if (!active || !active.moved || !canSteer() || !Number.isFinite(active.worldTarget)) {
+      setDirection(null);
+      return;
     }
-    return false;
+    if (active.arrived) {
+      setDirection(null);
+      return;
+    }
+
+    // The finger position is recorded in WORLD coordinates at the last
+    // pointermove, so camera following cannot make the destination run away.
+    const playerCenter = player.worldX + player.w * 0.5;
+    const remaining = active.worldTarget - playerCenter;
+    const reached = Math.abs(remaining) <= Math.max(8, player.w * 0.04) ||
+      Math.sign(remaining) !== active.travelSign;
+    if (reached) {
+      active.arrived = true;
+      setDirection(null);
+      player.vx = 0; // no coasting or oscillating around a stationary finger
+      return;
+    }
+
+    setDirection(remaining < 0 ? 'ArrowLeft' : 'ArrowRight');
   }
 
   function updateDrag(e) {
@@ -101,15 +113,25 @@
     const dx = e.clientX - active.startX;
     const dy = e.clientY - active.startY;
     if (Math.hypot(dx, dy) > 12) active.moved = true;
-    if (!active.moved || active.action || !canSteer()) {
+    if (!active.moved || !canSteer() ||
+        Math.abs(dx) < 18 || Math.abs(dx) < Math.abs(dy) * 0.75) {
       setDirection(null);
       return;
     }
-    // Drag right/left to walk; return near the starting point to stop.
-    // Vertical gestures don't move a character in this side-scroller.
-    const direction = Math.abs(dx) >= 18 && Math.abs(dx) >= Math.abs(dy) * 0.75
-      ? (dx < 0 ? 'ArrowLeft' : 'ArrowRight') : null;
-    setDirection(direction);
+
+    // Any drag steers, including one started on an NPC, speech bubble or icon.
+    // A gesture without a drag still taps the existing interaction target.
+    const canvasX = toWorld(e).x;
+    active.worldTarget = cameraX + __screenToRenderX(canvasX);
+    active.travelSign = Math.sign(active.worldTarget - (player.worldX + player.w * 0.5));
+    active.arrived = false;
+    steerTowardFinger();
+  }
+
+  function tickSteering() {
+    if (!active) return;
+    steerTowardFinger();
+    requestAnimationFrame(tickSteering);
   }
 
   canvasEl.addEventListener('pointerdown', e => {
@@ -119,9 +141,10 @@
     e.preventDefault(); // prevent duplicate compatibility mouse events
     active = {
       id: e.pointerId, startX: e.clientX, startY: e.clientY,
-      moved: false, action: isActionHit(e)
+      moved: false, arrived: false, worldTarget: null, travelSign: 0
     };
     canvasEl.setPointerCapture(e.pointerId);
+    requestAnimationFrame(tickSteering);
   });
 
   canvasEl.addEventListener('pointermove', e => {
