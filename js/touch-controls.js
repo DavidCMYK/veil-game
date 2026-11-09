@@ -83,7 +83,8 @@
   }
 
   function steerTowardFinger() {
-    if (!active || !active.moved || !canSteer() || !Number.isFinite(active.worldTarget)) {
+    if (!active || !active.moved || !canSteer() ||
+        !Number.isFinite(active.fingerClientX)) {
       setDirection(null);
       return;
     }
@@ -92,19 +93,25 @@
       return;
     }
 
-    // The finger position is recorded in WORLD coordinates at the last
-    // pointermove, so camera following cannot make the destination run away.
-    const playerCenter = player.worldX + player.w * 0.5;
-    const remaining = active.worldTarget - playerCenter;
-    const reached = Math.abs(remaining) <= Math.max(8, player.w * 0.04) ||
-      Math.sign(remaining) !== active.travelSign;
-    if (reached) {
+    // Compare SCREEN positions every frame. A fixed world-space destination
+    // moves away from the held finger when the camera follows the player.
+    const rect = canvasEl.getBoundingClientRect();
+    if (!rect.width) { setDirection(null); return; }
+    const fingerX = (active.fingerClientX - rect.left) * canvasEl.width / rect.width;
+    const playerX = __renderToScreenX(player.worldX - cameraX + player.w * 0.5);
+    const remaining = fingerX - playerX;
+    const tolerance = Math.max(4, 10 * canvasEl.width / rect.width);
+    const crossed = active.lastRemaining != null &&
+      Math.sign(remaining) !== Math.sign(active.lastRemaining);
+
+    if (Math.abs(remaining) <= tolerance || crossed) {
       active.arrived = true;
       setDirection(null);
-      player.vx = 0; // no coasting or oscillating around a stationary finger
+      player.vx = 0;
       return;
     }
 
+    active.lastRemaining = remaining;
     setDirection(remaining < 0 ? 'ArrowLeft' : 'ArrowRight');
   }
 
@@ -119,12 +126,14 @@
       return;
     }
 
-    // Any drag steers, including one started on an NPC, speech bubble or icon.
-    // A gesture without a drag still taps the existing interaction target.
-    const canvasX = toWorld(e).x;
-    active.worldTarget = cameraX + __screenToRenderX(canvasX);
-    active.travelSign = Math.sign(active.worldTarget - (player.worldX + player.w * 0.5));
-    active.arrived = false;
+    // A stationary finger remains a fixed point on the SCREEN; moving the
+    // finger updates that point. Taps are still handled by the game itself.
+    if (!Number.isFinite(active.fingerClientX) ||
+        Math.abs(active.fingerClientX - e.clientX) > 2) {
+      active.fingerClientX = e.clientX;
+      active.arrived = false;
+      active.lastRemaining = null;
+    }
     steerTowardFinger();
   }
 
@@ -141,7 +150,7 @@
     e.preventDefault(); // prevent duplicate compatibility mouse events
     active = {
       id: e.pointerId, startX: e.clientX, startY: e.clientY,
-      moved: false, arrived: false, worldTarget: null, travelSign: 0
+      moved: false, arrived: false, fingerClientX: null, lastRemaining: null
     };
     canvasEl.setPointerCapture(e.pointerId);
     requestAnimationFrame(tickSteering);
