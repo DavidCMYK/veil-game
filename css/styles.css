@@ -859,6 +859,103 @@ html, body {
   color: #000;
 }
 
+/* The party-only companion action sits in the parchment name/location plaque. */
+.partyCardNameLocation {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+}
+.partyCardIdentity {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+.partyLeaveButton {
+  flex: 0 0 auto;
+  padding: 4px 6px;
+  border: 1px solid #67543a;
+  border-radius: 4px;
+  color: #30261b;
+  background: #e8d9b9;
+  font-size: calc(11px * var(--ui-font-scale));
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  white-space: nowrap;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+.partyLeaveButton:hover,
+.partyLeaveButton:focus-visible {
+  background: #fff0ce;
+  border-color: #362b1b;
+}
+.partyCard--scaled .partyLeaveButton {
+  display: none;
+}
+
+/* Parchment confirmation dialog, centred above the Party menu. */
+.partyLeaveConfirmBackdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  box-sizing: border-box;
+  background: rgba(12, 12, 11, 0.68);
+}
+.partyLeaveConfirmDialog {
+  box-sizing: border-box;
+  width: min(370px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 19px;
+  border: 2px solid #554630;
+  border-radius: 9px;
+  background: #e8d9b9;
+  box-shadow: 0 12px 36px rgba(0,0,0,0.5);
+  color: #2b2218;
+}
+.partyLeaveConfirmTitle {
+  font-size: calc(20px * var(--ui-font-scale));
+  font-weight: 700;
+}
+.partyLeaveConfirmMessage {
+  font-size: calc(15px * var(--ui-font-scale));
+  line-height: 1.35;
+  margin: 13px 0 18px;
+}
+.partyLeaveConfirmActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+.partyLeaveConfirmActions button {
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid #67543a;
+  border-radius: 5px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.partyLeaveConfirmCancel {
+  background: #f6ecd5;
+  color: #30261b;
+}
+.partyLeaveConfirmAccept {
+  background: #51422d;
+  color: #fff5dc;
+}
+.partyLeaveConfirmActions button:focus-visible {
+  outline: 2px solid #a98248;
+  outline-offset: 2px;
+}
+
 .partyOverlayBlock .partyCardStats td {
   border-bottom: 1px solid rgba(0,0,0,0.12);
 }

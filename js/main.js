@@ -541,6 +541,100 @@ function renderMobileCardStage(state, builders) {
   return stage;
 }
 
+let partyLeaveDialog = null;
+let partyLeaveDialogKeydown = null;
+let partyLeaveDialogReturnFocus = null;
+
+function closePartyLeaveDialog(restoreFocus = true) {
+  if (partyLeaveDialogKeydown) {
+    window.removeEventListener('keydown', partyLeaveDialogKeydown, true);
+    partyLeaveDialogKeydown = null;
+  }
+  if (partyLeaveDialog) {
+    partyLeaveDialog.remove();
+    partyLeaveDialog = null;
+  }
+  if (restoreFocus && partyLeaveDialogReturnFocus?.isConnected) {
+    partyLeaveDialogReturnFocus.focus();
+  }
+  partyLeaveDialogReturnFocus = null;
+}
+
+function openPartyLeaveDialog(npc) {
+  if (!npc || !party.includes(npc) || npc === player ||
+      !inMenu || activeMenuPageId !== 'party' || !playerMenuOverlay ||
+      partyLeaveDialog) return;
+
+  partyLeaveDialogReturnFocus = document.activeElement;
+  const backdrop = document.createElement('div');
+  backdrop.className = 'partyLeaveConfirmBackdrop';
+
+  const dialog = document.createElement('div');
+  dialog.className = 'partyLeaveConfirmDialog';
+  dialog.setAttribute('role', 'dialog');
+  dialog.setAttribute('aria-modal', 'true');
+  dialog.setAttribute('aria-labelledby', 'partyLeaveConfirmTitle');
+
+  const title = document.createElement('div');
+  title.id = 'partyLeaveConfirmTitle';
+  title.className = 'partyLeaveConfirmTitle';
+  title.textContent = 'Leave Party';
+  dialog.appendChild(title);
+
+  const question = document.createElement('p');
+  question.className = 'partyLeaveConfirmMessage';
+  question.textContent = `Ask ${npc.name} to leave the party?`;
+  dialog.appendChild(question);
+
+  const actions = document.createElement('div');
+  actions.className = 'partyLeaveConfirmActions';
+
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'partyLeaveConfirmCancel';
+  cancel.textContent = 'Keep in party';
+  cancel.addEventListener('click', () => closePartyLeaveDialog());
+  actions.appendChild(cancel);
+
+  const confirm = document.createElement('button');
+  confirm.type = 'button';
+  confirm.className = 'partyLeaveConfirmAccept';
+  confirm.textContent = 'Leave party';
+  confirm.addEventListener('click', () => {
+    closePartyLeaveDialog(false);
+    if (!party.includes(npc)) return;
+    removeNpcFromParty(npc);
+    mobileCardPages.party.delete(lc(npc.name));
+    partyMenuSelectedIndex = Math.min(partyMenuSelectedIndex, party.length);
+    renderPlayerMenu();
+  });
+  actions.appendChild(confirm);
+
+  dialog.appendChild(actions);
+  backdrop.appendChild(dialog);
+  backdrop.addEventListener('click', (e) => {
+    if (e.target === backdrop) closePartyLeaveDialog();
+  });
+  partyLeaveDialogKeydown = (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      closePartyLeaveDialog();
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      if (e.shiftKey) {
+        (document.activeElement === cancel ? confirm : cancel).focus();
+      } else {
+        (document.activeElement === confirm ? cancel : confirm).focus();
+      }
+    }
+  };
+  window.addEventListener('keydown', partyLeaveDialogKeydown, true);
+  playerMenuOverlay.appendChild(backdrop);
+  partyLeaveDialog = backdrop;
+  cancel.focus();
+}
+
 const MENU_PAGES = []; // { id, label, hotkey, render() }
 function registerMenuPage(id, label, hotkey, renderFn) {
   MENU_PAGES.push({
@@ -578,6 +672,7 @@ function isMenuPageVisible(id) {
 }
 
 function setActiveMenuPage(id) {
+  closePartyLeaveDialog(false);
   const pages = getVisibleMenuPages();
   const wanted = String(id || 'party');
   const exists = pages.find(p => p.id === wanted);
@@ -597,6 +692,7 @@ function setActiveMenuPage(id) {
 
 function openPlayerMenu(pageId = null) {
   if (!playerMenuOverlay) return;
+  closePartyLeaveDialog(false);
   inMenu = true;
   clearPlayerMenuError();
 
@@ -620,6 +716,7 @@ function openPlayerMenu(pageId = null) {
 
 function closePlayerMenu() {
   if (!playerMenuOverlay) return;
+  closePartyLeaveDialog(false);
   inMenu = false;
   inManualTargeting = false;
   manualTargetingState = null;
@@ -1338,15 +1435,31 @@ function renderMenuPage_PartyCards() {
     overlay.className = 'partyCardOverlay';
 
     const nameBlock = document.createElement('div');
-    nameBlock.className = 'partyOverlayBlock';
+    nameBlock.className = 'partyOverlayBlock partyCardNameLocation';
+    const identity = document.createElement('div');
+    identity.className = 'partyCardIdentity';
     const name = document.createElement('div');
     name.className = 'partyCardName';
     name.textContent = actor.name || 'Party Member';
-    nameBlock.appendChild(name);
+    identity.appendChild(name);
     const area = document.createElement('div');
     area.className = 'partyCardArea playerMenuMuted';
     area.textContent = getActorAreaLabel(actor, mode);
-    nameBlock.appendChild(area);
+    identity.appendChild(area);
+    nameBlock.appendChild(identity);
+    if (mode === 'party' && actor !== player && party.includes(actor)) {
+      const leave = document.createElement('button');
+      leave.type = 'button';
+      leave.className = 'partyLeaveButton';
+      leave.textContent = 'Leave Party';
+      leave.setAttribute('aria-label', `Ask ${actor.name} to leave the party`);
+      leave.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openPartyLeaveDialog(actor);
+      });
+      nameBlock.appendChild(leave);
+    }
     overlay.appendChild(nameBlock);
 
     const table = document.createElement('table');
@@ -1444,31 +1557,6 @@ function renderMenuPage_PartyCards() {
           () => buildGoalsCard(member)
         ]
       ));
-      if (member !== player) {
-        // Keep the party-management control outside the swipeable card face.
-        // A second tap confirms so scrolling can't accidentally dismiss anyone.
-        const leaveBtn = document.createElement('button');
-        leaveBtn.type = 'button';
-        leaveBtn.className = 'mobilePartyLeaveBtn';
-        leaveBtn.textContent = 'Leave party';
-        leaveBtn.setAttribute('aria-label', `Ask ${member.name} to leave the party`);
-        leaveBtn.addEventListener('click', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (!party.includes(member)) return;
-          if (leaveBtn.dataset.confirm !== '1') {
-            leaveBtn.dataset.confirm = '1';
-            leaveBtn.textContent = 'Confirm leave';
-            leaveBtn.classList.add('confirming');
-            return;
-          }
-          removeNpcFromParty(member);
-          mobileCardPages.party.delete(slot.dataset.mobileCardKey);
-          partyMenuSelectedIndex = Math.min(partyMenuSelectedIndex, party.length);
-          renderPlayerMenu();
-        });
-        slot.appendChild(leaveBtn);
-      }
     } else if (isSelected) {
       const stage = document.createElement('div');
       stage.className = 'partyCardStageFull';
